@@ -17,9 +17,10 @@ type Particle = {
 };
 
 const COLOR_MODES = [
-  { accent: [156, 255, 208], secondary: [0, 229, 255] },
-  { accent: [244, 247, 248], secondary: [156, 255, 208] },
-  { accent: [139, 220, 255], secondary: [0, 245, 212] },
+  { accent: [255, 106, 102], secondary: [255, 51, 71] },
+  { accent: [245, 184, 75], secondary: [255, 210, 122] },
+  { accent: [139, 202, 255], secondary: [93, 167, 255] },
+  { accent: [244, 247, 248], secondary: [255, 255, 255] },
 ] as const;
 
 export function mountVortexField({ canvas }: VortexOptions): AmbientFieldHandle {

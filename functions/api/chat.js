@@ -21,6 +21,8 @@ Experience:
 Projects:
 - Marketplace Aggregator on AWS at https://moe.pecunies.com, April 2026-present: serverless, message-oriented marketplace aggregation platform using Lambda, Step Functions, DynamoDB, SQS, API Gateway, CloudFront, and AWS CDK. It handles eventual consistency, rate limiting, external marketplace failures, transparent retry/state management, two-layer idempotency, and HMAC-SHA256 webhook verification.
 - WebAssembly Runtime in Zig at https://github.com/clpi/wart.git, May 2025-present: performance-targeting WebAssembly runtime developed in Zig, optimized for memory layout and instruction dispatch, with nearly full WebAssembly 3.0 and WASI 1 preview support.
+- Raspberry Pi Infrastructure Cluster, 2024-present: home-lab infrastructure cluster for Kubernetes, GitOps, monitoring, and resource-constrained deployment experiments.
+- down.nvim at https://github.com/clpi/down.nvim.git, 2026-present: Neovim 0.12+ markdown note-taking plugin with planned LSP and AI-assisted workflow integration.
 
 Education:
 - University of Washington, B.S. Materials Science & Engineering, August 2015-June 2019. Coursework included database systems, data structures and algorithms, artificial intelligence, and machine learning. Degree focus in Nanotechnology & Molecular Engineering.
@@ -28,8 +30,19 @@ Education:
 Contact:
 - Email: chris@pecunies.com
 - GitHub: https://github.com/clpi
+- GitLab: https://gitlab.com/clpi
 - LinkedIn: https://linkedin.com/in/chrispecunies
 - Website: https://pecunies.com
+
+Terminal app context:
+- Core views: about, resume, timeline, projects, skills, posts, links, contact, pdf, chat, help, themes.
+- Documents: download [--markdown], pdf.
+- OS commands: ls, cat, man, whoami, history, ps, top, pwd, echo, cp, tree, find, grep, date.
+- AI commands: ask <question>, explain <project|skill|work|education|command> [name], chat.
+- Network commands: curl, ping, trace, weather, stock, internet.
+- Games and state: 2048, chess, minesweeper, leaderboard, metrics.
+- Contact commands: email <your email> <subject> <message>, book <your email> <date> <time> <duration> <message>.
+- Window/theme commands: theme <red|amber|frost|ivory|auto>, maximize, minimize, shutdown, clear, exit.
 `;
 
 const jsonHeaders = {
@@ -87,6 +100,8 @@ export async function onRequestPost({ request, env }) {
         .filter((entry) => entry.content)
     : [];
   const state = await readState(env, sessionId);
+  const metrics = await readJson(env, 'metrics:global', {});
+  const leaderboard = await readJson(env, 'leaderboard:global', {});
   const persistedHistory = state.history
     .slice(-16)
     .map((entry) => `${entry.at}: ${entry.command}`)
@@ -105,7 +120,7 @@ export async function onRequestPost({ request, env }) {
         ...history,
         {
           role: 'user',
-          content: `Portfolio context:\n${PROFILE_CONTEXT}\n\nPersisted terminal history:\n${persistedHistory || '(empty)'}\n\nQuestion: ${message}`,
+          content: `Portfolio context:\n${PROFILE_CONTEXT}\n\nMetrics state:\n${JSON.stringify(metrics).slice(0, 3000)}\n\nLeaderboard state:\n${JSON.stringify(leaderboard).slice(0, 2000)}\n\nPersisted terminal history:\n${persistedHistory || '(empty)'}\n\nQuestion: ${message}`,
         },
       ],
       temperature: 0.2,
@@ -155,6 +170,14 @@ async function writeState(env, sessionId, state) {
   }
 
   await env.PORTFOLIO_OS.put(`session:${sessionId}`, JSON.stringify(state), { expirationTtl: 60 * 60 * 24 * 30 });
+}
+
+async function readJson(env, key, fallback) {
+  if (!env.PORTFOLIO_OS) {
+    return fallback;
+  }
+
+  return (await env.PORTFOLIO_OS.get(key, { type: 'json' })) ?? fallback;
 }
 
 function sanitizeSessionId(value) {

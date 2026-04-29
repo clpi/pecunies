@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<rss version="2.0">
+  <channel>
+    <title>Chris Pecunies Posts</title>
+    <link>https://pecunies.com/#/posts</link>
+    <description>Terminal-native posts and technical notes from Chris Pecunies.</description>
+    <language>en-us</language>
+    <item>
+      <title>Terminal portfolio changelog</title>
+      <link>https://pecunies.com/#/posts</link>
+      <guid>https://pecunies.com/#/posts/terminal-portfolio-changelog</guid>
+      <pubDate>Wed, 29 Apr 2026 12:00:00 -0700</pubDate>
+      <description>Initial placeholder for terminal-native posts, RSS entries, and future technical writing.</description>
+    </item>
+  </channel>
+</rss>

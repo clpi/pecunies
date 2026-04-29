@@ -20,16 +20,19 @@ type ShellRenderOptions = {
 
 export function renderShell({ featuredCommands }: ShellRenderOptions): string {
   const labels = new Map<string, string>([
+    ['about', 'About'],
     ['resume', 'Resume'],
-    ['experience', 'Work'],
-    ['skills', 'Skills'],
+    ['timeline', 'Timeline'],
     ['projects', 'Projects'],
+    ['skills', 'Skills'],
+    ['posts', 'Posts'],
+    ['links', 'Links'],
     ['contact', 'Contact'],
     ['pdf', 'PDF'],
     ['chat', 'Chat'],
   ]);
 
-  const navOrder = new Set(['resume', 'experience', 'skills', 'projects', 'contact', 'pdf', 'chat']);
+  const navOrder = new Set(['about', 'resume', 'timeline', 'projects', 'skills', 'posts', 'links', 'contact', 'pdf', 'chat']);
   const navLinks = featuredCommands
     .filter((command) => navOrder.has(command.name))
     .map(
@@ -59,14 +62,14 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
     <div class="site-shell">
       <section class="terminal-shell" id="terminal-shell">
         <header class="terminal-header">
-          <div class="terminal-controls" aria-hidden="true">
-            <span></span>
-            <span></span>
-            <span></span>
+          <div class="terminal-controls">
+            <button class="window-button is-close" type="button" data-window-action="shutdown" aria-label="Shutdown terminal"></button>
+            <button class="window-button is-minimize" type="button" data-window-action="minimize" aria-label="Minimize terminal"></button>
+            <button class="window-button is-maximize" type="button" data-window-action="maximize" aria-label="Maximize terminal"></button>
           </div>
           <div class="terminal-state">
             <span id="route-indicator">~/resume</span>
-            <span id="theme-indicator">palette:auto</span>
+            <button id="theme-indicator" type="button" data-command="themes">palette:auto</button>
           </div>
           <button class="ghost-button" type="button" data-command="clear">clear</button>
         </header>
@@ -108,6 +111,10 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
           </div>
         </div>
       </section>
+      <button class="terminal-dock" id="terminal-dock" type="button" hidden>
+        <span></span>
+        pecunies terminal
+      </button>
     </div>
   `;
 }
@@ -129,6 +136,14 @@ export function renderLog(lines: SessionLine[]): string {
           <li class="log-line log-line-system is-${escapeAttribute(line.tone)}">
             <span class="log-label">[${escapeHtml(line.label)}]</span>
             <span class="log-copy">${escapeHtml(line.text)}</span>
+          </li>
+        `;
+      }
+
+      if (line.kind === 'view') {
+        return `
+          <li class="log-line log-line-view">
+            ${line.html}
           </li>
         `;
       }
@@ -294,11 +309,23 @@ function renderSection(section: TerminalSection): string {
 }
 
 function renderStat(stat: ViewStat): string {
+  const content = `
+    <span>${escapeHtml(stat.label)}</span>
+    <strong>${escapeHtml(stat.value)}</strong>
+    ${stat.detail ? `<small>${escapeHtml(stat.detail)}</small>` : ''}
+  `;
+
+  if (stat.command) {
+    return `
+      <button class="terminal-stat" type="button" data-command="${escapeAttribute(stat.command)}">
+        ${content}
+      </button>
+    `;
+  }
+
   return `
     <article class="terminal-stat">
-      <span>${escapeHtml(stat.label)}</span>
-      <strong>${escapeHtml(stat.value)}</strong>
-      ${stat.detail ? `<small>${escapeHtml(stat.detail)}</small>` : ''}
+      ${content}
     </article>
   `;
 }
@@ -390,7 +417,14 @@ function renderCommandHelpItem(item: CommandHelpItem): string {
       </div>
       <div class="command-meta">
         <code>${escapeHtml(item.usage)}</code>
-        <button class="ghost-button" type="button" data-command="${escapeAttribute(item.command)}">run</button>
+        <button
+          class="ghost-button"
+          type="button"
+          data-command="man ${escapeAttribute(item.name)}"
+          data-prepopulate-command="${escapeAttribute(item.name)}"
+        >
+          man
+        </button>
       </div>
     </article>
   `;

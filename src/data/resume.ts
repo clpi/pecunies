@@ -176,6 +176,34 @@ export const resumeData = {
         href: 'https://github.com/clpi/wart.git',
       },
     },
+    {
+      slug: 'pi-cluster',
+      name: 'Raspberry Pi Infrastructure Cluster',
+      period: '2024 - Present',
+      summary:
+        'A hardware-constrained home lab for orchestration, observability, and deployment experiments.',
+      details: [
+        'Runs repeatable Linux services and deployment tests on small ARM nodes to keep infrastructure work grounded in resource limits.',
+        'Used for Kubernetes, GitOps, monitoring, and service-mesh experimentation outside managed cloud defaults.',
+        'Acts as a practical sandbox for infrastructure patterns before applying them to cloud systems.',
+      ],
+    },
+    {
+      slug: 'down-nvim',
+      name: 'down.nvim',
+      period: '2026 - Present',
+      summary:
+        'A Neovim 0.12+ plugin for markdown note-taking with planned LSP and AI-assisted workflow integration.',
+      details: [
+        'Focuses on fast terminal-native markdown capture, navigation, and note organization inside Neovim.',
+        'Designed with an eventual language-server layer for notes, references, backlinks, and structured markdown actions.',
+        'Planned AI integration will support terminal-native note workflows without turning the editor into a heavyweight web app.',
+      ],
+      link: {
+        label: 'github.com/clpi/down.nvim.git',
+        href: 'https://github.com/clpi/down.nvim.git',
+      },
+    },
   ] as ResumeProject[],
   skills: [
     {
@@ -296,6 +324,7 @@ export const resumeData = {
     { label: 'Phone', value: '(206) 321-6687', href: 'tel:2063216687' },
     { label: 'LinkedIn', value: 'linkedin.com/in/chrispecunies', href: 'https://linkedin.com/in/chrispecunies' },
     { label: 'GitHub', value: 'github.com/clpi', href: 'https://github.com/clpi' },
+    { label: 'GitLab', value: 'gitlab.com/clpi', href: 'https://gitlab.com/clpi' },
     { label: 'Website', value: 'pecunies.com', href: 'https://pecunies.com' },
     { label: 'Address', value: '818 West Crockett St' },
     { label: 'Location', value: 'Seattle, WA 98119' },
@@ -314,6 +343,7 @@ export const resumeData = {
   } as EducationRecord,
   pdf: {
     href: '/chris-pecunies-resume.pdf',
+    markdownHref: '/chris-pecunies-resume.md',
     previews: [
       { label: 'Page 1', image: '/resume-page-1.png', href: '/chris-pecunies-resume.pdf#page=1' },
       { label: 'Page 2', image: '/resume-page-2.png', href: '/chris-pecunies-resume.pdf#page=2' },

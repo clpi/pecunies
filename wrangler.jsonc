@@ -5,6 +5,9 @@
   "ai": {
     "binding": "AI"
   },
+  "vars": {
+    "BOOKING_EMAIL_URL": "https://pecunies-booking-email.mtrl.workers.dev"
+  },
   "kv_namespaces": [
     {
       "binding": "PORTFOLIO_OS",

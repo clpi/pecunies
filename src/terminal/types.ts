@@ -5,6 +5,7 @@ export type ViewStat = {
   label: string;
   value: string;
   detail?: string;
+  command?: string;
 };
 
 export type ViewAction = {
@@ -162,7 +163,8 @@ export type LogTone = 'info' | 'success' | 'warn';
 export type SessionLine =
   | { id: string; kind: 'system'; label: string; text: string; tone: LogTone }
   | { id: string; kind: 'command'; text: string }
-  | { id: string; kind: 'response'; text: string; tone: LogTone };
+  | { id: string; kind: 'response'; text: string; tone: LogTone }
+  | { id: string; kind: 'view'; html: string; text: string };
 
 export type CommandContext = {
   commands: readonly CommandDefinition[];
@@ -176,8 +178,10 @@ export type CommandOutcome =
   | { kind: 'system'; text: string; tone?: LogTone }
   | { kind: 'chat'; text: string; tone?: LogTone }
   | { kind: 'exit'; text: string; tone?: LogTone }
+  | { kind: 'window'; action: 'shutdown' | 'minimize' | 'maximize'; text?: string; tone?: LogTone }
+  | { kind: 'download'; format: 'pdf' | 'markdown'; text?: string; tone?: LogTone }
   | { kind: 'os'; command: string; tone?: LogTone }
-  | { kind: 'game'; text: string; tone?: LogTone }
+  | { kind: 'game'; game: '2048' | 'chess' | 'minesweeper'; text: string; tone?: LogTone }
   | { kind: 'clear' };
 
 export type CommandDefinition = {
