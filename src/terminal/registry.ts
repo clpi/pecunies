@@ -440,7 +440,7 @@ export function createCommandRegistry(): {
 
   commands.unshift({
     name: 'help',
-    aliases: ['commands'],
+    aliases: ['h'],
     usage: 'help',
     group: 'Utility',
     route: 'help',
@@ -448,6 +448,12 @@ export function createCommandRegistry(): {
     execute() {
       return { kind: 'view', view: buildHelpView() };
     },
+  });
+
+  addOsCommand('commands', {
+    usage: 'commands',
+    group: 'Utility',
+    description: 'List all available terminal commands.',
   });
 
   commands.push({
@@ -530,10 +536,10 @@ export function createCommandRegistry(): {
   });
 
   addOsCommand('explain', {
-    usage: 'explain <project>',
+    usage: 'explain <project|skill|work|education>',
     group: 'AI',
     featured: true,
-    description: 'Explain a project from the project registry using Workers AI.',
+    description: 'Explain a project, skill set, work history, or education using Workers AI.',
   });
 
   addOsCommand('ls', {
@@ -557,7 +563,7 @@ export function createCommandRegistry(): {
   addOsCommand('whoami', {
     usage: 'whoami',
     group: 'OS',
-    description: 'Print the current portfolio identity.',
+    description: 'Print the current portfolio identity plus your IP, geolocation, and browser.',
   });
 
   addOsCommand('history', {
@@ -600,6 +606,24 @@ export function createCommandRegistry(): {
     usage: 'stock <ticker>',
     group: 'Network',
     description: 'Show a compact market quote for a ticker.',
+  });
+
+  addOsCommand('trace', {
+    usage: 'trace <website>',
+    group: 'Network',
+    description: 'HTTP traceroute to a website from the Cloudflare edge.',
+  });
+
+  addOsCommand('email', {
+    usage: 'email <your-email> <subject> <message>',
+    group: 'Utility',
+    description: 'Send a message to chris@pecunies.com.',
+  });
+
+  addOsCommand('metrics', {
+    usage: 'metrics',
+    group: 'Utility',
+    description: 'Show site visit analytics, page breakdowns, and command usage.',
   });
 
   commands.push({

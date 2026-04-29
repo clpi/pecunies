@@ -318,13 +318,18 @@ input:focus-visible {
 }
 
 .terminal-controls span:first-child {
-  background: var(--accent-strong);
-  box-shadow: 0 0 16px rgba(0, 229, 255, 0.5);
+  background: #ff5f57;
+  box-shadow: 0 0 16px rgba(255, 95, 87, 0.5);
 }
 
 .terminal-controls span:nth-child(2) {
-  background: var(--accent);
-  box-shadow: 0 0 16px rgba(156, 255, 208, 0.38);
+  background: #5b9bf5;
+  box-shadow: 0 0 16px rgba(91, 155, 245, 0.38);
+}
+
+.terminal-controls span:nth-child(3) {
+  background: #28c840;
+  box-shadow: 0 0 16px rgba(40, 200, 64, 0.38);
 }
 
 .terminal-state {
@@ -1043,6 +1048,52 @@ a.output-record:hover {
     bottom: 85px;
     width: calc(100% - 20px);
   }
+}
+
+.is-markdown .log-copy {
+  white-space: normal;
+}
+
+.md-h {
+  margin: 8px 0 4px;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.md-p {
+  margin: 2px 0;
+}
+
+.md-ul {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+
+.md-li {
+  margin: 2px 0;
+}
+
+.md-li::marker {
+  color: var(--accent);
+}
+
+.md-code-block {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  font-size: 0.72rem;
+  overflow-x: auto;
+}
+
+.md-inline-code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--accent);
+  font-size: 0.72rem;
 }
 
 @media (prefers-reduced-motion: reduce) {

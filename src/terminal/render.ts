@@ -133,10 +133,11 @@ export function renderLog(lines: SessionLine[]): string {
         `;
       }
 
+      const content = line.markdown ? renderMarkdown(line.text) : escapeHtml(line.text);
       return `
-        <li class="log-line log-line-response is-${escapeAttribute(line.tone)}">
+        <li class="log-line log-line-response is-${escapeAttribute(line.tone)}${line.markdown ? ' is-markdown' : ''}">
           <span class="log-label">&gt;</span>
-          <span class="log-copy">${escapeHtml(line.text)}</span>
+          <span class="log-copy">${content}</span>
         </li>
       `;
     })
@@ -435,6 +436,31 @@ function renderAction(action: ViewAction): string {
   }
 
   return '';
+}
+
+function renderMarkdown(raw: string): string {
+  let html = escapeHtml(raw);
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_m, _lang, code) => `<pre class="md-code-block"><code>${code.trim()}</code></pre>`);
+  html = html.replace(/`([^`\n]+)`/g, '<code class="md-inline-code">$1</code>');
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
+  html = html.replace(/^### (.+)$/gm, '<h4 class="md-h">$1</h4>');
+  html = html.replace(/^## (.+)$/gm, '<h3 class="md-h">$1</h3>');
+  html = html.replace(/^# (.+)$/gm, '<h2 class="md-h">$1</h2>');
+  html = html.replace(/^[-*] (.+)$/gm, '<li class="md-li">$1</li>');
+  html = html.replace(/(<li class="md-li">[\s\S]*?<\/li>)/g, '<ul class="md-ul">$1</ul>');
+  html = html.replace(/<\/ul>\s*<ul class="md-ul">/g, '');
+  html = html.replace(/^\d+\.\s+(.+)$/gm, '<li class="md-li">$1</li>');
+  const lines = html.split('\n');
+  const out: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith('<') || !line.trim()) {
+      out.push(line);
+    } else {
+      out.push(`<p class="md-p">${line}</p>`);
+    }
+  }
+  return out.join('\n');
 }
 
 function escapeHtml(value: string): string {

@@ -162,7 +162,7 @@ export type LogTone = 'info' | 'success' | 'warn';
 export type SessionLine =
   | { id: string; kind: 'system'; label: string; text: string; tone: LogTone }
   | { id: string; kind: 'command'; text: string }
-  | { id: string; kind: 'response'; text: string; tone: LogTone };
+  | { id: string; kind: 'response'; text: string; tone: LogTone; markdown?: boolean };
 
 export type CommandContext = {
   commands: readonly CommandDefinition[];

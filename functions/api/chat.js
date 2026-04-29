@@ -100,7 +100,7 @@ export async function onRequestPost({ request, env }) {
         {
           role: 'system',
           content:
-            'You are the AI help mode for Chris Pecunies terminal portfolio. Answer only from the provided context. Be concise and factual.',
+            'You are the AI help mode for Chris Pecunies terminal portfolio. Answer only from the provided context. Be concise and factual. Format your responses in clean markdown using headers (##), bullet points (-), bold (**text**), and code blocks (```) where appropriate.',
         },
         ...history,
         {

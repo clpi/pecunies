@@ -33,11 +33,14 @@ type OsResponse = {
   output?: string;
   error?: string;
   mode?: 'chat';
- };
+  markdown?: boolean;
+};
 
-const ARG_COMMANDS = new Set(['ask', 'cat', 'curl', 'explain', 'man', 'ping', 'stock', 'weather']);
+const ARG_COMMANDS = new Set(['ask', 'cat', 'curl', 'explain', 'man', 'ping', 'stock', 'weather', 'trace', 'email']);
 const FILE_PATHS = [
   '/',
+  '/resume.txt',
+  '/projects.txt',
   '/resume',
   '/resume/summary.txt',
   '/resume/experience.txt',
@@ -116,8 +119,7 @@ export class TerminalApp {
       event.preventDefault();
 
       const raw = this.inputElement.value.trim();
-      const shouldUseCompletion = !this.chatMode || raw.startsWith('/');
-      const submitted = raw ? (shouldUseCompletion ? this.selectedCompletion() ?? raw : raw) : '';
+      const submitted = raw;
 
       if (!submitted) {
         return;
@@ -545,22 +547,35 @@ export class TerminalApp {
 
     if (normalized === 'explain') {
       return [
-        {
-          completion: 'explain ',
-          usage: 'explain <project>',
-          description: 'Complete explain, then choose a project.',
-        },
+        { completion: 'explain project ', usage: 'explain project <market|pi|wasm>', description: 'Deep dive into a specific project.' },
+        { completion: 'explain skill', usage: 'explain skill', description: 'Overview of technical skills.' },
+        { completion: 'explain work', usage: 'explain work', description: 'Walk through work experience.' },
+        { completion: 'explain education', usage: 'explain education', description: 'Education background.' },
+      ];
+    }
+
+    if (normalized === 'explain project' || normalized === 'explain project ') {
+      return [
+        { completion: 'explain project market', usage: 'explain project market', description: 'Marketplace Aggregator on AWS.' },
+        { completion: 'explain project pi', usage: 'explain project pi', description: 'Raspberry Pi cluster infrastructure.' },
+        { completion: 'explain project wasm', usage: 'explain project wasm', description: 'WebAssembly Runtime in Zig.' },
       ];
     }
 
     if (normalized.startsWith('explain ')) {
       const fragment = normalized.replace(/^explain\s+/, '');
-      return resumeData.projects
-        .filter((project) => project.slug.startsWith(fragment) || project.name.toLowerCase().includes(fragment))
-        .map((project) => ({
-          completion: `explain ${project.slug}`,
-          usage: `explain ${project.slug}`,
-          description: project.summary,
+      const topics = [
+        { slug: 'project', description: 'Deep dive into a specific project.' },
+        { slug: 'skill', description: 'Overview of technical skills.' },
+        { slug: 'work', description: 'Walk through work experience.' },
+        { slug: 'education', description: 'Education background.' },
+      ];
+      return topics
+        .filter((t) => t.slug.startsWith(fragment))
+        .map((t) => ({
+          completion: `explain ${t.slug}`,
+          usage: `explain ${t.slug}`,
+          description: t.description,
         }));
     }
 
@@ -735,7 +750,7 @@ export class TerminalApp {
         ? payload?.answer ?? 'No answer returned.'
         : payload?.error ?? `Chat request failed with status ${response.status}.`;
 
-      this.replaceLine(pendingId, text, response.ok ? 'success' : 'warn');
+      this.replaceLine(pendingId, text, response.ok ? 'success' : 'warn', response.ok);
     } catch {
       this.replaceLine(pendingId, 'Chat request failed before reaching the Cloudflare AI worker.', 'warn');
     } finally {
@@ -779,7 +794,8 @@ export class TerminalApp {
         this.themeIndicator.textContent = 'workers-ai';
       }
 
-      this.replaceLine(pendingId, output, response.ok ? 'success' : 'warn');
+      const isMarkdown = response.ok && !!payload?.markdown;
+      this.replaceLine(pendingId, output, response.ok ? 'success' : 'warn', isMarkdown);
     } catch {
       this.replaceLine(pendingId, 'OS command failed before reaching the Cloudflare worker.', 'warn');
     } finally {
@@ -813,14 +829,15 @@ export class TerminalApp {
       .slice(-6000);
   }
 
-  private replaceLine(id: string, text: string, tone: LogTone): void {
+  private replaceLine(id: string, text: string, tone: LogTone, markdown = false): void {
     this.lines = this.lines.map((line) =>
       line.id === id
         ? {
             id,
-            kind: 'response',
+            kind: 'response' as const,
             text,
             tone,
+            markdown,
           }
         : line,
     );
