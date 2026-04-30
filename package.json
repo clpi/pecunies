@@ -11,7 +11,11 @@
     "test": "node --test",
     "test:sanity": "node scripts/sanity-check.mjs",
     "preview": "vite preview",
-    "deploy:cloudflare": "npm run build && npx wrangler pages deploy dist --project-name pecunies-chaos-portfolio"
+    "deploy:pages": "npm run build && npx wrangler pages deploy dist --project-name pecunies-chaos-portfolio",
+    "deploy:edge": "npx wrangler deploy --config edge/wrangler.jsonc",
+    "deploy:cloudflare": "npm run deploy:pages && npm run deploy:edge",
+    "deploy": "npm run deploy:cloudflare",
+    "publish": "npm run deploy:cloudflare"
   },
   "devDependencies": {
     "@types/dompurify": "^3.0.5",

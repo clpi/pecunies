@@ -15,14 +15,13 @@ import { queryKnowledge } from "./knowledge-store.js";
 const MODEL = "@cf/meta/llama-3.1-8b-instruct";
 
 /**
- * Accept broader Workers AI model ids instead of a tiny hardcoded list.
+ * Accept Workers AI / Hugging Face model ids instead of a tiny hardcoded list.
  * Examples: @cf/meta/llama-3.1-8b-instruct, @cf/qwen/qwen2.5-coder-32b-instruct
  */
 function isValidAiModel(model) {
   if (typeof model !== "string") return false;
   const value = model.trim();
-  if (!value.startsWith("@cf/")) return false;
-  return /^@cf\/[a-z0-9._-]+\/[a-z0-9._:-]+$/i.test(value);
+  return /^@(cf|hf)\/[a-z0-9._-]+\/[a-z0-9._:-]+$/i.test(value);
 }
 
 const PROFILE_CONTEXT = `

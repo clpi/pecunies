@@ -6,9 +6,9 @@ const MODEL = '@cf/meta/llama-3.1-8b-instruct';
 const ALLOWED_MODELS = new Set([
   '@cf/meta/llama-3.1-8b-instruct',
   '@cf/meta/llama-3.1-70b-instruct',
+  '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
   '@cf/qwen/qwen1.5-14b-chat-awq',
   "@cf/qwen/qwen2.5-coder-32b-instruct",
-  "@openai/gpt-4o-mini",
   "@cf/qwen/qwen2.5-32b-instruct",
   "@cf/qwen/qwen2.5-72b-instruct",
   "@hf/nousresearch/hermes-2-pro-mistral-7b"

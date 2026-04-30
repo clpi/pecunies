@@ -19,32 +19,32 @@ export type ParticleFieldOptions = {
 // ─── Tunables ─────────────────────────────────────────────────────────────
 const CONFIG = {
   /** Base multipliers per preset for particle counts */
-  density: { minimal: 0.52, standard: 0.86, enhanced: 1.18 } as const,
+  density: { minimal: 0.82, standard: 1.38, enhanced: 2.05 } as const,
   /** Global flow rotation speed (rad / ms) */
-  flowRotate: 0.000000055,
+  flowRotate: 0.000000075,
   /** Pointer repulsion: max extra velocity (px/frame at ~60fps scale) */
-  repelMax: 0.36,
-  repelRadius: 166,
+  repelMax: 0.62,
+  repelRadius: 214,
   /** Noise strength scales per layer (0 = back … 2 = fore) */
-  noiseLayer: [0.09, 0.14, 0.22] as const,
+  noiseLayer: [0.13, 0.21, 0.32] as const,
   /** Velocity smoothing toward flow + noise */
-  steer: 0.018,
+  steer: 0.024,
   /** Extra vignette strength in enhanced */
-  vignetteEnhanced: 0.08,
+  vignetteEnhanced: 0.055,
   /** Rare drift “current” pulses */
-  clusterIntervalMs: 8200,
-  clusterStrength: 0.0038,
+  clusterIntervalMs: 7600,
+  clusterStrength: 0.0065,
   /** Additional gentle gravity for dust fall by layer */
-  fallBias: [0.0011, 0.0017, 0.0024] as const,
+  fallBias: [0.0014, 0.0022, 0.0031] as const,
 } as const;
 
-// ─── Palette: fixed blue-gray dust; intentionally independent of terminal theme ─
-const DUST = {
-  dim: [34, 42, 56],
-  mid: [62, 78, 104],
-  hi: [100, 145, 190],
-  signal: [170, 215, 255],
-} as const;
+// ─── Palette: fixed atmospheric dust; intentionally independent of terminal theme ─
+const DUST_HUES = [
+  { dim: [24, 34, 54], mid: [54, 78, 114], hi: [102, 164, 220], signal: [178, 226, 255] },
+  { dim: [28, 42, 48], mid: [48, 94, 106], hi: [94, 184, 188], signal: [174, 255, 238] },
+  { dim: [38, 32, 56], mid: [78, 64, 116], hi: [150, 122, 214], signal: [220, 194, 255] },
+  { dim: [46, 35, 28], mid: [96, 70, 48], hi: [180, 134, 84], signal: [255, 210, 142] },
+] as const;
 
 type LayerId = 0 | 1 | 2;
 
@@ -62,6 +62,7 @@ type DustParticle = {
   colorJitter: number;
   hueShift: number;
   blur: number;
+  paletteIndex: number;
 };
 
 let noisePerm: Uint8Array | null = null;
@@ -165,9 +166,9 @@ function layerCounts(
   const d = CONFIG.density[preset] * (reducedMotion ? 0.18 : 1);
   const cap = (n: number, max: number) => Math.min(max, Math.max(0, Math.floor(n * d)));
 
-  const back = cap(area / 6500, preset === 'enhanced' ? 360 : preset === 'minimal' ? 110 : 240);
-  const mid = cap(area / 14500, preset === 'enhanced' ? 160 : preset === 'minimal' ? 44 : 96);
-  const fore = cap(area / 42000, preset === 'enhanced' ? 56 : preset === 'minimal' ? 16 : 34);
+  const back = cap(area / 6200, preset === 'enhanced' ? 640 : preset === 'minimal' ? 180 : 430);
+  const mid = cap(area / 13200, preset === 'enhanced' ? 260 : preset === 'minimal' ? 70 : 150);
+  const fore = cap(area / 36000, preset === 'enhanced' ? 96 : preset === 'minimal' ? 24 : 56);
   return [back, mid, fore];
 }
 
@@ -190,20 +191,24 @@ function seedParticles(
       let size: number;
       let baseAlpha: number = 0;
       if (layer === 0) {
-        size = Math.random() < 0.86 ? 1 : Math.random() < 0.98 ? 2 : 3;
-        baseAlpha = 0.035 + Math.random() * 0.07;
+        size = Math.random() < 0.78 ? 1 : Math.random() < 0.95 ? 2 : 3;
+        baseAlpha = 0.052 + Math.random() * 0.095;
       } else if (layer === 1) {
-        size = Math.random() < 0.7 ? 1 : Math.random() < 0.94 ? 2 : 3;
-        baseAlpha = 0.046 + Math.random() * 0.085;
+        size = Math.random() < 0.58 ? 1 : Math.random() < 0.86 ? 2 : Math.random() < 0.97 ? 3 : 4;
+        baseAlpha = 0.072 + Math.random() * 0.12;
       } else {
-        size = Math.random() < 0.54 ? 1 : Math.random() < 0.86 ? 2 : 3;
-        baseAlpha = 0.06 + Math.random() * 0.11;
+        size = Math.random() < 0.4 ? 1 : Math.random() < 0.72 ? 2 : Math.random() < 0.92 ? 3 : 4;
+        baseAlpha = 0.092 + Math.random() * 0.17;
       }
 
       if (isSignal || isMidSignal) {
-        baseAlpha = Math.min(0.2, baseAlpha * 1.45);
-        size = Math.min(3, size + 1);
+        baseAlpha = Math.min(0.34, baseAlpha * 1.55);
+        size = Math.min(5, size + 1);
       }
+
+      const paletteRoll = Math.random();
+      const paletteIndex =
+        paletteRoll < 0.6 ? 0 : paletteRoll < 0.78 ? 1 : paletteRoll < 0.92 ? 2 : 3;
 
       pool.push({
         x: Math.random() * w,
@@ -217,13 +222,14 @@ function seedParticles(
         flickerRate: 0.00035 + Math.random() * 0.00085,
         isSignal: Boolean(isSignal || isMidSignal),
         colorJitter: Math.random(),
-        hueShift: (Math.random() - 0.5) * 0.12,
+        hueShift: (Math.random() - 0.5) * 0.38,
         blur:
           layer === 0
-            ? Math.random() * 0.6
+            ? Math.random() * 0.9
             : layer === 1
-              ? Math.random() * 0.9
-              : Math.random() * 1.2,
+              ? Math.random() * 1.45
+              : Math.random() * 2.25,
+        paletteIndex,
       });
     }
   };
@@ -266,8 +272,8 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
 
   const pool: DustParticle[] = [];
 
-  const layerSpeed = [0.018, 0.034, 0.056] as const;
-  const layerParallax = [0.18, 0.34, 0.56] as const;
+  const layerSpeed = [0.022, 0.045, 0.076] as const;
+  const layerParallax = [0.26, 0.54, 0.92] as const;
 
   const resize = (): void => {
     const rect = canvas.getBoundingClientRect();
@@ -329,8 +335,8 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
     const py = pointer.y / height - 0.5;
 
     flowAngle += CONFIG.flowRotate * dt;
-    const flowX = Math.cos(flowAngle) * 0.06;
-    const flowY = Math.sin(flowAngle) * 0.05;
+    const flowX = Math.cos(flowAngle) * 0.08;
+    const flowY = Math.sin(flowAngle) * 0.064;
 
     if (ts >= nextClusterAt) {
       nextClusterAt = ts + CONFIG.clusterIntervalMs * (0.7 + Math.random() * 0.6);
@@ -342,8 +348,9 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
     burst *= 0.94;
 
     ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = '#030405';
+    ctx.fillStyle = '#030507';
     ctx.fillRect(0, 0, width, height);
+    ctx.globalCompositeOperation = 'lighter';
 
     const nScale = 0.00115;
     const t = ts * 0.00006;
@@ -362,8 +369,8 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
       tx += Math.cos(clusterAngle) * clusterStrength * ls * 24;
       ty += Math.sin(clusterAngle) * clusterStrength * ls * 24;
 
-      tx += burst * (Math.sin(ts * 0.002 + p.flickerPhase) * 0.06);
-      ty += burst * (Math.cos(ts * 0.0017 + p.colorJitter) * 0.05);
+      tx += burst * (Math.sin(ts * 0.002 + p.flickerPhase) * 0.09);
+      ty += burst * (Math.cos(ts * 0.0017 + p.colorJitter) * 0.072);
 
       p.vx += (tx - p.vx) * CONFIG.steer;
       p.vy += (ty - p.vy) * CONFIG.steer;
@@ -373,13 +380,13 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
       const dist = Math.hypot(dx, dy) || 1;
       const R = CONFIG.repelRadius * (0.85 + p.layer * 0.06);
       if (dist < R) {
-        const f = ((R - dist) / R) ** 2 * CONFIG.repelMax * (0.35 + par * 0.4);
+        const f = ((R - dist) / R) ** 2 * CONFIG.repelMax * (0.42 + par * 0.5);
         p.vx += (dx / dist) * f;
         p.vy += (dy / dist) * f;
       }
 
-      p.x += p.vx * dt * 0.018 - px * par * 0.18;
-      p.y += p.vy * dt * 0.018 + CONFIG.fallBias[p.layer] * dt - py * par * 0.14;
+      p.x += p.vx * dt * 0.022;
+      p.y += p.vy * dt * 0.022 + CONFIG.fallBias[p.layer] * dt;
 
       if (p.x < 0) {
         p.x += width;
@@ -398,35 +405,45 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
         0.88 +
         0.12 * Math.sin(ts * p.flickerRate + p.flickerPhase) +
         (preset === 'enhanced' ? 0.065 * Math.sin(ts * 0.0011 + p.x * 0.01) : 0);
-      let alpha = p.baseAlpha * flicker * (burst * 0.12 + 0.92);
+      let alpha = p.baseAlpha * flicker * (burst * 0.18 + 0.98);
       if (p.isSignal) {
-        alpha = Math.min(0.22, alpha * 1.55);
+        alpha = Math.min(0.42, alpha * 1.68);
       }
 
       const mix = p.colorJitter;
-      const r = lerp(DUST.dim[0], DUST.mid[0], mix) + (p.isSignal ? DUST.hi[0] - DUST.mid[0] : 0) * 0.35;
-      const g = lerp(DUST.dim[1], DUST.mid[1], mix) + (p.isSignal ? DUST.hi[1] - DUST.mid[1] : 0) * 0.35;
-      const b = lerp(DUST.dim[2], DUST.mid[2], mix) + (p.isSignal ? DUST.hi[2] - DUST.mid[2] : 0) * 0.35;
+      const dust = DUST_HUES[p.paletteIndex] ?? DUST_HUES[0]!;
+      const r = lerp(dust.dim[0], dust.mid[0], mix) + (p.isSignal ? dust.hi[0] - dust.mid[0] : 0) * 0.42;
+      const g = lerp(dust.dim[1], dust.mid[1], mix) + (p.isSignal ? dust.hi[1] - dust.mid[1] : 0) * 0.42;
+      const b = lerp(dust.dim[2], dust.mid[2], mix) + (p.isSignal ? dust.hi[2] - dust.mid[2] : 0) * 0.42;
 
-      const hue = p.hueShift + hueNoise * 0.12;
+      const hue = p.hueShift + hueNoise * 0.28;
       const fr = Math.min(
         255,
-        Math.max(0, r + (p.isSignal ? DUST.signal[0] - DUST.hi[0] : 0) * 0.25 + hue * 12),
+        Math.max(0, r + (p.isSignal ? dust.signal[0] - dust.hi[0] : 0) * 0.28 + hue * 18),
       );
       const fg = Math.min(
         255,
-        Math.max(0, g + (p.isSignal ? DUST.signal[1] - DUST.hi[1] : 0) * 0.25 + hue * 6),
+        Math.max(0, g + (p.isSignal ? dust.signal[1] - dust.hi[1] : 0) * 0.28 + hue * 7),
       );
       const fb = Math.min(
         255,
-        Math.max(0, b + (p.isSignal ? DUST.signal[2] - DUST.hi[2] : 0) * 0.25 - hue * 4),
+        Math.max(0, b + (p.isSignal ? dust.signal[2] - dust.hi[2] : 0) * 0.28 - hue * 10),
       );
 
       ctx.fillStyle = `rgba(${fr | 0}, ${fg | 0}, ${fb | 0}, ${alpha})`;
       const s = p.size;
-      const rx = p.x | 0;
-      const ry = p.y | 0;
-      ctx.filter = 'none';
+      const rx = (p.x - px * par * 34) | 0;
+      const ry = (p.y - py * par * 26) | 0;
+      const glow = p.isSignal || (p.layer === 2 && s > 1);
+      ctx.filter = glow && p.blur > 0.45 ? `blur(${Math.min(1.6, p.blur)}px)` : 'none';
+      if (glow) {
+        const chroma = Math.max(0.55, par) * 0.9;
+        ctx.fillStyle = `rgba(255, 74, 64, ${alpha * 0.18})`;
+        ctx.fillRect(rx + chroma, ry, s, s);
+        ctx.fillStyle = `rgba(68, 210, 255, ${alpha * 0.22})`;
+        ctx.fillRect(rx - chroma, ry, s, s);
+        ctx.fillStyle = `rgba(${fr | 0}, ${fg | 0}, ${fb | 0}, ${alpha})`;
+      }
       ctx.fillRect(rx, ry, s, s);
     }
     ctx.filter = 'none';

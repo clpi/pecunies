@@ -241,7 +241,7 @@ const ARG_HINTS: Record<string, Array<{ token: string; description: string }>> =
 type ShellFrame = { left: number; top: number; width: number; height: number };
 
 const MIN_SHELL_W = 360;
-const MIN_SHELL_H = 400;
+const MIN_SHELL_H = 320;
 const SHELL_FRAME_STORAGE = 'pecunies.terminalFrame';
 const SHELL_PROFILE_STORAGE = 'pecunies.shellProfile';
 /** Cap autocomplete rows so the panel never looks like a “153 results” dump. */
@@ -250,7 +250,12 @@ const DEFAULT_AI_MODEL = '@cf/meta/llama-3.1-8b-instruct';
 const AI_MODEL_OPTIONS = [
   '@cf/meta/llama-3.1-8b-instruct',
   '@cf/meta/llama-3.1-70b-instruct',
+  '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
   '@cf/qwen/qwen1.5-14b-chat-awq',
+  '@cf/qwen/qwen2.5-coder-32b-instruct',
+  '@cf/qwen/qwen2.5-32b-instruct',
+  '@cf/qwen/qwen2.5-72b-instruct',
+  '@hf/nousresearch/hermes-2-pro-mistral-7b',
 ] as const;
 
 export class TerminalApp {
@@ -1120,7 +1125,7 @@ export class TerminalApp {
     document.documentElement.style.setProperty('--ink-dim', theme.textDim);
     document.documentElement.style.setProperty('--muted', theme.muted);
     document.documentElement.style.setProperty('--accent-dim', theme.accentDim);
-    this.themeIndicator.textContent = `palette:${themeName}`;
+    this.themeIndicator.textContent = 'theme';
     this.themeIndicator.setAttribute('data-theme-current', themeName);
     this.fieldHandle?.setMode(theme.mode);
     this.fieldHandle?.burst();
@@ -3619,8 +3624,10 @@ export class TerminalApp {
         return false;
       }
       const p = this.siteShellElement;
-      const w = Math.min(Math.max(f.width, MIN_SHELL_W), p.clientWidth);
-      const h = Math.min(Math.max(f.height, MIN_SHELL_H), p.clientHeight);
+      const minW = Math.min(MIN_SHELL_W, p.clientWidth);
+      const minH = Math.min(MIN_SHELL_H, p.clientHeight);
+      const w = Math.min(Math.max(f.width, minW), p.clientWidth);
+      const h = Math.min(Math.max(f.height, minH), p.clientHeight);
       const left = Math.min(Math.max(0, f.left), Math.max(0, p.clientWidth - w));
       const top = Math.min(Math.max(0, f.top), Math.max(0, p.clientHeight - h));
       this.applyShellFrame({ left, top, width: w, height: h });
@@ -3671,8 +3678,10 @@ export class TerminalApp {
   private clampShellToParent(): void {
     const p = this.siteShellElement;
     let { left, top, width, height } = this.readFrameFromDom();
-    width = Math.min(Math.max(width, MIN_SHELL_W), p.clientWidth);
-    height = Math.min(Math.max(height, MIN_SHELL_H), p.clientHeight);
+    const minW = Math.min(MIN_SHELL_W, p.clientWidth);
+    const minH = Math.min(MIN_SHELL_H, p.clientHeight);
+    width = Math.min(Math.max(width, minW), p.clientWidth);
+    height = Math.min(Math.max(height, minH), p.clientHeight);
     left = Math.min(Math.max(0, left), Math.max(0, p.clientWidth - width));
     top = Math.min(Math.max(0, top), Math.max(0, p.clientHeight - height));
     this.applyShellFrame({ left, top, width, height });
@@ -3765,29 +3774,31 @@ export class TerminalApp {
           let { left, top, width, height } = startFrame;
 
           if (edge.includes('e')) {
-            width = Math.max(MIN_SHELL_W, startFrame.width + dx);
+            width = Math.max(Math.min(MIN_SHELL_W, this.siteShellElement.clientWidth), startFrame.width + dx);
           }
           if (edge.includes('s')) {
-            height = Math.max(MIN_SHELL_H, startFrame.height + dy);
+            height = Math.max(Math.min(MIN_SHELL_H, this.siteShellElement.clientHeight), startFrame.height + dy);
           }
           if (edge.includes('w')) {
-            const nw = Math.max(MIN_SHELL_W, startFrame.width - dx);
+            const nw = Math.max(Math.min(MIN_SHELL_W, this.siteShellElement.clientWidth), startFrame.width - dx);
             left = startFrame.left + (startFrame.width - nw);
             width = nw;
           }
           if (edge.includes('n')) {
-            const nh = Math.max(MIN_SHELL_H, startFrame.height - dy);
+            const nh = Math.max(Math.min(MIN_SHELL_H, this.siteShellElement.clientHeight), startFrame.height - dy);
             top = startFrame.top + (startFrame.height - nh);
             height = nh;
           }
 
           const p = this.siteShellElement;
+          const minW = Math.min(MIN_SHELL_W, p.clientWidth);
+          const minH = Math.min(MIN_SHELL_H, p.clientHeight);
           width = Math.min(width, p.clientWidth - left);
           height = Math.min(height, p.clientHeight - top);
           left = Math.max(0, Math.min(left, p.clientWidth - width));
           top = Math.max(0, Math.min(top, p.clientHeight - height));
-          width = Math.max(MIN_SHELL_W, Math.min(width, p.clientWidth - left));
-          height = Math.max(MIN_SHELL_H, Math.min(height, p.clientHeight - top));
+          width = Math.max(minW, Math.min(width, p.clientWidth - left));
+          height = Math.max(minH, Math.min(height, p.clientHeight - top));
 
           this.applyShellFrame({ left, top, width, height });
         };

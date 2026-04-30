@@ -89,7 +89,7 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
           </div>
           <div class="terminal-state">
             <span id="route-indicator">resume</span>
-            <button id="theme-indicator" type="button" aria-haspopup="dialog" aria-expanded="false">palette:auto</button>
+            <button id="theme-indicator" type="button" aria-haspopup="dialog" aria-expanded="false">theme</button>
             <div class="theme-popover" id="theme-popover" hidden>
               <div class="theme-popover-title">Choose palette</div>
               <div class="theme-popover-grid">
@@ -169,7 +169,12 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
               <select class="identity-popover-select" id="identity-model">
                 <option value="@cf/meta/llama-3.1-8b-instruct">@cf/meta/llama-3.1-8b-instruct</option>
                 <option value="@cf/meta/llama-3.1-70b-instruct">@cf/meta/llama-3.1-70b-instruct</option>
+                <option value="@cf/meta/llama-3.3-70b-instruct-fp8-fast">@cf/meta/llama-3.3-70b-instruct-fp8-fast</option>
                 <option value="@cf/qwen/qwen1.5-14b-chat-awq">@cf/qwen/qwen1.5-14b-chat-awq</option>
+                <option value="@cf/qwen/qwen2.5-coder-32b-instruct">@cf/qwen/qwen2.5-coder-32b-instruct</option>
+                <option value="@cf/qwen/qwen2.5-32b-instruct">@cf/qwen/qwen2.5-32b-instruct</option>
+                <option value="@cf/qwen/qwen2.5-72b-instruct">@cf/qwen/qwen2.5-72b-instruct</option>
+                <option value="@hf/nousresearch/hermes-2-pro-mistral-7b">@hf/nousresearch/hermes-2-pro-mistral-7b</option>
               </select>
               <label class="identity-popover-label" for="identity-email">Email (optional)</label>
               <input
