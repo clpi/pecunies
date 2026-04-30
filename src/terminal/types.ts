@@ -150,6 +150,7 @@ export type TagIndexSection = {
   heading: string;
   description?: string;
   filter?: string;
+  selectedTags?: string[];
   allTags: { slug: string; count: number }[];
   items: { label: string; type: string; command: string }[];
 };

@@ -1079,7 +1079,9 @@ export class TerminalApp {
     document.documentElement.style.setProperty('--bg-accent-a', theme.backgroundA);
     document.documentElement.style.setProperty('--bg-accent-b', theme.backgroundB);
     document.documentElement.style.setProperty('--ink', theme.text);
+    document.documentElement.style.setProperty('--ink-dim', theme.textDim);
     document.documentElement.style.setProperty('--muted', theme.muted);
+    document.documentElement.style.setProperty('--accent-dim', theme.accentDim);
     this.themeIndicator.textContent = `palette:${themeName}`;
     this.themeIndicator.setAttribute('data-theme-current', themeName);
     this.fieldHandle?.setMode(theme.mode);

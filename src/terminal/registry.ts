@@ -39,11 +39,42 @@ function mergeTagItems(slugs: string[]): { label: string; type: string; command:
   return out.sort((a, b) => a.label.localeCompare(b.label));
 }
 
+function fallbackCommandTags(command: CommandDefinition): string[] {
+  const groupTag = command.group.toLowerCase().replace(/\s+/g, '-');
+  const surfaceTag = command.route ? 'view' : 'command';
+  return ['terminal', groupTag, surfaceTag];
+}
+
+function intersectTagItems(slugs: string[]): { label: string; type: string; command: string }[] {
+  if (!slugs.length) return [];
+  const sets = slugs.map((slug) => {
+    const entries = (TAG_INDEX[slug] ?? []) as TagContentItem[];
+    return new Set(entries.map((item) => `${item.command}\0${item.label}`));
+  });
+  const [first, ...rest] = sets;
+  const out: { label: string; type: string; command: string }[] = [];
+  for (const key of first ?? []) {
+    if (!rest.every((set) => set.has(key))) continue;
+    const [command, label] = key.split('\0');
+    const base = ((TAG_INDEX[slugs[0]!] ?? []) as TagContentItem[]).find(
+      (item) => item.command === command && item.label === label,
+    );
+    if (!base) continue;
+    out.push({ label: base.label, type: base.type, command: base.command });
+  }
+  return out.sort((a, b) => a.label.localeCompare(b.label));
+}
+
 function buildTagsView(filter?: string): ViewDefinition {
   const raw = filter?.trim().toLowerCase();
+  const tokens = (raw ?? '')
+    .split(/[\s,]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+  const selected = Array.from(new Set(tokens));
   const summaries = listTagSummaries();
 
-  if (!raw) {
+  if (!selected.length) {
     return {
       id: 'tags',
       route: 'tags',
@@ -62,33 +93,43 @@ function buildTagsView(filter?: string): ViewDefinition {
           description:
             'Tag counts include views, commands, files, and links. Use tags <partial> to match tag names (e.g. tags net for network).',
           allTags: summaries,
+          selectedTags: [],
           items: [],
         },
       ],
     };
   }
 
-  if (TAG_INDEX[raw]) {
-    const items = (TAG_INDEX[raw] as TagContentItem[]).map((item) => ({
-      label: item.label,
-      type: item.type,
-      command: item.command,
-    }));
+  const allKnownTags = selected.every((tag) => Boolean(TAG_INDEX[tag]));
+  if (allKnownTags) {
+    const items =
+      selected.length === 1
+        ? (TAG_INDEX[selected[0]!] as TagContentItem[]).map((item) => ({
+            label: item.label,
+            type: item.type,
+            command: item.command,
+          }))
+        : intersectTagItems(selected);
+    const selectedLabel = selected.map((tag) => `#${tag}`).join(' + ');
     return {
       id: 'tags',
       route: 'tags',
-      prompt: `./terminal --tags --filter ${raw}`,
+      prompt: `./terminal --tags --filter ${selected.join(' ')}`,
       eyebrow: 'Discovery',
-      title: `Tag #${raw}`,
-      description: `Everything tagged “${raw}” in this portfolio shell.`,
+      title: selected.length === 1 ? `Tag #${selected[0]}` : `Tags ${selectedLabel}`,
+      description:
+        selected.length === 1
+          ? `Everything tagged “${selected[0]}” in this portfolio shell.`
+          : `Showing content that matches all selected tags: ${selectedLabel}.`,
       theme: 'frost',
-      logline: `Filtered tag “${raw}”.`,
-      tags: [raw],
+      logline: `Filtered tags: ${selected.join(', ')}.`,
+      tags: selected,
       sections: [
         {
           type: 'tag-index',
-          heading: `Items tagged #${raw}`,
-          filter: raw,
+          heading: selected.length === 1 ? `Items tagged #${selected[0]}` : `Items matching all: ${selectedLabel}`,
+          filter: selected.join(' '),
+          selectedTags: selected,
           allTags: summaries,
           items,
         },
@@ -96,28 +137,54 @@ function buildTagsView(filter?: string): ViewDefinition {
     };
   }
 
-  const matches = findTagsMatching(raw);
+  if (selected.length > 1) {
+    return {
+      id: 'tags',
+      route: 'tags',
+      prompt: `./terminal --tags --q ${selected.join(' ')}`,
+      eyebrow: 'Discovery',
+      title: `No combined match`,
+      description: `One or more selected tags are invalid. Pick from the available list below.`,
+      theme: 'frost',
+      logline: `No match for multi-tag filter “${selected.join(' ')}”.`,
+      sections: [
+        {
+          type: 'tag-index',
+          heading: 'Browse all tags',
+          description: `Selected tags must exist exactly. Invalid selection: ${selected.map((tag) => `#${tag}`).join(', ')}`,
+          filter: selected.join(' '),
+          selectedTags: [],
+          allTags: summaries,
+          items: [],
+        },
+      ],
+    };
+  }
+
+  const single = selected[0]!;
+  const matches = findTagsMatching(single);
   if (matches.length) {
     const items = mergeTagItems(matches);
     return {
       id: 'tags',
       route: 'tags',
-      prompt: `./terminal --tags --q ${raw}`,
+      prompt: `./terminal --tags --q ${single}`,
       eyebrow: 'Discovery',
-      title: `Tags matching “${raw}”`,
+      title: `Tags matching “${single}”`,
       description:
         matches.length > 1
-          ? `Multiple tag buckets match “${raw}”. Combined items are listed below.`
+          ? `Multiple tag buckets match “${single}”. Combined items are listed below.`
           : `Matched tag “${matches[0]}”.`,
       theme: 'frost',
-      logline: `Tag search “${raw}”.`,
+      logline: `Tag search “${single}”.`,
       tags: matches,
       sections: [
         {
           type: 'tag-index',
           heading: 'Matching content',
           description: `Tag keys matched: ${matches.map((m) => `#${m}`).join(', ')}`,
-          filter: raw,
+          filter: single,
+          selectedTags: matches,
           allTags: matches.map((slug) => ({ slug, count: TAG_INDEX[slug].length })),
           items,
         },
@@ -128,18 +195,19 @@ function buildTagsView(filter?: string): ViewDefinition {
   return {
     id: 'tags',
     route: 'tags',
-    prompt: `./terminal --tags --q ${raw}`,
+    prompt: `./terminal --tags --q ${single}`,
     eyebrow: 'Discovery',
-    title: `No tag “${raw}”`,
+    title: `No tag “${single}”`,
     description: 'Try another fragment, or pick a tag from the full list below.',
     theme: 'frost',
-    logline: `No tag match for “${raw}”.`,
+    logline: `No tag match for “${single}”.`,
     sections: [
       {
         type: 'tag-index',
         heading: 'Browse all tags',
-        description: `No tag or prefix matched “${raw}”.`,
-        filter: raw,
+        description: `No tag or prefix matched “${single}”.`,
+        filter: single,
+        selectedTags: [],
         allTags: summaries,
         items: [],
       },
@@ -672,7 +740,7 @@ export function createCommandRegistry(): {
     sections: [
       {
         type: 'timeline',
-        heading: 'Posts',
+        heading: 'Published posts',
         items: [
           {
             role: 'Terminal portfolio changelog',
@@ -771,8 +839,21 @@ export function createCommandRegistry(): {
     );
   };
 
+  const getCommandTags = (command: CommandDefinition): string[] => {
+    const base = command.tags ?? COMMAND_TAGS[command.name] ?? fallbackCommandTags(command);
+    const seen = new Set<string>();
+    const tags: string[] = [];
+    for (const tag of base) {
+      const normalized = String(tag).trim().toLowerCase();
+      if (!normalized || seen.has(normalized)) continue;
+      seen.add(normalized);
+      tags.push(normalized);
+    }
+    return tags.length ? tags : ['terminal', 'command'];
+  };
+
   const buildManView = (command: CommandDefinition): ViewDefinition => {
-    const tags = command.tags ?? COMMAND_TAGS[command.name] ?? ['terminal'];
+    const tags = getCommandTags(command);
     const aliases = command.aliases.length ? command.aliases.map((alias) => `/${alias}`).join(', ') : 'none';
     const usageTokens = command.usage.split(/\s+/).slice(1);
     const optionLines = usageTokens.filter((token) => token.startsWith('-') || token.startsWith('['));
@@ -780,8 +861,7 @@ export function createCommandRegistry(): {
       .filter(
         (candidate) =>
           candidate.name !== command.name &&
-          (candidate.group === command.group ||
-            (candidate.tags ?? COMMAND_TAGS[candidate.name] ?? []).some((tag) => tags.includes(tag))),
+          (candidate.group === command.group || getCommandTags(candidate).some((tag) => tags.includes(tag))),
       )
       .slice(0, 6)
       .map((candidate) => ({ label: `/${candidate.name}`, command: candidate.name }));
@@ -838,7 +918,7 @@ export function createCommandRegistry(): {
         {
           type: 'note',
           heading: 'TAGS',
-          lines: ['Tags are clickable chips above this page and in command listings.'],
+          lines: [`${tags.map((tag) => `#${tag}`).join(' ')}`, 'Tags are clickable chips above this page and in command listings.'],
         },
         {
           type: 'metrics',
@@ -876,14 +956,16 @@ export function createCommandRegistry(): {
       {
         type: 'command-list',
         heading: 'Commands',
-        items: commands.map<CommandHelpItem>((command) => ({
-          name: command.name,
-          usage: command.usage,
-          description: command.description,
-          command: command.name,
-          group: command.group,
-          tags: command.tags ?? COMMAND_TAGS[command.name],
-        })),
+        items: [...commands]
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map<CommandHelpItem>((command) => ({
+            name: command.name,
+            usage: command.usage,
+            description: command.description,
+            command: command.name,
+            group: command.group,
+            tags: getCommandTags(command),
+          })),
       },
       {
         type: 'note',
@@ -1162,7 +1244,7 @@ export function createCommandRegistry(): {
   commands.unshift({
     name: 'help',
     aliases: ['commands'],
-    usage: 'help',
+    usage: 'help [command]',
     group: 'Utility',
     route: 'help',
     fullPageView: true,
@@ -1186,7 +1268,7 @@ export function createCommandRegistry(): {
   commands.push({
     name: 'commands',
     aliases: ['command-list'],
-    usage: 'commands',
+    usage: 'commands [command]',
     group: 'Utility',
     route: 'help',
     featured: true,
@@ -2254,14 +2336,14 @@ export function createCommandRegistry(): {
   commands.splice(1, 0, {
     name: 'tags',
     aliases: [],
-    usage: 'tags [tag]',
+    usage: 'tags [tag|prefix|tag1 tag2 ...]',
     group: 'Utility',
     route: 'tags',
     featured: false,
-    description: 'Browse content tags, or filter by tag name / prefix.',
+    description: 'Browse content tags, filter by tag name/prefix, or select multiple tags (AND filter).',
     tags: ['portfolio', 'tooling', 'terminal'],
     execute(_context, args) {
-      return { kind: 'view', view: buildTagsView(args[0]) };
+      return { kind: 'view', view: buildTagsView(args.join(' ')) };
     },
   });
 
@@ -2277,17 +2359,19 @@ export function createCommandRegistry(): {
     execute() {
       const pecuosAscii = `
 <pre class="home-pecuos-ascii" aria-label="pecuOS banner">
-<span class="home-pecuos-c0">      ___   ___  ___ _   _  ___  ___</span>
-<span class="home-pecuos-c1">     / _ \\ / _ \\/ __| | | |/ _ \\/ __|</span>
-<span class="home-pecuos-c2">    | |_) |  __/ (__| |_| | (_) \\__ \\</span>
-<span class="home-pecuos-c3">    | .__/ \\___|\\___|\\__,_|\\___/|___/</span>
-<span class="home-pecuos-c4">    |_|        cloud kernel / terminal lattice</span>
-
-<span class="home-pecuos-c5">      .-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-.</span>
-<span class="home-pecuos-c6">      |  [ai-core] [fs] [net] [kv] [runtime] |</span>
-<span class="home-pecuos-c7">      |  > help   > resume   > projects      |</span>
-<span class="home-pecuos-c8">      |  > posts  > links    > chat          |</span>
-<span class="home-pecuos-c5">      '-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-'</span>
+<span class="home-pecuos-c9">           ____________________________________________________________</span>
+<span class="home-pecuos-c0">          / ____/ ____/ ____/ / / / ____/ ____/_  __/ ____/ / / / __ \\</span>
+<span class="home-pecuos-c1">         / /_  / __/ / /   / / / / /_  / __/   / / / /   / /_/ / / / /</span>
+<span class="home-pecuos-c2">        / __/ / /___/ /___/ /_/ / __/ / /___  / / / /___/ __  / /_/ /</span>
+<span class="home-pecuos-c3">       /_/   /_____/\\____/\\____/_/   /_____/ /_/  \\____/_/ /_/\\_____/</span>
+<span class="home-pecuos-c4">                         cloud kernel / terminal lattice</span>
+<span class="home-pecuos-c11"></span>
+<span class="home-pecuos-c5">      .================================================================.</span>
+<span class="home-pecuos-c6">      ||  [ai-core] [shell] [fs] [net] [kv] [metrics] [runtime]      ||</span>
+<span class="home-pecuos-c7">      ||  host: guest@pecunies   edge: cloudflare   mode: interactive ||</span>
+<span class="home-pecuos-c8">      ||  > help   > resume   > projects   > posts   > links   > chat ||</span>
+<span class="home-pecuos-c10">      ||  palette: auto  red  amber  frost  ivory  green  magenta     ||</span>
+<span class="home-pecuos-c5">      '================================================================'</span>
 </pre>`;
 
       return {

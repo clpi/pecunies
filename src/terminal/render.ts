@@ -451,6 +451,18 @@ function renderSection(section: TerminalSection): string {
       `;
 
     case 'tag-index':
+      {
+        const selected = new Set((section.selectedTags ?? []).map((tag) => tag.toLowerCase()));
+        const buildTagCommand = (slug: string): string => {
+          const next = new Set(selected);
+          if (next.has(slug)) {
+            next.delete(slug);
+          } else {
+            next.add(slug);
+          }
+          const tokens = Array.from(next);
+          return tokens.length ? `tags ${tokens.join(' ')}` : 'tags';
+        };
       return `
         <section class="output-block tag-index-panel">
           <h2 class="output-heading">${escapeHtml(section.heading)}</h2>
@@ -468,7 +480,7 @@ function renderSection(section: TerminalSection): string {
             ${section.allTags
               .map(
                 (t) => `
-              <button type="button" class="tag-cloud-chip" data-command="tags ${escapeAttribute(t.slug)}" role="listitem">
+              <button type="button" class="tag-cloud-chip${selected.has(t.slug) ? ' is-active' : ''}" data-command="${escapeAttribute(buildTagCommand(t.slug))}" role="listitem">
                 <span class="tag-cloud-name">#${escapeHtml(t.slug)}</span>
                 <span class="tag-cloud-count">${t.count}</span>
               </button>`,
@@ -490,6 +502,7 @@ function renderSection(section: TerminalSection): string {
           </div>
         </section>
       `;
+      }
   }
 }
 
