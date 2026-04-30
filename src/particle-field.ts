@@ -19,7 +19,7 @@ export type ParticleFieldOptions = {
 // ─── Tunables ─────────────────────────────────────────────────────────────
 const CONFIG = {
   /** Base multipliers per preset for particle counts */
-  density: { minimal: 0.82, standard: 1.38, enhanced: 2.05 } as const,
+  density: { minimal: 1.05, standard: 1.85, enhanced: 2.55 } as const,
   /** Global flow rotation speed (rad / ms) */
   flowRotate: 0.000000075,
   /** Pointer repulsion: max extra velocity (px/frame at ~60fps scale) */
@@ -181,9 +181,9 @@ function layerCounts(
   const d = CONFIG.density[preset] * (reducedMotion ? 0.18 : 1);
   const cap = (n: number, max: number) => Math.min(max, Math.max(0, Math.floor(n * d)));
 
-  const back = cap(area / 6200, preset === 'enhanced' ? 640 : preset === 'minimal' ? 180 : 430);
-  const mid = cap(area / 13200, preset === 'enhanced' ? 260 : preset === 'minimal' ? 70 : 150);
-  const fore = cap(area / 36000, preset === 'enhanced' ? 96 : preset === 'minimal' ? 24 : 56);
+  const back = cap(area / 4200, preset === 'enhanced' ? 820 : preset === 'minimal' ? 260 : 580);
+  const mid = cap(area / 8800, preset === 'enhanced' ? 340 : preset === 'minimal' ? 95 : 210);
+  const fore = cap(area / 24000, preset === 'enhanced' ? 130 : preset === 'minimal' ? 36 : 78);
   return [back, mid, fore];
 }
 
@@ -206,19 +206,19 @@ function seedParticles(
       let size: number;
       let baseAlpha: number = 0;
       if (layer === 0) {
-        size = Math.random() < 0.55 ? 2 : Math.random() < 0.88 ? 3 : 4;
-        baseAlpha = 0.105 + Math.random() * 0.16;
+        size = Math.random() < 0.5 ? 2 : Math.random() < 0.85 ? 3 : Math.random() < 0.96 ? 4 : 5;
+        baseAlpha = 0.24 + Math.random() * 0.22;
       } else if (layer === 1) {
-        size = Math.random() < 0.38 ? 2 : Math.random() < 0.72 ? 3 : Math.random() < 0.94 ? 4 : 5;
-        baseAlpha = 0.135 + Math.random() * 0.19;
+        size = Math.random() < 0.32 ? 2 : Math.random() < 0.68 ? 3 : Math.random() < 0.9 ? 4 : Math.random() < 0.97 ? 5 : 6;
+        baseAlpha = 0.3 + Math.random() * 0.26;
       } else {
-        size = Math.random() < 0.22 ? 2 : Math.random() < 0.55 ? 3 : Math.random() < 0.84 ? 4 : Math.random() < 0.96 ? 5 : 6;
-        baseAlpha = 0.158 + Math.random() * 0.24;
+        size = Math.random() < 0.18 ? 2 : Math.random() < 0.48 ? 3 : Math.random() < 0.78 ? 4 : Math.random() < 0.94 ? 5 : Math.random() < 0.99 ? 6 : 7;
+        baseAlpha = 0.35 + Math.random() * 0.32;
       }
 
       if (isSignal || isMidSignal) {
-        baseAlpha = Math.min(0.42, baseAlpha * 1.6);
-        size = Math.min(6, size + 2);
+        baseAlpha = Math.min(0.58, baseAlpha * 1.55);
+        size = Math.min(8, size + 2);
       }
 
       const paletteRoll = Math.random();
@@ -307,7 +307,7 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
     smokeVy[i] = (Math.random() - 0.5) * 0.05 + 0.015;
     smokeHue[i] = (Math.random() * DUST_HUES.length) | 0;
   }
-  const smokeAlpha = [0.025, 0.038, 0.055, 0.028, 0.042, 0.032, 0.048] as const;
+  const smokeAlpha = [0.042, 0.062, 0.088, 0.048, 0.072, 0.055, 0.078] as const;
   // Pre-render each smoke blob to an offscreen canvas — zero gradient allocation in the hot path
   const smokeBlobs: (OffscreenCanvas | HTMLCanvasElement)[] = new Array(SMOKE_COUNT);
   const buildSmokeBlobs = (acR: number, acG: number, acB: number): void => {
@@ -327,7 +327,7 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
       const cx = r + 2;
       const dust = DUST_HUES[smokeHue[i]! % DUST_HUES.length]!;
       const la = smokeAlpha[i % smokeAlpha.length]!;
-      const tint = 0.28 + (i % 3) * 0.08;
+      const tint = 0.42 + (i % 3) * 0.08;
       const hi0 = (dust.hi[0] * (1 - tint) + acR * tint) | 0;
       const hi1 = (dust.hi[1] * (1 - tint) + acG * tint) | 0;
       const hi2 = (dust.hi[2] * (1 - tint) + acB * tint) | 0;
@@ -444,7 +444,7 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
       const r = smokeR[i];
       const blob = smokeBlobs[i];
       if (blob) {
-        ctx.globalAlpha = 0.9;
+        ctx.globalAlpha = 1;
         ctx.drawImage(blob, scx - r - 2, scy - r - 2);
       }
     }
@@ -460,7 +460,6 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
 
       const nx = fbm2(p.x * nScale + t, p.y * nScale * 1.1 - t * 0.4);
       const ny = fbm2(p.x * nScale * 1.3 - t * 0.3, p.y * nScale + t * 0.5 + 13.7);
-      const hueNoise = (nx - ny) * 0.5;
 
       let tx = flowX * ls + nx * CONFIG.noiseLayer[p.layer] * ls * 2.9;
       let ty = flowY * ls + ny * CONFIG.noiseLayer[p.layer] * ls * 2.9;
@@ -499,15 +498,21 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
         p.y -= height;
       }
 
+      /* Spatial-only noise for tint — avoids per-frame color twinkle from animated fbm */
+      const hueStatic =
+        (fbm2(p.x * nScale * 0.62 + p.layer * 2.9 + p.paletteIndex * 0.4, p.y * nScale * 0.62 + 1.7) -
+          fbm2(p.x * nScale * 0.62 + 23.7, p.y * nScale * 0.62 + 41.3)) *
+        0.48;
+
       let alpha = p.baseAlpha;
       if (p.isSignal) {
-        alpha = Math.min(0.42, alpha * 1.68);
+        alpha = Math.min(0.58, alpha * 1.68);
       }
 
       const mix = p.colorJitter;
       const dust = DUST_HUES[p.paletteIndex] ?? DUST_HUES[0]!;
       // Blend base dust color toward accent for theme reactivity (foreground layers more tinted)
-      const accentMix = p.layer === 2 ? 0.34 : p.layer === 1 ? 0.2 : 0.12;
+      const accentMix = p.layer === 2 ? 0.52 : p.layer === 1 ? 0.36 : 0.24;
       const baseR = lerp(dust.dim[0], dust.mid[0], mix);
       const baseG = lerp(dust.dim[1], dust.mid[1], mix);
       const baseB = lerp(dust.dim[2], dust.mid[2], mix);
@@ -515,7 +520,7 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
       const g = baseG + (ag - baseG) * accentMix + (p.isSignal ? dust.hi[1] - dust.mid[1] : 0) * 0.42;
       const b = baseB + (ab - baseB) * accentMix + (p.isSignal ? dust.hi[2] - dust.mid[2] : 0) * 0.42;
 
-      const hue = p.hueShift + hueNoise * 0.28;
+      const hue = p.hueShift + hueStatic * 0.22;
       const fr = Math.min(255, Math.max(0, r + (p.isSignal ? dust.signal[0] - dust.hi[0] : 0) * 0.28 + hue * 18));
       const fg = Math.min(255, Math.max(0, g + (p.isSignal ? dust.signal[1] - dust.hi[1] : 0) * 0.28 + hue * 7));
       const fb = Math.min(255, Math.max(0, b + (p.isSignal ? dust.signal[2] - dust.hi[2] : 0) * 0.28 - hue * 10));
@@ -539,6 +544,12 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
       ctx.fillStyle = `rgba(${fr | 0}, ${fg | 0}, ${fb | 0}, ${alpha})`;
       ctx.fillRect(rx, ry, s, s);
     }
+
+    /* Full-field theme tint — reads as color grade over dust (stable, no twinkle) */
+    ctx.globalCompositeOperation = 'soft-light';
+    ctx.fillStyle = `rgba(${ar},${ag},${ab},0.082)`;
+    ctx.fillRect(0, 0, width, height);
+    ctx.globalCompositeOperation = 'source-over';
 
     if (vigGrad) {
       ctx.globalCompositeOperation = 'source-over';

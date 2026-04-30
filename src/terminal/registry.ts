@@ -1769,9 +1769,10 @@ export function createCommandRegistry(): {
   commands.push({
     name: "maximize",
     aliases: ["zoom", "fullscreen", "max"],
-    usage: "maximize",
+    usage: "maximize (zoom alone) · zoom in | zoom out | zoom reset",
     group: "Window",
-    description: "Toggle the terminal between default and maximized size.",
+    description:
+      "Toggle the terminal between default and maximized size. Use zoom in, zoom out, or zoom reset to change text size.",
     execute(): CommandOutcome {
       return {
         kind: "window",

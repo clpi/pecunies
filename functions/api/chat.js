@@ -149,8 +149,6 @@ export async function onRequestPost({ request, env }) {
 
   const message = typeof body?.message === 'string' ? body.message.trim() : '';
   const sessionId = sanitizeSessionId(body?.sessionId);
-  const requestedModel = typeof body?.model === 'string' ? body.model.trim() : '';
-  const activeModel = ALLOWED_MODELS.has(requestedModel) ? requestedModel : MODEL;
   const systemPrompt = typeof body?.systemPrompt === 'string' ? body.systemPrompt.trim().slice(0, 1200) : '';
   const visibleContext = typeof body?.visibleContext === 'string' ? body.visibleContext.trim().slice(-6000) : '';
 
@@ -165,6 +163,15 @@ export async function onRequestPost({ request, env }) {
     );
   }
 
+  const state = await readState(env, sessionId);
+  const requestedModel = typeof body?.model === 'string' ? body.model.trim() : '';
+  const configuredModel = String(state.config?.ai_model ?? '').trim();
+  const activeModel = ALLOWED_MODELS.has(requestedModel)
+    ? requestedModel
+    : ALLOWED_MODELS.has(configuredModel)
+      ? configuredModel
+      : MODEL;
+
   const transientHistory = Array.isArray(body?.history)
     ? body.history
         .slice(-8)
@@ -174,7 +181,6 @@ export async function onRequestPost({ request, env }) {
         }))
         .filter((entry) => entry.content)
     : [];
-  const state = await readState(env, sessionId);
   const metrics = await readJson(env, 'metrics:global', {});
   const leaderboard = await readJson(env, 'leaderboard:global', {});
   const postDigest = await buildPostDigest(env);

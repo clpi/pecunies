@@ -62,6 +62,7 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
     <div class="ambient-noise" aria-hidden="true"></div>
     <div class="crt-chromatic-field" aria-hidden="true"></div>
     <div class="crt-color-burn-field" aria-hidden="true"></div>
+    <div class="crt-signal-bleed" aria-hidden="true"></div>
     <div class="crt-vignette" aria-hidden="true"></div>
     <div class="crt-grain" aria-hidden="true"></div>
     <div class="crt-hum" aria-hidden="true"></div>

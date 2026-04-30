@@ -17,8 +17,8 @@
 :root {
   --bg: #050709;
   /* Translucent frost — background tint bleeds through backdrop-filter */
-  --glass: rgba(28, 32, 40, 0.78);
-  --glass-strong: rgba(32, 36, 44, 0.86);
+  --glass: rgba(28, 32, 40, 0.62);
+  --glass-strong: rgba(32, 36, 44, 0.74);
   --line: rgba(255, 255, 255, 0.15);
   --line-strong: rgba(255, 255, 255, 0.3);
   --ink: #edf2f4;
@@ -74,26 +74,26 @@ body {
   background:
     conic-gradient(
       from calc(68deg + var(--bg-gradient-hue)) at 12% 88%,
-      color-mix(in srgb, var(--accent) 9%, transparent),
-      transparent 22%,
-      color-mix(in srgb, var(--accent-strong) 5%, transparent),
-      transparent 48%,
+      color-mix(in srgb, var(--accent) 15%, transparent),
+      transparent 18%,
+      color-mix(in srgb, var(--accent-strong) 9%, transparent),
+      transparent 42%,
       transparent 100%
     ),
     conic-gradient(
       from calc(198deg + var(--bg-gradient-hue)) at 94% 8%,
-      color-mix(in srgb, var(--accent-strong) 7%, transparent),
-      transparent 26%,
+      color-mix(in srgb, var(--accent-strong) 12%, transparent),
+      transparent 22%,
       transparent 100%
     ),
-    radial-gradient(125% 98% at -5% 102%, color-mix(in srgb, var(--accent-strong) 11%, transparent), transparent 57%),
-    radial-gradient(92% 118% at 104% -2%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 54%),
-    radial-gradient(80% 70% at 48% 62%, color-mix(in srgb, var(--accent) 4.5%, transparent), transparent 72%),
-    radial-gradient(130% 105% at 50% 42%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 66%),
-    radial-gradient(165% 132% at 14% 18%, color-mix(in srgb, var(--bg-accent-a) 82%, rgba(110, 170, 240, 0.08) 18%), transparent 74%),
-    radial-gradient(172% 136% at 84% 82%, color-mix(in srgb, var(--bg-accent-b) 78%, rgba(92, 138, 212, 0.07) 22%), transparent 76%),
-    linear-gradient(125deg, color-mix(in srgb, var(--accent-soft) 12%, transparent) 0%, transparent 38%),
-    linear-gradient(180deg, var(--bg) 0%, color-mix(in srgb, var(--bg) 86%, #020304 14%) 100%);
+    radial-gradient(125% 98% at -5% 102%, color-mix(in srgb, var(--accent-strong) 18%, transparent), transparent 50%),
+    radial-gradient(92% 118% at 104% -2%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 48%),
+    radial-gradient(80% 70% at 48% 62%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 64%),
+    radial-gradient(130% 105% at 50% 42%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 58%),
+    radial-gradient(165% 132% at 14% 18%, color-mix(in srgb, var(--bg-accent-a) 82%, rgba(110, 170, 240, 0.14) 18%), transparent 68%),
+    radial-gradient(172% 136% at 84% 82%, color-mix(in srgb, var(--bg-accent-b) 78%, rgba(92, 138, 212, 0.12) 22%), transparent 70%),
+    linear-gradient(125deg, color-mix(in srgb, var(--accent-soft) 20%, transparent) 0%, transparent 32%),
+    linear-gradient(180deg, var(--bg) 0%, color-mix(in srgb, var(--bg) 78%, #020304 22%) 100%);
 }
 
 body::before,
@@ -192,7 +192,7 @@ input:focus-visible {
   z-index: 0;
   width: 100%;
   height: 100%;
-  opacity: 0.52;
+  opacity: 0.84;
   transform: translate3d(var(--parallax-canvas-x, 0px), var(--parallax-canvas-y, 0px), 0);
   will-change: transform;
 }
@@ -258,7 +258,8 @@ input:focus-visible {
 }
 
 html.crt-off .crt-chromatic-field,
-html.crt-off .crt-color-burn-field {
+html.crt-off .crt-color-burn-field,
+html.crt-off .crt-signal-bleed {
   display: none;
 }
 
@@ -273,49 +274,50 @@ html.crt-off .crt-color-burn-field {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  opacity: 0.65;
+  opacity: 0.82;
   mix-blend-mode: screen;
 }
 
-/* R / B channel shear — subtle full viewport aberration */
+/* R / B channel shear — viewport chromatic aberration */
 .crt-chromatic-field::before {
   background: linear-gradient(
     90deg,
-    rgba(255, 48, 72, 0.11) 0%,
-    transparent 18%,
-    transparent 82%,
-    rgba(255, 48, 72, 0.07) 100%
+    rgba(255, 42, 68, 0.16) 0%,
+    transparent 14%,
+    transparent 86%,
+    rgba(255, 52, 72, 0.1) 100%
   );
-  transform: translate3d(0.55px, 0, 0);
+  transform: translate3d(0.85px, 0, 0);
 }
 
 .crt-chromatic-field::after {
   background: linear-gradient(
     90deg,
-    rgba(38, 206, 255, 0.09) 0%,
-    transparent 22%,
-    transparent 78%,
-    rgba(38, 206, 255, 0.06) 100%
+    rgba(32, 198, 255, 0.13) 0%,
+    transparent 16%,
+    transparent 84%,
+    rgba(48, 210, 255, 0.09) 100%
   );
-  transform: translate3d(-0.55px, 0, 0);
+  transform: translate3d(-0.85px, 0, 0);
 }
 
-/* Darken + warm “tube” burn-in cast */
+/* Darken + warm tube cast + phosphor lift (color-burn) */
 .crt-color-burn-field {
   z-index: 4;
   mix-blend-mode: color-burn;
   opacity: 0;
   background:
-    radial-gradient(ellipse 120% 90% at 50% 44%, rgba(255, 230, 205, 0.09), transparent 56%),
-    radial-gradient(ellipse 95% 85% at 50% 100%, rgba(30, 18, 10, 0.35), transparent 52%);
+    radial-gradient(ellipse 125% 88% at 50% 38%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 48%),
+    radial-gradient(ellipse 120% 90% at 50% 44%, rgba(255, 230, 205, 0.14), transparent 52%),
+    radial-gradient(ellipse 95% 85% at 50% 100%, rgba(35, 22, 14, 0.42), transparent 48%);
 }
 
 html.crt-on .crt-color-burn-field {
-  opacity: 0.12;
+  opacity: 0.2;
 }
 
 html.crt-on.light-mode .crt-color-burn-field {
-  opacity: 0.075;
+  opacity: 0.12;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -325,8 +327,35 @@ html.crt-on.light-mode .crt-color-burn-field {
   }
 
   html.crt-on .crt-color-burn-field {
-    opacity: 0.07;
+    opacity: 0.11;
   }
+
+  .crt-grain {
+    animation: none;
+  }
+}
+
+/* Phosphor-style bloom / edge bleed (screen composite over burn) */
+.crt-signal-bleed {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  opacity: 0;
+  mix-blend-mode: screen;
+  background:
+    radial-gradient(ellipse 130% 90% at 50% 108%, color-mix(in srgb, var(--accent) 28%, transparent), transparent 42%),
+    radial-gradient(ellipse 85% 72% at -2% 35%, rgba(255, 72, 92, 0.09), transparent 48%),
+    radial-gradient(ellipse 85% 72% at 102% 62%, rgba(65, 185, 255, 0.085), transparent 48%),
+    radial-gradient(ellipse 55% 50% at 50% 50%, color-mix(in srgb, var(--accent-soft) 35%, transparent), transparent 62%);
+}
+
+html.crt-on .crt-signal-bleed {
+  opacity: 0.55;
+}
+
+html.crt-on.light-mode .crt-signal-bleed {
+  opacity: 0.38;
 }
 
 .scanlines {
@@ -336,16 +365,16 @@ html.crt-on.light-mode .crt-color-burn-field {
 html.crt-on .scanlines {
   display: block;
   z-index: 8;
-  opacity: 0.26;
+  opacity: 0.46;
   mix-blend-mode: soft-light;
   background: repeating-linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.028) 0,
-    rgba(255, 255, 255, 0.028) 0.45px,
-    rgba(0, 0, 0, 0.38) 0.45px,
-    rgba(0, 0, 0, 0.38) 1.05px,
-    transparent 1.05px,
-    transparent 3.1px
+    rgba(255, 255, 255, 0.05) 0,
+    rgba(255, 255, 255, 0.05) 0.55px,
+    rgba(0, 0, 0, 0.5) 0.55px,
+    rgba(0, 0, 0, 0.5) 1.2px,
+    transparent 1.2px,
+    transparent 2.65px
   );
 }
 
@@ -371,7 +400,7 @@ html.crt-on .crt-vignette {
   inset: 0;
   pointer-events: none;
   z-index: 0;
-  background: radial-gradient(ellipse at center, transparent 48%, rgba(0, 0, 0, 0.22) 72%, rgba(0, 0, 0, 0.52) 100%);
+  background: radial-gradient(ellipse at center, transparent 38%, rgba(0, 0, 0, 0.32) 68%, rgba(0, 0, 0, 0.68) 100%);
 }
 
 /* Chromatic fringe + phosphor tint at edge of tube */
@@ -381,14 +410,14 @@ html.crt-on .crt-vignette {
   inset: 0;
   pointer-events: none;
   z-index: 1;
-  opacity: 0.38;
+  opacity: 0.52;
   mix-blend-mode: soft-light;
   background:
     radial-gradient(
       ellipse at center,
-      transparent 54%,
-      color-mix(in srgb, var(--accent) 18%, transparent) 92%,
-      color-mix(in srgb, var(--accent-strong) 12%, rgba(50, 120, 255, 0.06)) 100%
+      transparent 48%,
+      color-mix(in srgb, var(--accent) 28%, transparent) 88%,
+      color-mix(in srgb, var(--accent-strong) 18%, rgba(50, 120, 255, 0.12)) 100%
     );
 }
 
@@ -398,11 +427,13 @@ html.crt-on .crt-vignette {
   inset: 0;
   z-index: 6;
   pointer-events: none;
-  opacity: 0.07;
-  mix-blend-mode: screen;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
-  background-size: 150px 150px;
-  filter: contrast(1.1);
+  opacity: 0.12;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+  background-size: 128px 128px;
+  filter: contrast(1.22) brightness(1.04);
+  will-change: transform;
+  animation: crt-grain-shift 11s ease-in-out infinite;
 }
 
 html.crt-on .crt-grain {
@@ -474,7 +505,7 @@ html.crt-on .crt-hum {
 }
 
 html.light-mode .crt-vignette::after {
-  opacity: 0.2;
+  opacity: 0.4;
 }
 
 html.crt-on #app {
@@ -650,7 +681,6 @@ html.crt-on .terminal-crt-scan {
     transparent 1px,
     transparent 5px
   );
-  animation: crt-scan-drift 3.8s linear infinite;
 }
 
 @keyframes crt-scan-drift {
@@ -707,8 +737,8 @@ html.crt-off .terminal-crt-scan {
 
 html.light-mode {
   --bg: #f5f1e9;
-  --glass: rgba(255, 253, 248, 0.82);
-  --glass-strong: rgba(255, 254, 250, 0.9);
+  --glass: rgba(255, 253, 248, 0.7);
+  --glass-strong: rgba(255, 254, 250, 0.82);
   --ink: #171511;
   --ink-strong: #070605;
   --muted: #615b52;
@@ -721,42 +751,58 @@ html.light-mode body {
   background:
     conic-gradient(
       from calc(75deg + var(--bg-gradient-hue)) at 8% 92%,
-      color-mix(in srgb, var(--accent) 12%, rgba(255, 255, 255, 0.12)),
-      transparent 24%,
+      color-mix(in srgb, var(--accent) 18%, rgba(255, 255, 255, 0.18)),
+      transparent 20%,
       transparent 100%
     ),
     conic-gradient(
       from calc(205deg + var(--bg-gradient-hue)) at 96% 6%,
-      color-mix(in srgb, var(--accent-strong) 8%, rgba(255, 252, 248, 0.2)),
-      transparent 30%,
+      color-mix(in srgb, var(--accent-strong) 12%, rgba(255, 252, 248, 0.28)),
+      transparent 26%,
       transparent 100%
     ),
-    radial-gradient(118% 100% at -2% 100%, color-mix(in srgb, var(--accent) 10%, rgba(255, 250, 240, 0.5)), transparent 60%),
-    radial-gradient(100% 125% at 102% -4%, color-mix(in srgb, var(--accent-strong) 9%, rgba(255, 255, 255, 0.35)), transparent 58%),
-    radial-gradient(120% 102% at 50% 38%, color-mix(in srgb, var(--accent) 11%, rgba(255, 255, 255, 0.42)), transparent 64%),
-    radial-gradient(150% 126% at 20% 20%, color-mix(in srgb, var(--bg-accent-a) 74%, rgba(255, 255, 255, 0.3) 26%), transparent 72%),
-    radial-gradient(156% 132% at 80% 80%, color-mix(in srgb, var(--bg-accent-b) 74%, rgba(240, 244, 255, 0.24) 26%), transparent 76%),
-    linear-gradient(118deg, color-mix(in srgb, var(--accent-soft) 18%, transparent), transparent 42%),
+    radial-gradient(118% 100% at -2% 100%, color-mix(in srgb, var(--accent) 14%, rgba(255, 248, 238, 0.62)), transparent 54%),
+    radial-gradient(100% 125% at 102% -4%, color-mix(in srgb, var(--accent-strong) 13%, rgba(255, 255, 255, 0.45)), transparent 52%),
+    radial-gradient(120% 102% at 50% 38%, color-mix(in srgb, var(--accent) 15%, rgba(255, 255, 255, 0.52)), transparent 58%),
+    radial-gradient(150% 126% at 20% 20%, color-mix(in srgb, var(--bg-accent-a) 74%, rgba(255, 255, 255, 0.38) 26%), transparent 68%),
+    radial-gradient(156% 132% at 80% 80%, color-mix(in srgb, var(--bg-accent-b) 74%, rgba(240, 244, 255, 0.32) 26%), transparent 72%),
+    linear-gradient(118deg, color-mix(in srgb, var(--accent-soft) 26%, transparent), transparent 36%),
     linear-gradient(180deg, #f3efe7 0%, #e9e2d7 100%);
 }
 
 html.light-mode .terminal-shell {
   background:
-    radial-gradient(ellipse 118% 72% at 18% 0%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 54%),
-    radial-gradient(ellipse 90% 55% at 100% 8%, color-mix(in srgb, var(--accent-strong) 8%, transparent), transparent 50%),
-    linear-gradient(125deg, color-mix(in srgb, var(--accent-soft) 18%, transparent) 0%, transparent 48%),
-    linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, rgba(255, 255, 255, 0.06)), transparent 24%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.038)),
-    linear-gradient(180deg, rgba(255, 252, 246, 0.48), rgba(244, 238, 228, 0.38)),
+    radial-gradient(ellipse 118% 72% at 18% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 50%),
+    radial-gradient(ellipse 90% 55% at 100% 8%, color-mix(in srgb, var(--accent-strong) 12%, transparent), transparent 46%),
+    linear-gradient(125deg, color-mix(in srgb, var(--accent-soft) 26%, transparent) 0%, transparent 42%),
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 20%, rgba(255, 255, 255, 0.08)), transparent 22%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.048)),
+    linear-gradient(180deg, rgba(255, 252, 246, 0.4), rgba(236, 230, 218, 0.32)),
     var(--glass);
 }
 
 html.light-mode .terminal-header {
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.16)),
-    rgba(255, 252, 246, 0.38);
-  backdrop-filter: blur(16px) saturate(120%);
-  -webkit-backdrop-filter: blur(16px) saturate(120%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.045)),
+    rgba(218, 214, 206, 0.4);
+  backdrop-filter: blur(16px) saturate(108%);
+  -webkit-backdrop-filter: blur(16px) saturate(108%);
+}
+
+html.light-mode .terminal-state {
+  color: rgba(72, 68, 62, 0.52);
+}
+
+html.light-mode #route-indicator {
+  color: rgba(42, 40, 36, 0.68);
+}
+
+html.light-mode #theme-indicator {
+  color: color-mix(in srgb, var(--accent) 62%, rgba(52, 48, 44, 0.65));
+}
+
+html.light-mode .terminal-header .titlebar-ghost {
+  color: color-mix(in srgb, var(--accent) 48%, rgba(48, 46, 42, 0.68));
 }
 
 /* Tag taxonomy chips (views, help, tag browser) */
@@ -1043,12 +1089,12 @@ html.light-mode .terminal-header {
   border: 1px solid color-mix(in srgb, rgba(255, 255, 255, 0.18) 76%, var(--accent) 24%);
   border-radius: 9px;
   background:
-    radial-gradient(ellipse 118% 72% at 18% 0%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 54%),
-    radial-gradient(ellipse 90% 55% at 100% 8%, color-mix(in srgb, var(--accent-strong) 8%, transparent), transparent 50%),
-    linear-gradient(125deg, color-mix(in srgb, var(--accent-soft) 18%, transparent) 0%, transparent 48%),
-    linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, rgba(255, 255, 255, 0.04)), transparent 24%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.034), rgba(255, 255, 255, 0.012)),
-    linear-gradient(180deg, rgba(28, 32, 40, 0.52), rgba(20, 24, 32, 0.44)),
+    radial-gradient(ellipse 118% 72% at 18% 0%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 48%),
+    radial-gradient(ellipse 90% 55% at 100% 8%, color-mix(in srgb, var(--accent-strong) 14%, transparent), transparent 44%),
+    linear-gradient(125deg, color-mix(in srgb, var(--accent-soft) 26%, transparent) 0%, transparent 40%),
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 20%, rgba(255, 255, 255, 0.06)), transparent 20%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.042), rgba(255, 255, 255, 0.014)),
+    linear-gradient(180deg, rgba(28, 32, 40, 0.34), rgba(18, 22, 30, 0.28)),
     var(--glass);
   box-shadow:
     0 44px 118px rgba(0, 0, 0, 0.64),
@@ -1064,16 +1110,13 @@ html.light-mode .terminal-header {
     transform 120ms ease,
     border-color 180ms ease,
     box-shadow 180ms ease;
-  backdrop-filter: blur(38px) saturate(118%);
-  -webkit-backdrop-filter: blur(38px) saturate(118%);
-  animation: terminal-aura-breathe 16s ease-in-out infinite;
+  backdrop-filter: blur(32px) saturate(122%);
+  -webkit-backdrop-filter: blur(32px) saturate(122%);
 }
 
-/* Phosphor spill — very subtle; stacks with aura keyframes */
+/* Drop-shadow + backdrop-filter + animated box-shadow caused compositor flicker; rely on static shell shadow */
 html.crt-on .terminal-shell:not(.is-shutdown) {
-  filter:
-    drop-shadow(0 0 12px color-mix(in srgb, var(--accent) 3.5%, transparent))
-    drop-shadow(0 0 28px color-mix(in srgb, var(--accent) 1.8%, transparent));
+  filter: none;
 }
 
 html.crt-on .site-nav {
@@ -1205,48 +1248,18 @@ html.crt-on .brand-dot {
   gap: 13px;
   min-width: 0;
   padding: 0 10px 0 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.055);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.032);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.012)),
-    rgba(22, 26, 34, 0.38);
-  backdrop-filter: blur(14px) saturate(115%);
-  -webkit-backdrop-filter: blur(14px) saturate(115%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.012), rgba(255, 255, 255, 0.003)),
+    rgba(11, 13, 17, 0.62);
+  backdrop-filter: blur(14px) saturate(106%);
+  -webkit-backdrop-filter: blur(14px) saturate(106%);
 }
 
 .terminal-left-controls {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-}
-
-@keyframes terminal-aura-breathe {
-  0%,
-  100% {
-    box-shadow:
-      0 45px 130px rgba(0, 0, 0, 0.58),
-      0 0 0 1px rgba(255, 255, 255, 0.032) inset,
-      0 0 4px color-mix(in srgb, var(--accent) 1.2%, transparent),
-      0 0 8px color-mix(in srgb, var(--glow) 3%, transparent),
-      0 0 14px rgba(109, 199, 255, 0.008);
-  }
-
-  38% {
-    box-shadow:
-      0 45px 130px rgba(0, 0, 0, 0.58),
-      0 0 0 1px rgba(255, 255, 255, 0.03) inset,
-      0 0 3px color-mix(in srgb, var(--accent) 1%, transparent),
-      0 0 6px color-mix(in srgb, var(--glow) 2.5%, transparent),
-      0 0 11px rgba(208, 158, 255, 0.006);
-  }
-
-  68% {
-    box-shadow:
-      0 45px 130px rgba(0, 0, 0, 0.58),
-      0 0 0 1px rgba(255, 255, 255, 0.034) inset,
-      0 0 5px color-mix(in srgb, var(--accent) 1.3%, transparent),
-      0 0 9px color-mix(in srgb, var(--glow) 3.2%, transparent),
-      0 0 16px rgba(109, 199, 255, 0.009);
-  }
 }
 
 @keyframes terminal-aura-drift {
@@ -1364,29 +1377,29 @@ html.crt-on .brand-dot {
   width: 14px;
   height: 14px;
   border-radius: 999px;
-  border: 1px solid rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(0, 0, 0, 0.35);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.38),
-    0 0 12px rgba(255, 255, 255, 0.08);
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 0 6px rgba(0, 0, 0, 0.25);
   transition:
     filter 120ms ease,
     transform 120ms ease;
 }
 
 .window-button.is-close {
-  background: #ff5f57;
+  background: #b3443f;
 }
 
 .window-button.is-minimize {
-  background: #ffbd2e;
+  background: #a88620;
 }
 
 .window-button.is-maximize {
-  background: #28c840;
+  background: #1d7a30;
 }
 
 .window-button:hover {
-  filter: brightness(1.12) saturate(1.08);
+  filter: brightness(1.06) saturate(1.05);
   transform: scale(1.08);
 }
 
@@ -1396,18 +1409,18 @@ html.crt-on .brand-dot {
   justify-content: center;
   gap: 14px;
   position: relative;
-  color: rgba(225, 230, 233, 0.54);
+  color: rgba(185, 192, 200, 0.4);
   font-size: 0.68rem;
 }
 
 #route-indicator {
-  color: rgba(255, 255, 255, 0.82);
+  color: rgba(230, 234, 238, 0.52);
 }
 
 #theme-indicator {
   border-radius: 5px;
   padding: 2px 6px;
-  color: var(--accent);
+  color: color-mix(in srgb, var(--accent) 72%, rgba(200, 205, 210, 0.35));
   text-transform: lowercase;
 }
 
@@ -1496,7 +1509,7 @@ html.crt-on .brand-dot {
   border-radius: 6px;
   border: 0;
   background: transparent;
-  color: var(--accent);
+  color: color-mix(in srgb, var(--accent) 55%, rgba(168, 176, 186, 0.55));
   font-size: 0.68rem;
   text-transform: lowercase;
   line-height: 1;
@@ -1504,8 +1517,8 @@ html.crt-on .brand-dot {
 
 .terminal-header .titlebar-ghost:hover {
   border: 0;
-  background: color-mix(in srgb, var(--accent-soft) 38%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 28%, transparent);
+  color: color-mix(in srgb, var(--accent) 72%, rgba(200, 210, 220, 0.35));
 }
 
 .terminal-body {
@@ -1513,14 +1526,15 @@ html.crt-on .brand-dot {
   min-height: 0;
   grid-template-rows: 1fr auto;
   background:
-    linear-gradient(165deg, color-mix(in srgb, var(--accent-soft) 5%, transparent) 0%, transparent 44%),
-    rgba(10, 12, 16, 0.972);
+    linear-gradient(155deg, color-mix(in srgb, var(--accent-soft) 14%, transparent) 0%, transparent 38%),
+    linear-gradient(88deg, color-mix(in srgb, var(--accent) 9%, transparent) 0%, transparent 36%),
+    rgba(10, 12, 16, 0.78);
   box-shadow:
-    inset 0 2px 4px rgba(0, 0, 0, 0.48),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.025),
-    inset 0 22px 64px rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(24px) saturate(108%);
-  -webkit-backdrop-filter: blur(24px) saturate(108%);
+    inset 0 2px 4px rgba(0, 0, 0, 0.38),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.032),
+    inset 0 22px 64px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(20px) saturate(118%);
+  -webkit-backdrop-filter: blur(20px) saturate(118%);
 }
 
 .terminal-output {

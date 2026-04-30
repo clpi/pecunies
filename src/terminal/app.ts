@@ -246,6 +246,11 @@ const SHELL_FRAME_STORAGE = 'pecunies.terminalFrame';
 const SHELL_PROFILE_STORAGE = 'pecunies.shellProfile';
 /** Cap autocomplete rows so the panel never looks like a “153 results” dump. */
 const MAX_AUTOCOMPLETE_RESULTS = 14;
+/** Root `rem` baseline; persisted as `font_size` in session config (see `zoom in` / `config`). */
+const FONT_SIZE_MIN = 10;
+const FONT_SIZE_MAX = 28;
+const FONT_SIZE_DEFAULT = 14;
+const FONT_SIZE_STEP = 1;
 const DEFAULT_AI_MODEL = '@cf/meta/llama-3.1-8b-instruct';
 const AI_MODEL_OPTIONS = [
   '@cf/meta/llama-3.1-8b-instruct',
@@ -335,6 +340,7 @@ export class TerminalApp {
   private typingIdleTimer: ReturnType<typeof setTimeout> | null = null;
   private viewHistory: string[] = [];
   private lastRenderedLineCount = 0;
+  private terminalFontSizePx = FONT_SIZE_DEFAULT;
 
   constructor({ root, commands, featuredCommands }: TerminalAppOptions) {
     this.root = root;
@@ -462,6 +468,14 @@ export class TerminalApp {
       } else {
         this.applyTheme(this.manualTheme ?? 'orange');
       }
+    });
+    this.identityModelSelect.addEventListener('change', () => {
+      const v = this.identityModelSelect.value;
+      this.aiModel = AI_MODEL_OPTIONS.includes(v as (typeof AI_MODEL_OPTIONS)[number])
+        ? v
+        : DEFAULT_AI_MODEL;
+      this.persistShellProfile();
+      void this.setConfigQuiet('ai_model', this.aiModel);
     });
     document.addEventListener('click', (event) => {
       const target = event.target;
@@ -711,6 +725,7 @@ export class TerminalApp {
     this.setupShellWindowing();
     this.updateDockState();
     this.updateBackButtonState();
+    void this.fetchConfigState();
   }
 
   boot(): void {
@@ -880,6 +895,72 @@ export class TerminalApp {
       this.debugMode = action === 'off' ? false : true;
       this.lines.push(this.responseLine(`Debug logging ${this.debugMode ? 'enabled' : 'disabled'}.`, 'info'));
       void this.recordCommand(normalized);
+      this.renderLog();
+      if (focus) {
+        this.inputElement.focus();
+      }
+      return;
+    }
+
+    /* Font zoom: `zoom` alone remains the maximize alias; subcommands adjust root rem via `font_size`. */
+    if (name === 'zoom' && args.length > 0) {
+      const sub = args[0]?.toLowerCase();
+      if (sub === 'in' || sub === 'out' || sub === 'reset') {
+        if (echo) {
+          this.lines.push(this.commandLine(normalized));
+        }
+        if (recordHistory) {
+          this.pushHistory(normalized);
+        }
+        void this.recordCommand(normalized);
+        const cur = this.terminalFontSizePx;
+        let next = cur;
+        let note: string | null = null;
+        if (sub === 'in') {
+          if (cur >= FONT_SIZE_MAX)
+            note = `Already at maximum (${FONT_SIZE_MAX}px).`;
+          else
+            next = cur + FONT_SIZE_STEP;
+        } else if (sub === 'out') {
+          if (cur <= FONT_SIZE_MIN)
+            note = `Already at minimum (${FONT_SIZE_MIN}px).`;
+          else
+            next = cur - FONT_SIZE_STEP;
+        } else {
+          next = FONT_SIZE_DEFAULT;
+        }
+        if (note)
+          this.lines.push(this.responseLine(note, 'info'));
+        else {
+          void this.setTerminalFontSizeAndPersist(next);
+          this.lines.push(
+            this.responseLine(
+              sub === 'reset'
+                ? `Font size reset to ${FONT_SIZE_DEFAULT}px.`
+                : `Font size ${next}px.`,
+              'success',
+            ),
+          );
+        }
+        this.renderLog();
+        if (focus) {
+          this.inputElement.focus();
+        }
+        return;
+      }
+      if (echo) {
+        this.lines.push(this.commandLine(normalized));
+      }
+      if (recordHistory) {
+        this.pushHistory(normalized);
+      }
+      void this.recordCommand(normalized);
+      this.lines.push(
+        this.responseLine(
+          'Usage: zoom in | zoom out | zoom reset — or type zoom alone to toggle fullscreen (maximize).',
+          'warn',
+        ),
+      );
       this.renderLog();
       if (focus) {
         this.inputElement.focus();
@@ -1188,7 +1269,24 @@ export class TerminalApp {
       const raw = String(config.syntax_scheme ?? '').trim().toLowerCase();
       this.applySyntaxScheme(raw === 'contrast' || raw === 'pastel' ? raw : 'default');
     }
+    if ('font_size' in config) {
+      const raw = Number(config.font_size);
+      if (Number.isFinite(raw))
+        this.applyTerminalFontSize(raw);
+    }
     this.updatePromptIdentityUi();
+  }
+
+  private applyTerminalFontSize(px: number): void {
+    const clamped = Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, Math.round(px)));
+    this.terminalFontSizePx = clamped;
+    document.documentElement.style.fontSize = `${clamped}px`;
+  }
+
+  private async setTerminalFontSizeAndPersist(px: number): Promise<void> {
+    const clamped = Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, Math.round(px)));
+    this.applyTerminalFontSize(clamped);
+    await this.setConfigQuiet('font_size', String(clamped));
   }
 
   private applySyntaxScheme(scheme: 'default' | 'contrast' | 'pastel'): void {
@@ -1327,7 +1425,7 @@ export class TerminalApp {
 
   private configEditorHtml(config: Record<string, unknown>): string {
     const theme = String(config.theme ?? 'auto');
-    const fontSize = Number(config.font_size ?? 14);
+    const fontSize = Number(config.font_size ?? FONT_SIZE_DEFAULT);
     const font = String(config.font ?? 'monospace');
     const dark = Boolean(config.dark ?? true);
     const name = String(config.name ?? 'guest');
@@ -1438,7 +1536,7 @@ export class TerminalApp {
   private async saveConfigEditorValues(): Promise<void> {
     const updates: Array<[string, string]> = [
       ['theme', this.readConfigEditorField('theme') || 'auto'],
-      ['font_size', this.readConfigEditorField('font_size') || '14'],
+      ['font_size', this.readConfigEditorField('font_size') || String(FONT_SIZE_DEFAULT)],
       ['font', this.readConfigEditorField('font') || 'monospace'],
       ['name', this.readConfigEditorField('name') || 'guest'],
       ['environment', this.readConfigEditorField('environment') || 'pecunies'],
@@ -2037,6 +2135,40 @@ export class TerminalApp {
   }
 
   private argumentSuggestions(commandName: string, args: string[], trailingSpace: boolean): Suggestion[] {
+    if (commandName === 'zoom') {
+      if (!args.length) {
+        return [
+          {
+            completion: 'zoom in ',
+            usage: 'zoom in',
+            description: 'Increase UI font size (persists as font_size).',
+            commandName: 'zoom',
+          },
+          {
+            completion: 'zoom out ',
+            usage: 'zoom out',
+            description: 'Decrease UI font size.',
+            commandName: 'zoom',
+          },
+          {
+            completion: 'zoom reset ',
+            usage: 'zoom reset',
+            description: `Reset font size to ${FONT_SIZE_DEFAULT}px.`,
+            commandName: 'zoom',
+          },
+        ];
+      }
+      const sub = args[0]?.toLowerCase() ?? '';
+      const opts = ['in', 'out', 'reset'].filter((o) => o.startsWith(sub));
+      return opts.map((o) => ({
+        completion: `zoom ${o} `,
+        usage: `zoom ${o}`,
+        description:
+          o === 'in' ? 'Larger text.' : o === 'out' ? 'Smaller text.' : 'Default text size.',
+        commandName: 'zoom',
+      }));
+    }
+
     if (commandName === 'ask' || commandName === 'chat') {
       const prefix = `${commandName} ${args.join(' ')}`.trim();
       const options = [
