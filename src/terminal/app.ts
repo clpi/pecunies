@@ -2356,7 +2356,8 @@ export class TerminalApp {
           <div class="output-records post-feed">
             ${posts
               .map((post) => {
-                const comments = post.comments?.length ?? 0;
+                const commentList = post.comments ?? [];
+                const comments = commentList.length;
 
                 return `
                   <article
@@ -2393,7 +2394,7 @@ export class TerminalApp {
                     </div>
                     ${
                       comments
-                        ? `<div class="output-copy post-comments-preview">${post.comments
+                        ? `<div class="output-copy post-comments-preview">${commentList
                             .map(
                               (comment) =>
                                 `<p><strong>${this.escapeHtml(comment.name)}</strong>: ${this.escapeHtml(comment.message)}</p>`,
