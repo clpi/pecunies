@@ -276,6 +276,7 @@ export class TerminalApp {
   private readonly identityDisplayNameInput: HTMLInputElement;
   private readonly identityEnvironmentSelect: HTMLSelectElement;
   private readonly identityModelSelect: HTMLSelectElement;
+  private readonly identityEmailInput: HTMLInputElement;
   private readonly identityThemeSelect: HTMLSelectElement;
   private readonly identityDarkModeInput: HTMLInputElement;
   private readonly identitySystemPromptInput: HTMLTextAreaElement;
@@ -316,6 +317,7 @@ export class TerminalApp {
   private shellAliases: Record<string, string> = {};
   private identityDisplayName = 'guest';
   private identityEnvironment = 'pecunies';
+  private identityEmail = '';
   private aiModel = DEFAULT_AI_MODEL;
   private systemPromptInjection = '';
   private darkMode = true;
@@ -349,6 +351,7 @@ export class TerminalApp {
     this.identityDisplayNameInput = this.requireElement<HTMLInputElement>('#identity-display-name');
     this.identityEnvironmentSelect = this.requireElement<HTMLSelectElement>('#identity-environment');
     this.identityModelSelect = this.requireElement<HTMLSelectElement>('#identity-model');
+    this.identityEmailInput = this.requireElement<HTMLInputElement>('#identity-email');
     this.identityThemeSelect = this.requireElement<HTMLSelectElement>('#identity-theme');
     this.identityDarkModeInput = this.requireElement<HTMLInputElement>('#identity-dark-mode');
     this.identitySystemPromptInput = this.requireElement<HTMLTextAreaElement>('#identity-system-prompt');
@@ -431,6 +434,21 @@ export class TerminalApp {
     });
     this.identitySaveButton.addEventListener('click', () => {
       void this.saveIdentityFromPopover();
+    });
+    this.identityThemeSelect.addEventListener('change', () => {
+      const nextThemeRaw = this.identityThemeSelect.value.trim().toLowerCase();
+      const nextTheme =
+        nextThemeRaw === 'auto'
+          ? null
+          : (Object.hasOwn(terminalThemes, nextThemeRaw) ? (nextThemeRaw as ThemeName) : this.manualTheme);
+      this.manualTheme = nextTheme;
+      this.persistShellProfile();
+      void this.setConfigQuiet('theme', nextTheme ?? 'auto');
+      if (this.activeView) {
+        this.applyTheme(this.effectiveTheme(this.activeView));
+      } else {
+        this.applyTheme(this.manualTheme ?? 'red');
+      }
     });
     document.addEventListener('click', (event) => {
       const target = event.target;
@@ -585,10 +603,10 @@ export class TerminalApp {
         }
         if (copyButton) {
           copyButton.classList.add('is-copied');
-          copyButton.textContent = 'copied';
+          copyButton.setAttribute('aria-label', 'Copied');
           window.setTimeout(() => {
             copyButton.classList.remove('is-copied');
-            copyButton.textContent = 'copy';
+            copyButton.setAttribute('aria-label', 'Copy response');
           }, 1400);
         }
         return;
@@ -695,6 +713,8 @@ export class TerminalApp {
     if (!normalized) {
       return;
     }
+
+    this.setTitlebarFromCommand(normalized);
 
     if (normalized === '!!') {
       const lastCommand = this.history.at(-1);
@@ -1119,6 +1139,9 @@ export class TerminalApp {
       const rawModel = String(config.ai_model || '').trim();
       this.aiModel = AI_MODEL_OPTIONS.includes(rawModel as (typeof AI_MODEL_OPTIONS)[number]) ? rawModel : DEFAULT_AI_MODEL;
     }
+    if ('email' in config) {
+      this.identityEmail = String(config.email ?? '').trim().slice(0, 120);
+    }
     if ('system_prompt' in config) {
       this.systemPromptInjection = String(config.system_prompt ?? '').slice(0, 1200);
     }
@@ -1154,6 +1177,7 @@ export class TerminalApp {
     this.identityDisplayNameInput.value = this.identityDisplayName;
     this.identityEnvironmentSelect.value = this.identityEnvironment;
     this.identityModelSelect.value = this.aiModel;
+    this.identityEmailInput.value = this.identityEmail;
     this.identityThemeSelect.value = this.manualTheme ?? 'auto';
     this.identityDarkModeInput.checked = this.darkMode;
     this.identitySystemPromptInput.value = this.systemPromptInjection;
@@ -1166,6 +1190,7 @@ export class TerminalApp {
       this.identityDisplayNameInput.value = this.identityDisplayName;
       this.identityEnvironmentSelect.value = this.identityEnvironment;
       this.identityModelSelect.value = this.aiModel;
+      this.identityEmailInput.value = this.identityEmail;
       this.identityThemeSelect.value = this.manualTheme ?? 'auto';
       this.identityDarkModeInput.checked = this.darkMode;
       this.identitySystemPromptInput.value = this.systemPromptInjection;
@@ -1208,6 +1233,7 @@ export class TerminalApp {
     this.aiModel = AI_MODEL_OPTIONS.includes(this.identityModelSelect.value as (typeof AI_MODEL_OPTIONS)[number])
       ? this.identityModelSelect.value
       : DEFAULT_AI_MODEL;
+    this.identityEmail = this.identityEmailInput.value.trim().slice(0, 120);
     const nextThemeRaw = this.identityThemeSelect.value.trim().toLowerCase();
     const nextTheme = nextThemeRaw === 'auto' ? null : nextThemeRaw in terminalThemes ? (nextThemeRaw as ThemeName) : 'orange';
     this.manualTheme = nextTheme;
@@ -1220,6 +1246,7 @@ export class TerminalApp {
     await this.setConfigQuiet('name', nextName);
     await this.setConfigQuiet('environment', nextEnvironment);
     await this.setConfigQuiet('ai_model', this.aiModel);
+    await this.setConfigQuiet('email', this.identityEmail);
     await this.setConfigQuiet('theme', nextTheme ?? 'auto');
     await this.setConfigQuiet('dark', String(this.darkMode));
     await this.setConfigQuiet('system_prompt', this.systemPromptInjection);
@@ -1603,6 +1630,11 @@ export class TerminalApp {
     window.setTimeout(() => document.body.classList.remove('view-switching'), 360);
     this.scrambleText(this.routeIndicator, routeLabel);
     this.fieldHandle?.burst();
+  }
+
+  private setTitlebarFromCommand(commandText: string): void {
+    const label = commandText.replace(/\s+/g, ' ').trim().slice(0, 44);
+    this.routeIndicator.textContent = label;
   }
 
   private commandContext(): CommandContext {

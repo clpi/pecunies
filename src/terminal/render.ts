@@ -169,6 +169,14 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
                 <option value="@cf/meta/llama-3.1-70b-instruct">@cf/meta/llama-3.1-70b-instruct</option>
                 <option value="@cf/qwen/qwen1.5-14b-chat-awq">@cf/qwen/qwen1.5-14b-chat-awq</option>
               </select>
+              <label class="identity-popover-label" for="identity-email">Email (optional)</label>
+              <input
+                class="identity-popover-input"
+                id="identity-email"
+                type="email"
+                maxlength="120"
+                placeholder="name@example.com"
+              />
               <label class="identity-popover-label" for="identity-theme">Theme</label>
               <select class="identity-popover-select" id="identity-theme">
                 <option value="orange">orange</option>

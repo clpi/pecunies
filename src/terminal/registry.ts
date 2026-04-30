@@ -16,6 +16,15 @@ import type {
   ViewStat,
 } from './types';
 
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
 function mergeTagItems(slugs: string[]): { label: string; type: string; command: string }[] {
   const seen = new Set<string>();
   const out: { label: string; type: string; command: string }[] = [];
@@ -619,7 +628,7 @@ export function createCommandRegistry(): {
     eyebrow: 'About',
     title: 'A portfolio that behaves like a small operating system.',
     description:
-      'This site is a one-page terminal emulator with command history, fake files, AI-assisted commands, games, metrics, and views rendered as terminal output.',
+      'This site is a one-page terminal emulator with command history, fake files, AI-assisted commands, games, metrics, and view routing rendered in a single shell.',
     theme: 'frost',
     tags: ['terminal', 'portfolio', 'architecture'],
     logline: 'Loaded about page for the terminal application.',
@@ -639,12 +648,24 @@ export function createCommandRegistry(): {
         ],
       },
       {
+        type: 'metrics',
+        heading: 'Application surface',
+        items: [
+          { label: 'UI', value: 'Single-shell SPA', detail: 'One terminal window, route-aware navigation, and command-driven rendering.' },
+          { label: 'State', value: 'Session-first', detail: 'Command history, identity, theme, and profile preferences persisted per session.' },
+          { label: 'Content', value: 'Markdown + structured views', detail: 'Resume, projects, posts, and docs rendered as terminal-native output.' },
+          { label: 'Cloud', value: 'Cloudflare Pages + Functions', detail: 'Workers AI + KV + optional D1/R2 for AI context, comments, and content syncing.' },
+        ],
+      },
+      {
         type: 'note',
         heading: 'Architecture',
         lines: [
           'Static portfolio views live in the command registry.',
-          'Stateful OS commands and AI context are handled by Cloudflare Pages Functions, Workers AI, and KV.',
-          'The root OS files README.md and TODO.md document the current application and planned additions.',
+          'Stateful OS commands, identity/config persistence, and AI context flow through Cloudflare Pages Functions.',
+          'Workers AI is used for ask/explain/chat flows; session context (history, reads, profile config) is injected per request.',
+          'Posts and comments are exposed through /api/posts, and /comment writes directly into the same post stream.',
+          'The root OS files README.md and TODO.md remain the canonical app snapshot and backlog.',
         ],
       },
     ],
@@ -1319,7 +1340,17 @@ export function createCommandRegistry(): {
       try {
         const res = await fetch('/api/posts');
         const payload = (await res.json()) as {
-          posts?: Array<{ slug: string; path: string; title: string; markdown: string }>;
+          posts?: Array<{
+            slug: string;
+            path: string;
+            title: string;
+            markdown: string;
+            description?: string;
+            published?: string;
+            updated?: string;
+            tags?: string[];
+            comments?: Array<{ name: string; message: string; at: string }>;
+          }>;
         };
         const list = payload.posts ?? [];
         const q = query.toLowerCase();
@@ -1347,7 +1378,42 @@ export function createCommandRegistry(): {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'view', path: post.path }),
         }).catch(() => null);
-        const html = renderPostMarkdownToHtml(post.markdown);
+        const comments = post.comments ?? [];
+        const commentHeading = `${comments.length} ${comments.length === 1 ? 'comment' : 'comments'}`;
+        const commentsHtml = comments.length
+          ? comments
+              .map((entry) => {
+                const at = entry.at ? new Date(entry.at).toLocaleString() : '';
+                return `<article class="post-comment-item">
+                  <p class="post-comment-meta"><strong>${escapeHtml(entry.name || 'anonymous')}</strong>${at ? ` <span>${escapeHtml(at)}</span>` : ''}</p>
+                  <p class="post-comment-body">${escapeHtml(entry.message || '')}</p>
+                </article>`;
+              })
+              .join('')
+          : '<p class="post-comment-empty">No comments yet.</p>';
+        const tags = post.tags?.length
+          ? `<div class="post-comment-tags">${post.tags
+              .map((tag) => `<button type="button" class="content-tag content-tag--compact" data-command="tags ${escapeHtml(tag)}">#${escapeHtml(tag)}</button>`)
+              .join('')}</div>`
+          : '';
+        const blogMeta = `<header class="post-article-meta">
+          <p class="post-article-kicker">post</p>
+          <h2 class="post-article-title">${escapeHtml(post.title)}</h2>
+          ${post.description ? `<p class="post-article-description">${escapeHtml(post.description)}</p>` : ''}
+          <p class="post-article-dates">published ${escapeHtml(post.published || 'n/a')}${post.updated && post.updated !== post.published ? ` · updated ${escapeHtml(post.updated)}` : ''}</p>
+          ${tags}
+        </header>`;
+        const articleHtml = renderPostMarkdownToHtml(post.markdown);
+        const html = `<article class="post-article-shell">
+          <button type="button" class="inline-link" data-command="posts">← back to posts</button>
+          ${blogMeta}
+          <section class="post-article-body markdown-body">${articleHtml}</section>
+          <section class="post-comment-section">
+            <h3 class="output-heading">${escapeHtml(commentHeading)}</h3>
+            <p class="post-comment-command">comment <code>${escapeHtml(post.slug)}</code> &lt;name&gt; &lt;message&gt;</p>
+            ${commentsHtml}
+          </section>
+        </article>`;
         return {
           kind: 'markdown-view',
           title: post.title,
@@ -1586,6 +1652,12 @@ export function createCommandRegistry(): {
     description: 'Show a hop-by-hop path view similar to bash traceroute.',
   });
 
+  addOsCommand('whois', {
+    usage: 'whois <site>',
+    group: 'Network',
+    description: 'Show DNS/RDAP ownership metadata for a domain.',
+  });
+
   addOsCommand('weather', {
     usage: 'weather [location]',
     group: 'Network',
@@ -1602,6 +1674,12 @@ export function createCommandRegistry(): {
     usage: 'trace <website>',
     group: 'Network',
     description: 'Show a stylized route from the browser through Cloudflare to a site.',
+  });
+
+  addOsCommand('doctor', {
+    usage: 'doctor',
+    group: 'System',
+    description: 'Run diagnostics for bindings, DNS, and network reachability.',
   });
 
   addOsCommand('metrics', {

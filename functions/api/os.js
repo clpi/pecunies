@@ -9,11 +9,17 @@ import {
 } from './posts.js';
 
 const MODEL = '@cf/meta/llama-3.1-8b-instruct';
-const ALLOWED_MODELS = new Set([
-  '@cf/meta/llama-3.1-8b-instruct',
-  '@cf/meta/llama-3.1-70b-instruct',
-  '@cf/qwen/qwen1.5-14b-chat-awq',
-]);
+
+/**
+ * Accept broader Workers AI model ids instead of a tiny hardcoded list.
+ * Examples: @cf/meta/llama-3.1-8b-instruct, @cf/qwen/qwen2.5-coder-32b-instruct
+ */
+function isValidAiModel(model) {
+  if (typeof model !== 'string') return false;
+  const value = model.trim();
+  if (!value.startsWith('@cf/')) return false;
+  return /^@cf\/[a-z0-9._-]+\/[a-z0-9._:-]+$/i.test(value);
+}
 
 const PROFILE_CONTEXT = `
 Chris Pecunies is a Seattle-based Software Engineer specializing in cloud services, workflow automation, distributed systems, and full-stack cloud applications.
@@ -313,7 +319,9 @@ const MANUALS = {
   curl: 'curl <url>\nFetch a URL from the Cloudflare edge and print status plus a short text preview.',
   ping: 'ping <host>\nApproximate network reachability with an HTTP request from Cloudflare Workers.',
   traceroute: 'traceroute <host>\nShow a hop-style path to a host using simulated edge/network hops.',
+  whois: 'whois <site>\nShow ownership/network metadata using DNS + RDAP lookups where available.',
   trace: 'trace <website>\nShow a stylized network trace from browser to Cloudflare edge to the target.',
+  doctor: 'doctor\nRun a quick terminal diagnostics suite (bindings, network reachability, and DNS checks).',
   weather: 'weather [location]\nShow current weather using Open-Meteo. Defaults to Seattle, WA.',
   stock: 'stock <ticker>\nShow a compact quote using Stooq market data.',
   metrics: 'metrics\nShow site visits, page hits, command counts, and geographic breakdowns stored in KV.',
@@ -351,7 +359,7 @@ const MANUALS = {
   tags: 'tags [fragment]\nList all tags used in the portfolio OS, or show content for tags whose names match <fragment> (substring).',
   post: 'post open <slug>\nFrontend command: load a full post from /api/posts. Use posts to browse the index.',
   config:
-    'config <set|get|list|reset> [key] [value]\nSession preferences: crt on|off (CRT scanline effect), theme, font_size, font, dark, name, environment, email, system_prompt.\nChanging name moves the simulated home to /home/<name>, creates it if needed, migrates .clpshrc and .clpsh_history from the previous home when present, and resets cwd to the new home.',
+    'config <set|get|list|reset> [key] [value]\nSession preferences: crt on|off (CRT scanline effect), theme, font_size, font, dark, name, environment, email, ai_model, system_prompt.\nChanging name moves the simulated home to /home/<name>, creates it if needed, migrates .clpshrc and .clpsh_history from the previous home when present, and resets cwd to the new home.',
 };
 
 /** Command → taxonomy tags (shown on man pages); keep in sync with src/data/content-tags.ts COMMAND_TAGS */
@@ -370,6 +378,8 @@ const COMMAND_TAGS = {
   curl: ['network', 'cloud'],
   ping: ['network'],
   traceroute: ['network'],
+  whois: ['network', 'cloud'],
+  doctor: ['system', 'network'],
   uptime: ['system'],
   last: ['system'],
   weather: ['cloud', 'network'],
@@ -739,8 +749,12 @@ async function runCommand(parsed, state, env, visibleContext, request, options =
       return pingHost(parsed.rest || 'pecunies.com');
     case 'traceroute':
       return tracerouteHost(parsed.rest || 'pecunies.com', request);
+    case 'whois':
+      return whoisSite(parsed.rest || 'pecunies.com');
     case 'trace':
       return traceHost(parsed.rest || 'pecunies.com', request);
+    case 'doctor':
+      return doctorDiagnostics(env, request);
     case 'weather':
       return weather(parsed.rest || 'Seattle, WA');
     case 'stock':
@@ -1072,7 +1086,7 @@ function extractAiOptions(rest, state, options = {}) {
     return '';
   });
 
-  if (!ALLOWED_MODELS.has(model)) {
+  if (!isValidAiModel(model)) {
     model = MODEL;
   }
 
@@ -1086,7 +1100,7 @@ function extractAiOptions(rest, state, options = {}) {
 async function runAi(env, question, state, visibleContext, meta = {}) {
   const sessionId = meta.sessionId ?? 'anonymous';
   const source = meta.source ?? 'os';
-  const activeModel = ALLOWED_MODELS.has(meta.model) ? meta.model : MODEL;
+  const activeModel = isValidAiModel(meta.model) ? meta.model : MODEL;
   const systemInjection = String(meta.system || '').trim().slice(0, 1200);
   const readContext = state.reads.map((path) => `${path}\n${FILES[path]}`).join('\n\n') || '(no files read yet)';
   const commandContext = state.history
@@ -1214,6 +1228,90 @@ function tracerouteHost(host, request) {
   });
 
   return { output: lines.join('\n') };
+}
+
+async function whoisSite(rawHost) {
+  const url = normalizeUrl(rawHost);
+  const host = new URL(url).host.toLowerCase();
+  const lines = [`WHOIS ${host}`];
+
+  try {
+    const dns = await fetch(`https://dns.google/resolve?name=${encodeURIComponent(host)}&type=A`, {
+      signal: AbortSignal.timeout(4500),
+    }).then((res) => res.json());
+    const answers = Array.isArray(dns?.Answer) ? dns.Answer : [];
+    const ips = answers.map((a) => String(a?.data || '').trim()).filter(Boolean);
+    if (ips.length) {
+      lines.push(`A: ${ips.slice(0, 4).join(', ')}`);
+    } else {
+      lines.push('A: (none returned)');
+    }
+  } catch {
+    lines.push('A: lookup failed');
+  }
+
+  try {
+    const rdap = await fetch(`https://rdap.org/domain/${encodeURIComponent(host)}`, {
+      signal: AbortSignal.timeout(5500),
+      headers: { Accept: 'application/rdap+json, application/json' },
+    });
+    if (rdap.ok) {
+      const data = await rdap.json();
+      const handle = String(data?.handle || data?.ldhName || host);
+      const registrar = Array.isArray(data?.entities)
+        ? data.entities.find((e) => Array.isArray(e?.roles) && e.roles.includes('registrar'))
+        : null;
+      const registrarName = String(
+        registrar?.vcardArray?.[1]?.find?.((x) => Array.isArray(x) && x[0] === 'fn')?.[3] || '',
+      ).trim();
+      const events = Array.isArray(data?.events) ? data.events : [];
+      const reg = events.find((e) => e?.eventAction === 'registration')?.eventDate;
+      const exp = events.find((e) => e?.eventAction === 'expiration')?.eventDate;
+      lines.push(`Domain: ${handle}`);
+      if (registrarName) lines.push(`Registrar: ${registrarName}`);
+      if (reg) lines.push(`Registered: ${String(reg).slice(0, 10)}`);
+      if (exp) lines.push(`Expires: ${String(exp).slice(0, 10)}`);
+    } else {
+      lines.push(`RDAP: unavailable (${rdap.status})`);
+    }
+  } catch {
+    lines.push('RDAP: lookup failed');
+  }
+
+  return { output: lines.join('\n') };
+}
+
+async function doctorDiagnostics(env, request) {
+  const checks = [];
+  const record = (label, ok, detail) => {
+    checks.push(`${ok ? 'ok' : 'fail'}  ${label}${detail ? ` — ${detail}` : ''}`);
+  };
+
+  record('Workers AI binding', Boolean(env.AI), env.AI ? 'configured' : 'missing');
+  record('KV binding (PORTFOLIO_OS)', Boolean(env.PORTFOLIO_OS), env.PORTFOLIO_OS ? 'configured' : 'missing');
+
+  try {
+    const res = await fetch('https://pecunies.com', { method: 'HEAD', signal: AbortSignal.timeout(4000) });
+    record('External reachability', res.ok, `pecunies.com ${res.status}`);
+  } catch {
+    record('External reachability', false, 'request failed');
+  }
+
+  try {
+    const dns = await fetch('https://dns.google/resolve?name=cloudflare.com&type=A', {
+      signal: AbortSignal.timeout(4000),
+    }).then((res) => res.json());
+    const ok = Array.isArray(dns?.Answer) && dns.Answer.length > 0;
+    record('DNS resolution', ok, ok ? 'cloudflare.com resolved' : 'no A answers');
+  } catch {
+    record('DNS resolution', false, 'lookup failed');
+  }
+
+  const cf = request.cf ?? {};
+  const region = [cf.city, cf.region, cf.country].filter(Boolean).join(', ') || 'unknown';
+  record('Edge context', true, `${cf.colo || 'n/a'} · ${region}`);
+
+  return { output: `Doctor diagnostics\n\n${checks.join('\n')}` };
 }
 
 async function weather(location) {
