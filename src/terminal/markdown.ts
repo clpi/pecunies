@@ -119,8 +119,9 @@ const LANG_ALIASES: Record<string, string> = {
 
 function highlightCode(source: string, language: string): string {
   const normalized = LANG_ALIASES[language] ?? language;
+  const cleanSource = normalizeSourceForHighlight(source);
   if (!MAJOR_LANGS.has(normalized)) {
-    return escapeHtml(source);
+    return escapeHtml(cleanSource);
   }
 
   const placeholders: string[] = [];
@@ -130,7 +131,7 @@ function highlightCode(source: string, language: string): string {
   };
 
   // Preserve comments/strings first so later passes don't recolor internals.
-  let raw = source
+  let raw = cleanSource
     .replace(/\/\*[\s\S]*?\*\//g, (m) => stash(m, 'tok-comment'))
     .replace(/(^|[^\\:])\/\/.*$/gm, (m) => stash(m, 'tok-comment'))
     .replace(/(^|\s)#.*$/gm, (m) => stash(m, 'tok-comment'))
@@ -166,6 +167,20 @@ function highlightCode(source: string, language: string): string {
   // Restore preserved comments/strings.
   raw = raw.replace(/\u0000(\d+)\u0000/g, (_m, i) => placeholders[Number(i)] ?? '');
   return raw;
+}
+
+function normalizeSourceForHighlight(source: string): string {
+  let next = String(source ?? '');
+  // If upstream content already contains our token spans, collapse them back to plain code first.
+  next = next.replace(/<\/?span\b[^>]*>/gi, '');
+  // Decode common escaped HTML entities so literal "&lt;span...&gt;" doesn't render as text noise.
+  next = next
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&amp;', '&')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#39;', "'");
+  return next;
 }
 
 function buildLineNumbers(source: string): string {

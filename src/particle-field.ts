@@ -19,7 +19,7 @@ export type ParticleFieldOptions = {
 // ─── Tunables ─────────────────────────────────────────────────────────────
 const CONFIG = {
   /** Base multipliers per preset for particle counts */
-  density: { minimal: 1.42, standard: 3.92, enhanced: 5.12 } as const,
+  density: { minimal: 0.88, standard: 1.86, enhanced: 2.74 } as const,
   /** Global flow rotation speed (rad / ms) */
   flowRotate: 0.00000016,
   /** Pointer repulsion: max extra velocity (px/frame at ~60fps scale) */
@@ -261,6 +261,7 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
   let clusterStrength = 0;
   let nextClusterAt = performance.now() + CONFIG.clusterIntervalMs * 0.3;
   let pauseTimer = 0;
+  let frameCarry = 0;
 
   const pool: DustParticle[] = [];
 
@@ -308,6 +309,13 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
 
     const dt = lastTs ? Math.min(32, ts - lastTs) : 16.67;
     lastTs = ts;
+    frameCarry += dt;
+    // Cap expensive particle simulation to roughly 30 FPS.
+    if (frameCarry < 33) {
+      requestAnimationFrame(draw);
+      return;
+    }
+    frameCarry = 0;
 
     pointer.x += (pointer.tx - pointer.x) * 0.06;
     pointer.y += (pointer.ty - pointer.y) * 0.06;

@@ -2209,7 +2209,7 @@ a.output-record:hover {
   font-size: 0.92em;
 }
 
-.pretty-output.markdown-body pre {
+.pretty-output.markdown-body pre:not(.md-code-block) {
   margin: 0.5em 0;
   padding: 8px 10px;
   overflow-x: auto;
@@ -2218,7 +2218,7 @@ a.output-record:hover {
   border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
-.pretty-output.markdown-body pre code {
+.pretty-output.markdown-body pre:not(.md-code-block) code {
   padding: 0;
   background: none;
 }
@@ -2737,31 +2737,11 @@ a.output-record:hover {
   gap: 12px;
 }
 
-.post-article-meta {
-  display: grid;
-  gap: 6px;
-}
-
-.post-article-kicker {
-  margin: 0;
-  color: var(--accent);
-  font-size: 0.66rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.post-article-title {
-  margin: 0;
-  color: rgba(255, 255, 255, 0.95);
-  font-size: 0.94rem;
-  font-weight: 600;
-}
-
-.post-article-description,
-.post-article-dates {
-  margin: 0;
-  color: rgba(226, 232, 236, 0.62);
-  font-size: 0.72rem;
+.post-article-divider {
+  width: 100%;
+  height: 1px;
+  background: color-mix(in srgb, var(--accent) 22%, rgba(255, 255, 255, 0.18));
+  opacity: 0.9;
 }
 
 .post-comment-tags {

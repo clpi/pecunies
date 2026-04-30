@@ -1591,22 +1591,10 @@ export function createCommandRegistry(): {
               })
               .join('')
           : '<p class="post-comment-empty">No comments yet.</p>';
-        const tags = post.tags?.length
-          ? `<div class="post-comment-tags">${post.tags
-              .map((tag) => `<button type="button" class="content-tag content-tag--compact" data-command="tags ${escapeHtml(tag)}">#${escapeHtml(tag)}</button>`)
-              .join('')}</div>`
-          : '';
-        const blogMeta = `<header class="post-article-meta">
-          <p class="post-article-kicker">post</p>
-          <h2 class="post-article-title">${escapeHtml(post.title)}</h2>
-          ${post.description ? `<p class="post-article-description">${escapeHtml(post.description)}</p>` : ''}
-          <p class="post-article-dates">published ${escapeHtml(post.published || 'n/a')}${post.updated && post.updated !== post.published ? ` · updated ${escapeHtml(post.updated)}` : ''}</p>
-          ${tags}
-        </header>`;
         const articleHtml = renderPostMarkdownToHtml(post.markdown);
         const html = `<article class="post-article-shell">
           <button type="button" class="inline-link" data-command="posts">← back to posts</button>
-          ${blogMeta}
+          <div class="post-article-divider" aria-hidden="true"></div>
           <section class="post-article-body markdown-body">${articleHtml}</section>
           <section class="post-comment-section">
             <h3 class="output-heading">${escapeHtml(commentHeading)}</h3>

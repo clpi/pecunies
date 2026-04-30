@@ -1630,7 +1630,17 @@ export class TerminalApp {
     if (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       return;
     }
+    let lastFrame = 0;
     const step = (t: number): void => {
+      if (document.hidden) {
+        window.requestAnimationFrame(step);
+        return;
+      }
+      if (lastFrame && t - lastFrame < 33) {
+        window.requestAnimationFrame(step);
+        return;
+      }
+      lastFrame = t;
       const px = Math.sin(t * 0.00004) * 5 + Math.sin(t * 0.000017) * 2;
       const py = Math.cos(t * 0.000035) * 3;
       const gx = Math.sin(t * 0.000012) * 3;
@@ -2518,20 +2528,6 @@ export class TerminalApp {
               <a href="/api/rss" target="_blank" rel="noopener noreferrer" class="rss-subscribe-link" aria-label="RSS feed">RSS</a>
             </p>
           </div>
-          <article class="output-record timeline-item post-timeline-item">
-            <div class="timeline-marker" aria-hidden="true"></div>
-            <div class="timeline-content">
-              <p class="timeline-topline"><strong>Terminal portfolio changelog</strong> · pecunies.com · /posts</p>
-              <p class="timeline-period">2026-04-29</p>
-              <p class="record-summary">
-                Initial placeholder for terminal-native posts, RSS entries, and future technical writing.
-              </p>
-              <ul class="record-bullets">
-                <li>Posts are listed chronologically from newest to oldest.</li>
-                <li>The RSS feed is available at <code>/rss.xml</code> for readers and automation.</li>
-              </ul>
-            </div>
-          </article>
           <div class="output-records post-feed">
             ${posts
               .map((post) => {
@@ -2880,13 +2876,15 @@ export class TerminalApp {
       this.replaceLineMarkdown(id, '', model, renderer);
       return;
     }
-    const step = text.length > 1600 ? 160 : 80;
-    for (let end = step; end <= text.length + step; end += step) {
-      const acc = text.slice(0, Math.min(end, text.length));
+    // Performance: keep streaming effect but cap DOM rewrites aggressively.
+    const chunkCount = text.length > 2400 ? 1 : text.length > 1200 ? 2 : text.length > 600 ? 3 : 5;
+    for (let i = 1; i <= chunkCount; i += 1) {
+      const end = Math.floor((text.length * i) / chunkCount);
+      const acc = text.slice(0, end);
       this.replaceLineStreaming(id, acc, model);
       this.renderLog();
       this.outputElement.scrollTop = this.outputElement.scrollHeight;
-      await new Promise((r) => window.setTimeout(r, 10));
+      await new Promise((r) => window.requestAnimationFrame(() => r(undefined)));
     }
     this.replaceLineMarkdown(id, text, model, renderer);
     this.renderLog();
