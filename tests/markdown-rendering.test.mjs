@@ -16,6 +16,7 @@ async function loadMarkdownRenderer() {
   const source = await readFile(sourcePath, 'utf8');
   const patchedSource = source.replace(
     /import\s+DOMPurify\s+from\s+['"]dompurify['"];\s*/,
+    // Test-only stub: keep syntax-token output intact while the real app still sanitizes rendered HTML.
     "const DOMPurify = { sanitize: (html) => html };\n",
   );
   const compiled = ts.transpileModule(patchedSource, {
