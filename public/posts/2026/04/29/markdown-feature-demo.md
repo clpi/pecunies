@@ -12,7 +12,7 @@ This demo post exists to validate the full markdown rendering pipeline used by t
 ## Metadata Checklist
 
 - `title`, `date`, `tags`, and `description` are present in frontmatter.
-- This file follows the canonical path format in `assets/posts/YYYY/MM/DD/slug.md`.
+- This file follows the canonical path format in `public/posts/YYYY/MM/DD/slug.md`.
 - The same content should be mirrored into OS `/posts` and synced into D1.
 
 ## Text Formatting
@@ -85,7 +85,7 @@ npm run sync:posts
 {
   "post": "markdown-feature-demo",
   "published": true,
-  "source": "/assets/posts/2026/04/29/markdown-feature-demo.md"
+  "source": "/public/posts/2026/04/29/markdown-feature-demo.md"
 }
 ```
 

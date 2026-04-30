@@ -10,6 +10,14 @@
     {
       "pattern": "www.pecunies.com/*",
       "zone_name": "pecunies.com"
+    },
+    {
+      "pattern": "api.pecunies.com/*",
+      "zone_name": "pecunies.com"
+    },
+    {
+      "pattern": "mcp.pecunies.com/*",
+      "zone_name": "pecunies.com"
     }
   ]
 }

@@ -2,6 +2,7 @@ import wasmUrl from './generated/chaos_engine.wasm?url';
 
 export type AmbientFieldHandle = {
   burst: () => void;
+  destroy?: () => void;
   setMode: (mode: number) => void;
 };
 

@@ -6,5 +6,5 @@ if [ -z "${POST_SYNC_ENDPOINT:-}" ] || [ -z "${POST_SYNC_TOKEN:-}" ]; then
   exit 0
 fi
 
-echo "Syncing assets/posts to D1 before push..."
+echo "Syncing public/posts to D1 before push..."
 npm run sync:posts

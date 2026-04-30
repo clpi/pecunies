@@ -70,13 +70,13 @@ body {
 body {
   overflow: hidden;
   background:
-    radial-gradient(184% calc(130% * var(--pointer-depth, 1)) at calc(50% + var(--pointer-drift-x, 0px) * 0.28) calc(42% + var(--pointer-drift-y, 0px) * 0.18), color-mix(in srgb, var(--accent) calc(13% + var(--pointer-action-lift, 0) * 24%), transparent), transparent 66%),
-    radial-gradient(164% 122% at calc(10% + var(--pointer-drift-x, 0px) * -0.24) calc(14% + var(--pointer-drift-y, 0px) * -0.18), color-mix(in srgb, var(--bg-accent-a) 98%, transparent), transparent 70%),
-    radial-gradient(158% 118% at calc(88% + var(--pointer-drift-x, 0px) * 0.22) calc(84% + var(--pointer-drift-y, 0px) * 0.17), color-mix(in srgb, var(--bg-accent-b) 97%, transparent), transparent 72%),
-    radial-gradient(146% 104% at calc(78% + var(--pointer-drift-x, 0px) * 0.14) calc(16% + var(--pointer-drift-y, 0px) * 0.12), rgba(118, 205, 255, 0.052), transparent 74%),
-    radial-gradient(142% 102% at calc(22% + var(--pointer-drift-x, 0px) * -0.16) calc(86% + var(--pointer-drift-y, 0px) * 0.12), rgba(197, 141, 255, 0.044), transparent 74%),
-    radial-gradient(132% 96% at calc(64% + var(--pointer-drift-x, 0px) * -0.1) calc(24% + var(--pointer-drift-y, 0px) * 0.12), color-mix(in srgb, var(--accent-strong) 15%, transparent), transparent 76%),
-    radial-gradient(128% 92% at calc(42% + var(--pointer-drift-x, 0px) * 0.08) calc(74% + var(--pointer-drift-y, 0px) * -0.08), rgba(132, 246, 214, 0.032), transparent 78%),
+    radial-gradient(184% calc(130% * var(--pointer-depth, 1)) at calc(50% + var(--pointer-drift-x, 0px) * 0.22) calc(42% + var(--pointer-drift-y, 0px) * 0.14), rgba(53, 91, 135, calc(0.055 + var(--pointer-action-lift, 0) * 0.06)), transparent 66%),
+    radial-gradient(164% 122% at calc(10% + var(--pointer-drift-x, 0px) * -0.18) calc(14% + var(--pointer-drift-y, 0px) * -0.14), rgba(32, 52, 84, 0.034), transparent 70%),
+    radial-gradient(158% 118% at calc(88% + var(--pointer-drift-x, 0px) * 0.16) calc(84% + var(--pointer-drift-y, 0px) * 0.12), rgba(22, 42, 68, 0.038), transparent 72%),
+    radial-gradient(146% 104% at calc(78% + var(--pointer-drift-x, 0px) * 0.11) calc(16% + var(--pointer-drift-y, 0px) * 0.09), rgba(74, 130, 190, 0.04), transparent 74%),
+    radial-gradient(142% 102% at calc(22% + var(--pointer-drift-x, 0px) * -0.12) calc(86% + var(--pointer-drift-y, 0px) * 0.09), rgba(70, 84, 120, 0.025), transparent 74%),
+    radial-gradient(132% 96% at calc(64% + var(--pointer-drift-x, 0px) * -0.08) calc(24% + var(--pointer-drift-y, 0px) * 0.09), rgba(42, 70, 110, 0.035), transparent 76%),
+    radial-gradient(128% 92% at calc(42% + var(--pointer-drift-x, 0px) * 0.06) calc(74% + var(--pointer-drift-y, 0px) * -0.06), rgba(46, 91, 118, 0.022), transparent 78%),
     linear-gradient(180deg, #050709 0%, #020304 100%);
   background-size:
     132% 128%,
@@ -88,8 +88,6 @@ body {
     128% 124%,
     100% 100%;
   animation: bg-gradient-flow 13.5s ease-in-out infinite alternate;
-  filter: hue-rotate(var(--pointer-hue-shift, 0deg));
-  transition: filter 160ms ease;
 }
 
 body::before,
@@ -103,13 +101,13 @@ body::after {
 body::before {
   z-index: 1;
   background:
-    radial-gradient(164% 118% at 8% 14%, color-mix(in srgb, var(--bg-accent-a) 96%, transparent), transparent 76%),
-    radial-gradient(156% 114% at 86% 76%, color-mix(in srgb, var(--bg-accent-b) 97%, transparent), transparent 78%),
-    radial-gradient(142% 102% at 48% 84%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 76%),
-    radial-gradient(132% 96% at 70% 24%, rgba(114, 198, 255, 0.038), transparent 80%),
-    radial-gradient(128% 94% at 34% 72%, rgba(203, 150, 255, 0.036), transparent 80%),
-    radial-gradient(122% 88% at 56% 46%, rgba(146, 255, 210, 0.022), transparent 82%);
-  opacity: 0.86;
+    radial-gradient(164% 118% at 8% 14%, rgba(33, 54, 90, 0.038), transparent 76%),
+    radial-gradient(156% 114% at 86% 76%, rgba(30, 50, 78, 0.035), transparent 78%),
+    radial-gradient(142% 102% at 48% 84%, rgba(58, 91, 128, 0.03), transparent 76%),
+    radial-gradient(132% 96% at 70% 24%, rgba(90, 160, 225, 0.028), transparent 80%),
+    radial-gradient(128% 94% at 34% 72%, rgba(72, 82, 128, 0.018), transparent 80%),
+    radial-gradient(122% 88% at 56% 46%, rgba(72, 120, 145, 0.016), transparent 82%);
+  opacity: 0.68;
   transform: translate3d(calc(var(--pointer-drift-x, 0px) * -0.03), calc(var(--pointer-drift-y, 0px) * -0.03), 0);
   background-size: 140% 132%, 136% 130%, 128% 122%, 132% 124%, 126% 120%, 118% 114%;
   animation: bg-gradient-shift 11.5s ease-in-out infinite;
@@ -195,7 +193,7 @@ input:focus-visible {
   width: 100%;
   height: 100%;
   background: #030405;
-  opacity: 0.88;
+  opacity: 0.82;
   transform: translate3d(var(--parallax-canvas-x, 0px), var(--parallax-canvas-y, 0px), 0);
   will-change: transform;
 }
@@ -205,11 +203,11 @@ input:focus-visible {
   inset: -12%;
   z-index: 1;
   pointer-events: none;
-  opacity: 0.004;
+  opacity: 0.006;
   background-image:
-    repeating-linear-gradient(62deg, color-mix(in srgb, var(--accent) 2%, rgba(255, 255, 255, 0.003)) 0 1px, transparent 1px 40px),
-    repeating-linear-gradient(-62deg, rgba(106, 196, 255, 0.005) 0 1px, transparent 1px 54px),
-    repeating-linear-gradient(28deg, rgba(194, 142, 255, 0.004) 0 1px, transparent 1px 66px);
+    repeating-linear-gradient(62deg, rgba(115, 165, 215, 0.005) 0 1px, transparent 1px 44px),
+    repeating-linear-gradient(-62deg, rgba(95, 145, 205, 0.004) 0 1px, transparent 1px 62px),
+    repeating-linear-gradient(28deg, rgba(165, 190, 230, 0.003) 0 1px, transparent 1px 78px);
   background-size: 170px 170px, 220px 220px, 280px 280px;
   transform: translate3d(var(--parallax-grid-x, 0px), var(--parallax-grid-y, 0px), 0) scale(1.02);
   will-change: transform;
@@ -218,13 +216,13 @@ input:focus-visible {
 
 .ambient-noise {
   z-index: 2;
-  opacity: 0.26;
+  opacity: 0.075;
   mix-blend-mode: screen;
   background-image:
-    radial-gradient(circle at 12% 20%, rgba(255, 255, 255, 0.48) 0 1px, transparent 1px),
-    radial-gradient(circle at 72% 54%, color-mix(in srgb, var(--accent-soft) 95%, rgba(255, 255, 255, 0.14)) 0 1px, transparent 1px),
-    radial-gradient(circle at 38% 66%, rgba(255, 255, 255, 0.32) 0 1px, transparent 1px),
-    radial-gradient(circle at 54% 42%, rgba(255, 255, 255, 0.24) 0 1px, transparent 1px);
+    radial-gradient(circle at 12% 20%, rgba(180, 214, 255, 0.34) 0 1px, transparent 1px),
+    radial-gradient(circle at 72% 54%, rgba(102, 152, 210, 0.2) 0 1px, transparent 1px),
+    radial-gradient(circle at 38% 66%, rgba(225, 238, 255, 0.2) 0 1px, transparent 1px),
+    radial-gradient(circle at 54% 42%, rgba(132, 180, 236, 0.17) 0 1px, transparent 1px);
   background-size: 14px 16px, 22px 26px, 34px 38px, 52px 58px;
   animation: ambient-noise-drift 0.42s steps(3) infinite;
 }
@@ -421,15 +419,15 @@ body.view-switching .field-canvas {
 }
 
 body.view-switching {
-  --pointer-action-lift: 0.38;
+  --pointer-action-lift: 0.12;
 }
 
 body.view-switching .parallax-grid {
-  opacity: 0.011;
+  opacity: 0.008;
 }
 
 body.view-switching .ambient-noise {
-  opacity: 0.32;
+  opacity: 0.095;
 }
 
 body.view-switching .terminal-shell {
@@ -811,10 +809,10 @@ html.light-mode .field-canvas {
   width: 7px;
   height: 7px;
   border-radius: 999px;
-  background: var(--accent);
+  background: rgba(158, 190, 224, 0.82);
   box-shadow:
-    0 0 12px var(--accent),
-    0 0 28px var(--accent-strong);
+    0 0 12px rgba(120, 170, 230, 0.28),
+    0 0 24px rgba(120, 170, 230, 0.12);
 }
 
 .nav-links {
@@ -841,10 +839,10 @@ html.light-mode .field-canvas {
   background: linear-gradient(
     90deg,
     transparent,
-    color-mix(in srgb, var(--accent) 75%, transparent),
+    rgba(205, 220, 235, 0.38),
     transparent
   );
-  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 40%, transparent);
+  box-shadow: 0 0 10px rgba(185, 210, 235, 0.12);
   transition: opacity 0.22s ease;
 }
 
@@ -856,7 +854,7 @@ html.light-mode .field-canvas {
 }
 
 .nav-link:hover::after {
-  opacity: 0.55;
+  opacity: 0.28;
 }
 
 /* Selected nav item uses current theme accent */

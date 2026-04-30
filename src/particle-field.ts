@@ -19,32 +19,32 @@ export type ParticleFieldOptions = {
 // ─── Tunables ─────────────────────────────────────────────────────────────
 const CONFIG = {
   /** Base multipliers per preset for particle counts */
-  density: { minimal: 1.12, standard: 2.55, enhanced: 3.6 } as const,
+  density: { minimal: 0.52, standard: 0.86, enhanced: 1.18 } as const,
   /** Global flow rotation speed (rad / ms) */
-  flowRotate: 0.00000016,
+  flowRotate: 0.000000055,
   /** Pointer repulsion: max extra velocity (px/frame at ~60fps scale) */
-  repelMax: 1.04,
-  repelRadius: 224,
+  repelMax: 0.36,
+  repelRadius: 166,
   /** Noise strength scales per layer (0 = back … 2 = fore) */
-  noiseLayer: [0.22, 0.34, 0.52] as const,
+  noiseLayer: [0.09, 0.14, 0.22] as const,
   /** Velocity smoothing toward flow + noise */
-  steer: 0.031,
+  steer: 0.018,
   /** Extra vignette strength in enhanced */
   vignetteEnhanced: 0.08,
   /** Rare drift “current” pulses */
-  clusterIntervalMs: 5200,
-  clusterStrength: 0.017,
+  clusterIntervalMs: 8200,
+  clusterStrength: 0.0038,
   /** Additional gentle gravity for dust fall by layer */
-  fallBias: [0.0036, 0.0052, 0.0073] as const,
+  fallBias: [0.0011, 0.0017, 0.0024] as const,
 } as const;
 
-// ─── Palette: dim terminal dust + theme accent (modes match terminalThemes.mode 0–3) ─
-const MODE_DUST = [
-  { dim: [52, 55, 58], mid: [82, 86, 90], hi: [136, 162, 148], signal: [198, 246, 220] },
-  { dim: [54, 54, 52], mid: [86, 84, 78], hi: [188, 158, 94], signal: [255, 214, 148] },
-  { dim: [50, 54, 58], mid: [80, 88, 94], hi: [114, 166, 202], signal: [176, 234, 255] },
-  { dim: [56, 58, 60], mid: [88, 92, 96], hi: [156, 164, 172], signal: [228, 236, 242] },
-] as const;
+// ─── Palette: fixed blue-gray dust; intentionally independent of terminal theme ─
+const DUST = {
+  dim: [34, 42, 56],
+  mid: [62, 78, 104],
+  hi: [100, 145, 190],
+  signal: [170, 215, 255],
+} as const;
 
 type LayerId = 0 | 1 | 2;
 
@@ -156,13 +156,19 @@ function readPreset(explicit?: ParticlePreset): ParticlePreset {
 }
 
 function layerCounts(
-  _w: number,
-  _h: number,
-  _preset: ParticlePreset,
-  _reducedMotion: boolean,
+  w: number,
+  h: number,
+  preset: ParticlePreset,
+  reducedMotion: boolean,
 ): [number, number, number] {
-  // Particles disabled.
-  return [0, 0, 0];
+  const area = w * h;
+  const d = CONFIG.density[preset] * (reducedMotion ? 0.18 : 1);
+  const cap = (n: number, max: number) => Math.min(max, Math.max(0, Math.floor(n * d)));
+
+  const back = cap(area / 6500, preset === 'enhanced' ? 360 : preset === 'minimal' ? 110 : 240);
+  const mid = cap(area / 14500, preset === 'enhanced' ? 160 : preset === 'minimal' ? 44 : 96);
+  const fore = cap(area / 42000, preset === 'enhanced' ? 56 : preset === 'minimal' ? 16 : 34);
+  return [back, mid, fore];
 }
 
 function seedParticles(
@@ -184,18 +190,18 @@ function seedParticles(
       let size: number;
       let baseAlpha: number = 0;
       if (layer === 0) {
-        size = Math.random() < 0.76 ? 1 : Math.random() < 0.94 ? 2 : 3;
-        baseAlpha = 0.065 + Math.random() * 0.11;
+        size = Math.random() < 0.86 ? 1 : Math.random() < 0.98 ? 2 : 3;
+        baseAlpha = 0.035 + Math.random() * 0.07;
       } else if (layer === 1) {
-        size = Math.random() < 0.58 ? 1 : Math.random() < 0.88 ? 2 : 3;
-        baseAlpha = 0.082 + Math.random() * 0.13;
+        size = Math.random() < 0.7 ? 1 : Math.random() < 0.94 ? 2 : 3;
+        baseAlpha = 0.046 + Math.random() * 0.085;
       } else {
-        size = Math.random() < 0.42 ? 1 : Math.random() < 0.76 ? 2 : Math.random() < 0.94 ? 3 : 4;
-        baseAlpha = 0.096 + Math.random() * 0.16;
+        size = Math.random() < 0.54 ? 1 : Math.random() < 0.86 ? 2 : 3;
+        baseAlpha = 0.06 + Math.random() * 0.11;
       }
 
       if (isSignal || isMidSignal) {
-        baseAlpha = Math.min(0.24, baseAlpha * 1.6);
+        baseAlpha = Math.min(0.2, baseAlpha * 1.45);
         size = Math.min(3, size + 1);
       }
 
@@ -211,7 +217,7 @@ function seedParticles(
         flickerRate: 0.00035 + Math.random() * 0.00085,
         isSignal: Boolean(isSignal || isMidSignal),
         colorJitter: Math.random(),
-        hueShift: (Math.random() - 0.5) * 0.22,
+        hueShift: (Math.random() - 0.5) * 0.12,
         blur:
           layer === 0
             ? Math.random() * 0.6
@@ -247,9 +253,10 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
   let width = 1;
   let height = 1;
   let dpr = 1;
-  let mode = 0;
   let burst = 0;
   let lastTs = 0;
+  let rafId = 0;
+  let destroyed = false;
   let flowAngle = Math.random() * Math.PI * 2;
   let clusterAngle = Math.random() * Math.PI * 2;
   let clusterStrength = 0;
@@ -259,8 +266,8 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
 
   const pool: DustParticle[] = [];
 
-  const layerSpeed = [0.032, 0.068, 0.118] as const;
-  const layerParallax = [0.44, 0.86, 1.38] as const;
+  const layerSpeed = [0.018, 0.034, 0.056] as const;
+  const layerParallax = [0.18, 0.34, 0.56] as const;
 
   const resize = (): void => {
     const rect = canvas.getBoundingClientRect();
@@ -294,9 +301,13 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
   };
 
   const draw = (ts: number): void => {
+    if (destroyed) {
+      return;
+    }
+
     if (document.hidden) {
       pauseTimer = window.setTimeout(() => {
-        requestAnimationFrame(draw);
+        rafId = requestAnimationFrame(draw);
       }, 280);
       return;
     }
@@ -306,7 +317,7 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
     frameCarry += dt;
     // Cap expensive particle simulation to roughly 30 FPS.
     if (frameCarry < 33) {
-      requestAnimationFrame(draw);
+      rafId = requestAnimationFrame(draw);
       return;
     }
     frameCarry = 0;
@@ -328,7 +339,6 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
     }
     clusterStrength *= 0.992;
 
-    const dust = MODE_DUST[mode % MODE_DUST.length] ?? MODE_DUST[0]!;
     burst *= 0.94;
 
     ctx.globalCompositeOperation = 'source-over';
@@ -355,9 +365,8 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
       tx += burst * (Math.sin(ts * 0.002 + p.flickerPhase) * 0.06);
       ty += burst * (Math.cos(ts * 0.0017 + p.colorJitter) * 0.05);
 
-      // Keep particles static in place.
-      p.vx = 0;
-      p.vy = 0;
+      p.vx += (tx - p.vx) * CONFIG.steer;
+      p.vy += (ty - p.vy) * CONFIG.steer;
 
       const dx = p.x - pointer.x;
       const dy = p.y - pointer.y;
@@ -369,7 +378,8 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
         p.vy += (dy / dist) * f;
       }
 
-      // Position intentionally unchanged (no sway, drift, or parallax offset).
+      p.x += p.vx * dt * 0.018 - px * par * 0.18;
+      p.y += p.vy * dt * 0.018 + CONFIG.fallBias[p.layer] * dt - py * par * 0.14;
 
       if (p.x < 0) {
         p.x += width;
@@ -390,26 +400,26 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
         (preset === 'enhanced' ? 0.065 * Math.sin(ts * 0.0011 + p.x * 0.01) : 0);
       let alpha = p.baseAlpha * flicker * (burst * 0.12 + 0.92);
       if (p.isSignal) {
-        alpha = Math.min(0.28, alpha * 1.7);
+        alpha = Math.min(0.22, alpha * 1.55);
       }
 
       const mix = p.colorJitter;
-      const r = lerp(dust.dim[0], dust.mid[0], mix) + (p.isSignal ? dust.hi[0] - dust.mid[0] : 0) * 0.35;
-      const g = lerp(dust.dim[1], dust.mid[1], mix) + (p.isSignal ? dust.hi[1] - dust.mid[1] : 0) * 0.35;
-      const b = lerp(dust.dim[2], dust.mid[2], mix) + (p.isSignal ? dust.hi[2] - dust.mid[2] : 0) * 0.35;
+      const r = lerp(DUST.dim[0], DUST.mid[0], mix) + (p.isSignal ? DUST.hi[0] - DUST.mid[0] : 0) * 0.35;
+      const g = lerp(DUST.dim[1], DUST.mid[1], mix) + (p.isSignal ? DUST.hi[1] - DUST.mid[1] : 0) * 0.35;
+      const b = lerp(DUST.dim[2], DUST.mid[2], mix) + (p.isSignal ? DUST.hi[2] - DUST.mid[2] : 0) * 0.35;
 
       const hue = p.hueShift + hueNoise * 0.12;
       const fr = Math.min(
         255,
-        Math.max(0, r + (p.isSignal ? dust.signal[0] - dust.hi[0] : 0) * 0.25 + hue * 22),
+        Math.max(0, r + (p.isSignal ? DUST.signal[0] - DUST.hi[0] : 0) * 0.25 + hue * 12),
       );
       const fg = Math.min(
         255,
-        Math.max(0, g + (p.isSignal ? dust.signal[1] - dust.hi[1] : 0) * 0.25 + hue * 8),
+        Math.max(0, g + (p.isSignal ? DUST.signal[1] - DUST.hi[1] : 0) * 0.25 + hue * 6),
       );
       const fb = Math.min(
         255,
-        Math.max(0, b + (p.isSignal ? dust.signal[2] - dust.hi[2] : 0) * 0.25 - hue * 28),
+        Math.max(0, b + (p.isSignal ? DUST.signal[2] - DUST.hi[2] : 0) * 0.25 - hue * 4),
       );
 
       ctx.fillStyle = `rgba(${fr | 0}, ${fg | 0}, ${fb | 0}, ${alpha})`;
@@ -435,7 +445,7 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
     ctx.fillStyle = vig;
     ctx.fillRect(0, 0, width, height);
 
-    requestAnimationFrame(draw);
+    rafId = requestAnimationFrame(draw);
   };
 
   resize();
@@ -443,14 +453,23 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
   window.addEventListener('pointermove', onPointerMove, { passive: true });
   window.addEventListener('visibilitychange', onVisibility);
   window.addEventListener('storage', onStorage);
-  requestAnimationFrame(draw);
+  rafId = requestAnimationFrame(draw);
 
   return {
-    setMode(nextMode: number) {
-      mode = Math.abs(nextMode) % MODE_DUST.length;
+    setMode(_nextMode: number) {
+      // Keep background neutral; route/theme changes should not recolor the field.
     },
     burst() {
-      burst = Math.min(1, burst + 0.1);
+      burst = Math.min(1, burst + 0.08);
+    },
+    destroy() {
+      destroyed = true;
+      window.clearTimeout(pauseTimer);
+      window.cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', resize);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('storage', onStorage);
     },
   };
 }

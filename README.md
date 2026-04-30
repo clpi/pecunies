@@ -27,8 +27,8 @@ The Cloudflare project expects the `PORTFOLIO_OS` KV binding and `AI` Workers AI
 
 ## Posts Source Of Truth
 
-- Canonical markdown files live in `assets/posts/<year>/<month>/<day>/<slug>.md`.
-- Runtime OS mirrors each post in both `/posts/...` and `/assets/posts/...` so terminal filesystem commands stay consistent.
+- Canonical markdown files live in `public/posts/<year>/<month>/<day>/<slug>.md`.
+- Runtime OS mirrors each post in both `/posts/...` and `/public/posts/...` so terminal filesystem commands stay consistent.
 - D1/KV sync can be run with:
 
 ```sh

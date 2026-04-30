@@ -3,7 +3,7 @@
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: SAMEORIGIN
 
-/assets/*
+/public/*
   Cache-Control: public, max-age=31536000, immutable
 
 /wasm/*

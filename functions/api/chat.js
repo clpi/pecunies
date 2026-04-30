@@ -1,4 +1,5 @@
 import { appendAiLog } from './ai-log.js';
+import { queryKnowledge } from './knowledge-store.js';
 import { collectAllPosts } from './posts.js';
 
 const MODEL = '@cf/meta/llama-3.1-8b-instruct';
@@ -194,6 +195,14 @@ export async function onRequestPost({ request, env }) {
   const ragContext = Array.isArray(state.ragContext)
     ? state.ragContext.slice(-20).map((entry) => `${entry.at}: ${entry.text}`).join('\n')
     : '';
+  const repositoryHits = await queryKnowledge(env, message, { limit: 8 });
+  const repositoryContext =
+    repositoryHits
+      .map(
+        (hit, index) =>
+          `${index + 1}. [${hit.source}] ${hit.title || hit.path}\npath: ${hit.path}\n${hit.text}`,
+      )
+      .join('\n\n') || '(none)';
 
   const sessionState = JSON.stringify(
     {
@@ -208,7 +217,7 @@ export async function onRequestPost({ request, env }) {
     2,
   ).slice(0, 3200);
 
-  const userContent = `Portfolio context:\n${PROFILE_CONTEXT}\n\nTerminal command reference:\n${COMMAND_REFERENCE}\n\nPersistent session/app state:\n${sessionState}\n\nPersistent RAG/session context notes:\n${ragContext || '(none)'}\n\nVisible terminal context:\n${visibleContext || '(none)'}\n\nMetrics state:\n${JSON.stringify(metrics).slice(0, 3000)}\n\nLeaderboard state:\n${JSON.stringify(leaderboard).slice(0, 2000)}\n\nPosts digest:\n${postDigest}\n\nPersisted terminal history:\n${persistedHistory || '(empty)'}\n\nQuestion: ${message}`;
+  const userContent = `Portfolio context:\n${PROFILE_CONTEXT}\n\nTerminal command reference:\n${COMMAND_REFERENCE}\n\nPersistent session/app state:\n${sessionState}\n\nPersistent RAG/session context notes:\n${ragContext || '(none)'}\n\nPersistent repository context (wiki/resume/posts/meetings/files via AI Search, Vectorize, and D1):\n${repositoryContext}\n\nVisible terminal context:\n${visibleContext || '(none)'}\n\nMetrics state:\n${JSON.stringify(metrics).slice(0, 3000)}\n\nLeaderboard state:\n${JSON.stringify(leaderboard).slice(0, 2000)}\n\nPosts digest:\n${postDigest}\n\nPersisted terminal history:\n${persistedHistory || '(empty)'}\n\nQuestion: ${message}`;
   const contextExcerpt = `chat_history_json:\n${JSON.stringify(mergedHistory).slice(0, 3500)}\n\n---\n${userContent}`;
 
   let result;

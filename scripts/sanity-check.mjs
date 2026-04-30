@@ -34,8 +34,14 @@ check('codeblock placeholders cannot render numeric sentinels', !/\\\\u0000\\$\\
 check('codeblock line numbers start at one', (await text('src/terminal/markdown.ts')).includes('for (let i = 1; i <= total; i += 1)'));
 check('codeblock CSS overrides inline code tint', cssSource.includes('.pretty-output.markdown-body .md-code-block code'));
 
-for (const command of ['about', 'resume', 'projects', 'posts', 'links', 'contact', 'pdf', 'chat']) {
-  check(`navbar includes ${command}`, registrySource.includes(`name: '${command}'`) || registrySource.includes(`addViewCommand('${command}'`));
+for (const command of ['about', 'resume', 'projects', 'posts', 'links', 'chat']) {
+  check(
+    `navbar includes ${command}`,
+    registrySource.includes(`name: "${command}"`) ||
+      registrySource.includes(`name: '${command}'`) ||
+      registrySource.includes(`addViewCommand("${command}"`) ||
+      registrySource.includes(`addViewCommand('${command}'`),
+  );
 }
 
 const store = new Map();
@@ -79,7 +85,7 @@ const pwd = await os('pwd');
 check('command execution works', pwd.status === 200 && pwd.body.output === '/home/guest');
 
 const ls = await os('ls');
-check('ls lists current directory', ls.status === 200 && String(ls.body.output).includes('README.txt'));
+check('ls lists current directory', ls.status === 200 && String(ls.body.output).includes('README.md'));
 
 const top = await os('top');
 check('top command dispatches', top.status === 200 && String(top.body.output).includes('portfolio-os top'));

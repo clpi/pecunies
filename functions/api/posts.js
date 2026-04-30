@@ -1,5 +1,13 @@
+import {
+  apiHeaders,
+  datedPath,
+  errorJson,
+  requireApiAuth,
+  upsertKnowledgeDocument,
+} from "./knowledge-store.js";
+
 const STATIC_ASSET_POSTS = {
-  '/assets/posts/2026/04/29/terminal-portfolio-changelog.md': `---
+  "/public/posts/2026/04/29/terminal-portfolio-changelog.md": `---
 title: Terminal Portfolio Changelog
 date: 2026-04-29
 tags: writing, content, terminal
@@ -12,23 +20,25 @@ Initial post placeholder for the terminal-native writing system. Posts are markd
 };
 
 export function assetPathToPostPath(path) {
-  const normalized = String(path || '').trim();
-  return normalized.startsWith('/assets/posts/') ? normalized.replace(/^\/assets/, '') : normalized;
+  const normalized = String(path || "").trim();
+  return normalized.startsWith("/public/posts/")
+    ? normalized.replace(/^\/public/, "")
+    : normalized;
 }
 
 export function postPathToAssetPath(path) {
-  const normalized = String(path || '').trim();
-  return normalized.startsWith('/posts/') ? `/assets${normalized}` : normalized;
+  const normalized = String(path || "").trim();
+  return normalized.startsWith("/posts/") ? `/assets${normalized}` : normalized;
 }
 
 const jsonHeaders = {
-  'Content-Type': 'application/json; charset=utf-8',
-  'Cache-Control': 'no-store',
+  "Content-Type": "application/json; charset=utf-8",
+  "Cache-Control": "no-store",
 };
 
-const R2_POST_PREFIX = 'posts/markdown';
-const R2_ASSET_PREFIX = 'posts/assets';
-const R2_SNAPSHOT_PREFIX = 'posts/snapshots';
+const R2_POST_PREFIX = "posts/markdown";
+const R2_ASSET_PREFIX = "posts/assets";
+const R2_SNAPSHOT_PREFIX = "posts/snapshots";
 
 function postsDb(env) {
   return env.POSTS_DB || env.DB || null;
@@ -43,24 +53,31 @@ function postsBucket(env) {
  * @returns {{ body: string, meta: Record<string, string> }}
  */
 export function parseFrontmatter(markdown) {
-  if (!markdown || typeof markdown !== 'string' || !markdown.startsWith('---')) {
-    return { body: markdown || '', meta: {} };
+  if (
+    !markdown ||
+    typeof markdown !== "string" ||
+    !markdown.startsWith("---")
+  ) {
+    return { body: markdown || "", meta: {} };
   }
-  const end = markdown.indexOf('\n---', 3);
+  const end = markdown.indexOf("\n---", 3);
   if (end < 0) {
     return { body: markdown, meta: {} };
   }
   const raw = markdown.slice(3, end).trim();
   const body = markdown.slice(end + 4).trim();
   const meta = {};
-  for (const line of raw.split('\n')) {
+  for (const line of raw.split("\n")) {
     const m = line.match(/^([\w-]+):\s*(.*)$/);
     if (!m) {
       continue;
     }
     const k = m[1].toLowerCase();
     let v = m[2].trim();
-    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    if (
+      (v.startsWith('"') && v.endsWith('"')) ||
+      (v.startsWith("'") && v.endsWith("'"))
+    ) {
       v = v.slice(1, -1);
     }
     meta[k] = v;
@@ -82,29 +99,29 @@ export function tagsFromMeta(meta) {
     return [];
   }
   return String(meta.tags)
-    .split(',')
+    .split(",")
     .map((t) => t.trim().toLowerCase())
     .filter(Boolean);
 }
 
 export function slugFromPath(path) {
-  const base = path.split('/').pop() || path;
-  return base.replace(/\.md$/i, '') || base;
+  const base = path.split("/").pop() || path;
+  return base.replace(/\.md$/i, "") || base;
 }
 
 function assetRefsFromMarkdown(markdown) {
   const refs = new Set();
-  const body = String(markdown || '');
+  const body = String(markdown || "");
   const imageRe = /!\[[^\]]*]\(([^)]+)\)/g;
   const linkRe = /\[[^\]]+]\(([^)]+)\)/g;
   for (const re of [imageRe, linkRe]) {
     let m;
     while ((m = re.exec(body))) {
-      const raw = String(m[1] || '').trim();
+      const raw = String(m[1] || "").trim();
       if (!raw || /^https?:\/\//i.test(raw)) {
         continue;
       }
-      refs.add(raw.replace(/^\.?\//, ''));
+      refs.add(raw.replace(/^\.?\//, ""));
     }
   }
   return Array.from(refs);
@@ -202,14 +219,14 @@ export async function ensureContentInfra(env) {
  * @param {{ label: string, type: string, command: string }[]} items
  * @param {string} [source]
  */
-export async function upsertTagWithItems(db, slug, items, source = 'post') {
+export async function upsertTagWithItems(db, slug, items, source = "post") {
   const now = new Date().toISOString();
   await db
     .prepare(
       `INSERT INTO tags (slug, description, source, created_at) VALUES (?, ?, ?, ?)
        ON CONFLICT(slug) DO NOTHING`,
     )
-    .bind(slug, '', source, now)
+    .bind(slug, "", source, now)
     .run();
   for (const item of items) {
     await db
@@ -217,7 +234,12 @@ export async function upsertTagWithItems(db, slug, items, source = 'post') {
         `INSERT OR IGNORE INTO tag_items (tag_slug, label, type, command)
          VALUES (?, ?, ?, ?)`,
       )
-      .bind(slug, String(item.label || ''), String(item.type || ''), String(item.command || ''))
+      .bind(
+        slug,
+        String(item.label || ""),
+        String(item.type || ""),
+        String(item.command || ""),
+      )
       .run();
   }
 }
@@ -229,11 +251,11 @@ export async function syncPostToStorage(env, path, markdown) {
   const payload = await postPayload(path, markdown, env);
   const nowIso = new Date().toISOString();
   const r2MarkdownKey = `${R2_POST_PREFIX}${path}`;
-  const r2SnapshotKey = `${R2_SNAPSHOT_PREFIX}${path}.${nowIso.replaceAll(':', '-')}.json`;
+  const r2SnapshotKey = `${R2_SNAPSHOT_PREFIX}${path}.${nowIso.replaceAll(":", "-")}.json`;
 
   if (bucket) {
     await bucket.put(r2MarkdownKey, markdown, {
-      httpMetadata: { contentType: 'text/markdown; charset=utf-8' },
+      httpMetadata: { contentType: "text/markdown; charset=utf-8" },
       customMetadata: {
         path,
         slug: payload.slug,
@@ -255,15 +277,16 @@ export async function syncPostToStorage(env, path, markdown) {
         comments: payload.comments,
         assets: assetRefsFromMarkdown(markdown),
       }),
-      { httpMetadata: { contentType: 'application/json; charset=utf-8' } },
+      { httpMetadata: { contentType: "application/json; charset=utf-8" } },
     );
   }
 
   if (!db) {
     return;
   }
-  await db.prepare(
-    `INSERT INTO posts (
+  await db
+    .prepare(
+      `INSERT INTO posts (
       path, slug, title, published, updated, description, tags_json, body_text, featured_asset,
       r2_markdown_key, r2_snapshot_key, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -279,7 +302,7 @@ export async function syncPostToStorage(env, path, markdown) {
       r2_markdown_key = excluded.r2_markdown_key,
       r2_snapshot_key = excluded.r2_snapshot_key,
       updated_at = excluded.updated_at`,
-  )
+    )
     .bind(
       path,
       payload.slug,
@@ -289,35 +312,58 @@ export async function syncPostToStorage(env, path, markdown) {
       payload.description,
       JSON.stringify(payload.tags),
       payload.body,
-      String(payload.meta.featured || '').trim() || null,
+      String(payload.meta.featured || "").trim() || null,
       bucket ? r2MarkdownKey : null,
       bucket ? r2SnapshotKey : null,
       nowIso,
     )
     .run();
 
-  await db.prepare('DELETE FROM post_tags WHERE post_path = ?').bind(path).run();
+  await db
+    .prepare("DELETE FROM post_tags WHERE post_path = ?")
+    .bind(path)
+    .run();
   for (const tag of payload.tags) {
-    await db.prepare('INSERT OR IGNORE INTO post_tags (post_path, tag) VALUES (?, ?)').bind(path, tag).run();
+    await db
+      .prepare("INSERT OR IGNORE INTO post_tags (post_path, tag) VALUES (?, ?)")
+      .bind(path, tag)
+      .run();
     await upsertTagWithItems(
       db,
       tag,
-      [{ label: payload.title, type: 'post', command: `post open ${payload.slug}` }],
-      'post',
+      [
+        {
+          label: payload.title,
+          type: "post",
+          command: `post open ${payload.slug}`,
+        },
+      ],
+      "post",
     );
   }
-  await db.prepare(
-    `INSERT INTO post_search (post_path, searchable_text, updated_at)
+  await db
+    .prepare(
+      `INSERT INTO post_search (post_path, searchable_text, updated_at)
      VALUES (?, ?, ?)
      ON CONFLICT(post_path) DO UPDATE SET searchable_text = excluded.searchable_text, updated_at = excluded.updated_at`,
-  )
-    .bind(path, [payload.title, payload.description, payload.body, payload.tags.join(' ')].join('\n'), nowIso)
+    )
+    .bind(
+      path,
+      [
+        payload.title,
+        payload.description,
+        payload.body,
+        payload.tags.join(" "),
+      ].join("\n"),
+      nowIso,
+    )
     .run();
-  await db.prepare(
-    `INSERT INTO post_metrics (post_path, views, reactions, messages, bookings, updated_at)
+  await db
+    .prepare(
+      `INSERT INTO post_metrics (post_path, views, reactions, messages, bookings, updated_at)
      VALUES (?, 0, 0, 0, 0, ?)
      ON CONFLICT(post_path) DO NOTHING`,
-  )
+    )
     .bind(path, nowIso)
     .run();
 }
@@ -327,21 +373,21 @@ export async function syncAssetToStorage(env, path, content) {
   const bucket = postsBucket(env);
   if (bucket) {
     const key = `${R2_ASSET_PREFIX}${path}`;
-    const ext = path.split('.').pop()?.toLowerCase() ?? '';
+    const ext = path.split(".").pop()?.toLowerCase() ?? "";
     const contentType =
-      ext === 'png'
-        ? 'image/png'
-        : ext === 'jpg' || ext === 'jpeg'
-          ? 'image/jpeg'
-          : ext === 'webp'
-            ? 'image/webp'
-            : ext === 'gif'
-              ? 'image/gif'
-              : ext === 'svg'
-                ? 'image/svg+xml'
-                : ext === 'pdf'
-                  ? 'application/pdf'
-                  : 'application/octet-stream';
+      ext === "png"
+        ? "image/png"
+        : ext === "jpg" || ext === "jpeg"
+          ? "image/jpeg"
+          : ext === "webp"
+            ? "image/webp"
+            : ext === "gif"
+              ? "image/gif"
+              : ext === "svg"
+                ? "image/svg+xml"
+                : ext === "pdf"
+                  ? "application/pdf"
+                  : "application/octet-stream";
     await bucket.put(key, content, { httpMetadata: { contentType } });
   }
 }
@@ -356,12 +402,27 @@ export async function deletePostFromStorage(env, path) {
   if (!db) {
     return;
   }
-  await db.prepare('DELETE FROM post_tags WHERE post_path = ?').bind(path).run();
-  await db.prepare('DELETE FROM post_search WHERE post_path = ?').bind(path).run();
-  await db.prepare('DELETE FROM post_metrics WHERE post_path = ?').bind(path).run();
-  await db.prepare('DELETE FROM post_reactions WHERE post_path = ?').bind(path).run();
-  await db.prepare('DELETE FROM post_messages WHERE post_path = ?').bind(path).run();
-  await db.prepare('DELETE FROM posts WHERE path = ?').bind(path).run();
+  await db
+    .prepare("DELETE FROM post_tags WHERE post_path = ?")
+    .bind(path)
+    .run();
+  await db
+    .prepare("DELETE FROM post_search WHERE post_path = ?")
+    .bind(path)
+    .run();
+  await db
+    .prepare("DELETE FROM post_metrics WHERE post_path = ?")
+    .bind(path)
+    .run();
+  await db
+    .prepare("DELETE FROM post_reactions WHERE post_path = ?")
+    .bind(path)
+    .run();
+  await db
+    .prepare("DELETE FROM post_messages WHERE post_path = ?")
+    .bind(path)
+    .run();
+  await db.prepare("DELETE FROM posts WHERE path = ?").bind(path).run();
 }
 
 export async function recordPostEvent(env, postPath, event, details = {}) {
@@ -371,48 +432,53 @@ export async function recordPostEvent(env, postPath, event, details = {}) {
     return;
   }
   const now = new Date().toISOString();
-  if (event === 'view') {
-    await db.prepare(
-      `INSERT INTO post_metrics (post_path, views, reactions, messages, bookings, updated_at)
+  if (event === "view") {
+    await db
+      .prepare(
+        `INSERT INTO post_metrics (post_path, views, reactions, messages, bookings, updated_at)
        VALUES (?, 1, 0, 0, 0, ?)
        ON CONFLICT(post_path) DO UPDATE SET views = views + 1, updated_at = excluded.updated_at`,
-    )
+      )
       .bind(postPath, now)
       .run();
     return;
   }
-  if (event === 'reaction') {
-    const reaction = String(details.reaction || 'like').slice(0, 32);
-    await db.prepare(
-      `INSERT INTO post_reactions (post_path, reaction, count, updated_at)
+  if (event === "reaction") {
+    const reaction = String(details.reaction || "like").slice(0, 32);
+    await db
+      .prepare(
+        `INSERT INTO post_reactions (post_path, reaction, count, updated_at)
        VALUES (?, ?, 1, ?)
        ON CONFLICT(post_path, reaction) DO UPDATE SET count = count + 1, updated_at = excluded.updated_at`,
-    )
+      )
       .bind(postPath, reaction, now)
       .run();
-    await db.prepare(
-      `INSERT INTO post_metrics (post_path, views, reactions, messages, bookings, updated_at)
+    await db
+      .prepare(
+        `INSERT INTO post_metrics (post_path, views, reactions, messages, bookings, updated_at)
        VALUES (?, 0, 1, 0, 0, ?)
        ON CONFLICT(post_path) DO UPDATE SET reactions = reactions + 1, updated_at = excluded.updated_at`,
-    )
+      )
       .bind(postPath, now)
       .run();
     return;
   }
-  if (event === 'message') {
-    const name = String(details.name || 'anonymous').slice(0, 60);
-    const message = String(details.message || '').slice(0, 2000);
-    const kind = String(details.kind || 'message').slice(0, 24);
-    await db.prepare(
-      'INSERT INTO post_messages (post_path, name, message, kind, created_at) VALUES (?, ?, ?, ?, ?)',
-    )
+  if (event === "message") {
+    const name = String(details.name || "anonymous").slice(0, 60);
+    const message = String(details.message || "").slice(0, 2000);
+    const kind = String(details.kind || "message").slice(0, 24);
+    await db
+      .prepare(
+        "INSERT INTO post_messages (post_path, name, message, kind, created_at) VALUES (?, ?, ?, ?, ?)",
+      )
       .bind(postPath, name, message, kind, now)
       .run();
-    await db.prepare(
-      `INSERT INTO post_metrics (post_path, views, reactions, messages, bookings, updated_at)
+    await db
+      .prepare(
+        `INSERT INTO post_metrics (post_path, views, reactions, messages, bookings, updated_at)
        VALUES (?, 0, 0, 1, 0, ?)
        ON CONFLICT(post_path) DO UPDATE SET messages = messages + 1, updated_at = excluded.updated_at`,
-    )
+      )
       .bind(postPath, now)
       .run();
   }
@@ -425,18 +491,19 @@ export async function recordBookingEvent(env, booking) {
     return;
   }
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  await db.prepare(
-    `INSERT INTO bookings (id, email, date, time, duration, message, meet_link, created_at)
+  await db
+    .prepare(
+      `INSERT INTO bookings (id, email, date, time, duration, message, meet_link, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  )
+    )
     .bind(
       id,
-      String(booking.email || ''),
-      String(booking.date || ''),
-      String(booking.time || ''),
-      String(booking.duration || ''),
-      String(booking.message || ''),
-      String(booking.meetLink || ''),
+      String(booking.email || ""),
+      String(booking.date || ""),
+      String(booking.time || ""),
+      String(booking.duration || ""),
+      String(booking.message || ""),
+      String(booking.meetLink || ""),
       new Date().toISOString(),
     )
     .run();
@@ -446,13 +513,16 @@ export async function postPayload(path, markdown, env) {
   const { body, meta } = parseFrontmatter(markdown);
   const pathDate = dateFromPostPath(path);
   const titleFromBody = body.match(/^#\s+(.+)$/m)?.[1]?.trim();
-  const title = (meta.title && meta.title.trim()) || titleFromBody || slugFromPath(path);
+  const title =
+    (meta.title && meta.title.trim()) || titleFromBody || slugFromPath(path);
 
   const publishedRaw = meta.date || meta.published || pathDate;
   let published = publishedRaw;
   if (published && !/^\d{4}-\d{2}-\d{2}/.test(published)) {
     const d = new Date(published);
-    published = Number.isNaN(d.getTime()) ? pathDate || new Date().toISOString().slice(0, 10) : d.toISOString().slice(0, 10);
+    published = Number.isNaN(d.getTime())
+      ? pathDate || new Date().toISOString().slice(0, 10)
+      : d.toISOString().slice(0, 10);
   }
   if (!published) {
     published = new Date().toISOString().slice(0, 10);
@@ -465,11 +535,13 @@ export async function postPayload(path, markdown, env) {
 
   const tags = tagsFromMeta(meta);
   const plain = body
-    .replace(/^#\s+.+$/m, '')
-    .replace(/[#*_`]/g, '')
+    .replace(/^#\s+.+$/m, "")
+    .replace(/[#*_`]/g, "")
     .trim();
   const description =
-    (meta.description && meta.description.trim()) || plain.slice(0, 360).trim() || title;
+    (meta.description && meta.description.trim()) ||
+    plain.slice(0, 360).trim() ||
+    title;
 
   let comments = [];
   const db = postsDb(env);
@@ -486,7 +558,8 @@ export async function postPayload(path, markdown, env) {
       .all();
     comments = Array.isArray(rows?.results) ? rows.results : [];
   } else if (env.PORTFOLIO_OS) {
-    comments = (await env.PORTFOLIO_OS.get(`comments:${path}`, { type: 'json' })) ?? [];
+    comments =
+      (await env.PORTFOLIO_OS.get(`comments:${path}`, { type: "json" })) ?? [];
   }
 
   return {
@@ -517,11 +590,13 @@ export async function collectAllPosts(env) {
   const bucket = postsBucket(env);
 
   if (db) {
-    const rows = await db.prepare('SELECT path, r2_markdown_key FROM posts').all();
+    const rows = await db
+      .prepare("SELECT path, r2_markdown_key FROM posts")
+      .all();
     for (const row of rows?.results ?? []) {
-      const postPath = String(row?.path || '');
-      const r2Key = String(row?.r2_markdown_key || '');
-      if (!postPath.startsWith('/posts/')) {
+      const postPath = String(row?.path || "");
+      const r2Key = String(row?.r2_markdown_key || "");
+      if (!postPath.startsWith("/posts/")) {
         continue;
       }
       let markdown = null;
@@ -535,18 +610,25 @@ export async function collectAllPosts(env) {
         markdown = await env.PORTFOLIO_OS.get(`file:${postPath}`);
       }
       if (markdown) {
-        byPath.set(postPath, await postPayload(postPath, String(markdown), env));
+        byPath.set(
+          postPath,
+          await postPayload(postPath, String(markdown), env),
+        );
       }
     }
   } else if (env.PORTFOLIO_OS?.list) {
-    for (const prefix of ['file:/posts/', 'file:/assets/posts/']) {
+    for (const prefix of ["file:/posts/", "file:/public/posts/"]) {
       let cursor;
       do {
-        const page = await env.PORTFOLIO_OS.list({ prefix, cursor, limit: 1000 });
+        const page = await env.PORTFOLIO_OS.list({
+          prefix,
+          cursor,
+          limit: 1000,
+        });
         cursor = page.cursor;
 
         for (const key of page.keys ?? []) {
-          const rawPath = key.name.replace(/^file:/, '');
+          const rawPath = key.name.replace(/^file:/, "");
           const path = assetPathToPostPath(rawPath);
           const markdown = await env.PORTFOLIO_OS.get(key.name);
           if (markdown) {
@@ -576,18 +658,63 @@ export async function onRequestPost({ request, env }) {
   try {
     body = await request.json();
   } catch {
-    return Response.json({ error: 'Invalid JSON body.' }, { status: 400, headers: jsonHeaders });
+    return Response.json(
+      { error: "Invalid JSON body." },
+      { status: 400, headers: jsonHeaders },
+    );
   }
-  const action = String(body?.action || '').toLowerCase();
-  const postPath = String(body?.path || '').trim();
+
+  if (body?.markdown || body?.content || body?.text) {
+    const auth = requireApiAuth(request, env);
+    if (!auth.ok) {
+      return errorJson(auth.message, auth.status);
+    }
+
+    const markdown = String(body.markdown || body.content || body.text || "");
+    const { meta } = parseFrontmatter(markdown);
+    const title = String(
+      body.title || meta.title || markdown.match(/^#\s+(.+)$/m)?.[1] || "Post",
+    );
+    const date = body.date || meta.date || new Date().toISOString();
+    const path = body.path || datedPath("/posts", title, "md", new Date(date));
+    if (!path.startsWith("/posts/") || !path.endsWith(".md")) {
+      return errorJson("post path must be under /posts and end in .md", 400);
+    }
+
+    const document = await upsertKnowledgeDocument(env, {
+      path,
+      kind: "post",
+      source: body.source || "api",
+      title,
+      markdown,
+      metadata: body.metadata || {},
+    });
+
+    return Response.json(
+      { ok: true, post: document },
+      { headers: apiHeaders() },
+    );
+  }
+
+  const action = String(body?.action || "").toLowerCase();
+  const postPath = String(body?.path || "").trim();
   if (!action || !postPath) {
-    return Response.json({ error: 'action and path are required.' }, { status: 400, headers: jsonHeaders });
+    return Response.json(
+      { error: "action and path are required." },
+      { status: 400, headers: jsonHeaders },
+    );
   }
-  if (!postPath.startsWith('/posts/')) {
-    return Response.json({ error: 'path must be under /posts.' }, { status: 400, headers: jsonHeaders });
+  if (!postPath.startsWith("/posts/")) {
+    return Response.json(
+      { error: "path must be under /posts." },
+      { status: 400, headers: jsonHeaders },
+    );
   }
-  if (!['view', 'reaction', 'message'].includes(action)) {
-    return Response.json({ error: 'Unsupported action.' }, { status: 400, headers: jsonHeaders });
+  if (!["view", "reaction", "message"].includes(action)) {
+    return Response.json(
+      { error: "Unsupported action." },
+      { status: 400, headers: jsonHeaders },
+    );
   }
   await recordPostEvent(env, postPath, action, {
     reaction: body?.reaction,
@@ -599,16 +726,19 @@ export async function onRequestPost({ request, env }) {
 }
 
 export async function onRequest() {
-  return Response.json({ error: 'Method not allowed.' }, { status: 405, headers: jsonHeaders });
+  return Response.json(
+    { error: "Method not allowed." },
+    { status: 405, headers: jsonHeaders },
+  );
 }
 
 function escapeXml(s) {
   return String(s)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&apos;');
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
 }
 
 /**
@@ -618,15 +748,19 @@ function escapeXml(s) {
  */
 export async function buildRssXml(env, origin) {
   const posts = await collectAllPosts(env);
-  const base = origin.replace(/\/$/, '');
+  const base = origin.replace(/\/$/, "");
   const buildDate = new Date().toUTCString();
   const items = posts
     .map((post) => {
       const link = `${base}/#posts`;
-      const pub = post.published ? new Date(`${post.published}T12:00:00Z`).toUTCString() : buildDate;
+      const pub = post.published
+        ? new Date(`${post.published}T12:00:00Z`).toUTCString()
+        : buildDate;
       const desc = escapeXml(post.description || post.title);
       const tagNote =
-        post.tags?.length > 0 ? `<p>Tags: ${escapeXml(post.tags.join(', '))}</p>` : '';
+        post.tags?.length > 0
+          ? `<p>Tags: ${escapeXml(post.tags.join(", "))}</p>`
+          : "";
       return `
     <item>
       <title>${escapeXml(post.title)}</title>
@@ -636,7 +770,7 @@ export async function buildRssXml(env, origin) {
       <description><![CDATA[<p>${desc}</p>${tagNote}<p><code>post open ${escapeXml(post.slug)}</code> in the terminal for the full article.</p>]]></description>
     </item>`;
     })
-    .join('');
+    .join("");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
