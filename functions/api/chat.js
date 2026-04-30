@@ -1,3 +1,5 @@
+import { appendAiLog } from './ai-log.js';
+
 const MODEL = '@cf/meta/llama-3.1-8b-instruct';
 
 const PROFILE_CONTEXT = `
@@ -107,6 +109,9 @@ export async function onRequestPost({ request, env }) {
     .map((entry) => `${entry.at}: ${entry.command}`)
     .join('\n');
 
+  const userContent = `Portfolio context:\n${PROFILE_CONTEXT}\n\nMetrics state:\n${JSON.stringify(metrics).slice(0, 3000)}\n\nLeaderboard state:\n${JSON.stringify(leaderboard).slice(0, 2000)}\n\nPersisted terminal history:\n${persistedHistory || '(empty)'}\n\nQuestion: ${message}`;
+  const contextExcerpt = `chat_history_json:\n${JSON.stringify(history).slice(0, 3500)}\n\n---\n${userContent}`;
+
   let result;
 
   try {
@@ -120,13 +125,21 @@ export async function onRequestPost({ request, env }) {
         ...history,
         {
           role: 'user',
-          content: `Portfolio context:\n${PROFILE_CONTEXT}\n\nMetrics state:\n${JSON.stringify(metrics).slice(0, 3000)}\n\nLeaderboard state:\n${JSON.stringify(leaderboard).slice(0, 2000)}\n\nPersisted terminal history:\n${persistedHistory || '(empty)'}\n\nQuestion: ${message}`,
+          content: userContent,
         },
       ],
       temperature: 0.2,
       max_tokens: 700,
     });
-  } catch {
+  } catch (err) {
+    await appendAiLog(env, {
+      source: 'chat',
+      sessionId,
+      model: MODEL,
+      query: message,
+      contextExcerpt,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return Response.json(
       { error: 'Workers AI request failed.' },
       { status: 502, headers: jsonHeaders },
@@ -139,6 +152,15 @@ export async function onRequestPost({ request, env }) {
       : typeof result?.text === 'string'
         ? result.text
         : 'I could not extract a text response from the Workers AI result.';
+
+  await appendAiLog(env, {
+    source: 'chat',
+    sessionId,
+    model: MODEL,
+    query: message,
+    contextExcerpt,
+    response: answer,
+  });
 
   state.history.push({ at: new Date().toISOString(), command: `chat: ${message}` });
   state.history = state.history.slice(-120);

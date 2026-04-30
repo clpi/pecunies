@@ -1,3 +1,4 @@
+import { COMMAND_TAGS } from '../data/content-tags';
 import { resumeData } from '../data/resume';
 import type {
   CommandDefinition,
@@ -32,12 +33,23 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
     ['chat', 'Chat'],
   ]);
 
-  const navOrder = new Set(['about', 'resume', 'timeline', 'projects', 'skills', 'posts', 'links', 'contact', 'pdf', 'chat']);
-  const navLinks = featuredCommands
-    .filter((command) => navOrder.has(command.name))
+  const navSequence = [
+    'about',
+    'resume',
+    'projects',
+    'posts',
+    'links',
+    'contact',
+    'pdf',
+    'chat',
+  ] as const;
+  const featuredByName = new Map(featuredCommands.map((command) => [command.name, command]));
+  const navLinks = navSequence
+    .map((name) => featuredByName.get(name))
+    .filter((command): command is CommandDefinition => Boolean(command))
     .map(
       (command) => `
-        <button class="nav-link" type="button" data-command="${escapeAttribute(command.name)}">
+        <button class="nav-link" type="button" data-command="${escapeAttribute(command.name)}" data-nav="${escapeAttribute(command.name)}">
           ${escapeHtml(labels.get(command.name) ?? command.name)}
         </button>
       `,
@@ -46,7 +58,11 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
 
   return `
     <canvas class="field-canvas" id="field-canvas" aria-hidden="true"></canvas>
+    <div class="parallax-grid" aria-hidden="true"></div>
     <div class="ambient-noise" aria-hidden="true"></div>
+    <div class="crt-vignette" aria-hidden="true"></div>
+    <div class="crt-grain" aria-hidden="true"></div>
+    <div class="crt-hum" aria-hidden="true"></div>
     <div class="scanlines" aria-hidden="true"></div>
 
     <header class="site-nav" aria-label="Primary navigation">
@@ -61,6 +77,7 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
 
     <div class="site-shell">
       <section class="terminal-shell" id="terminal-shell">
+        <div class="terminal-crt-scan" aria-hidden="true"></div>
         <header class="terminal-header">
           <div class="terminal-controls">
             <button class="window-button is-close" type="button" data-window-action="shutdown" aria-label="Shutdown terminal"></button>
@@ -68,14 +85,14 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
             <button class="window-button is-maximize" type="button" data-window-action="maximize" aria-label="Maximize terminal"></button>
           </div>
           <div class="terminal-state">
-            <span id="route-indicator">~/resume</span>
+            <span id="route-indicator">resume</span>
             <button id="theme-indicator" type="button" data-command="themes">palette:auto</button>
           </div>
           <button class="ghost-button" type="button" data-command="clear">clear</button>
         </header>
 
-        <div class="terminal-body">
-          <div class="terminal-output">
+        <div class="terminal-body crt-text">
+          <div class="terminal-output terminal-text">
             <div class="banner-line">
               <span class="prompt-prefix" id="terminal-prompt-label">chris@pecunies:~$</span>
               <span class="banner-command" id="prompt-scramble" data-scramble>${escapeHtml(resumeData.commandBanner)}</span>
@@ -89,7 +106,13 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
             <ol class="terminal-log" id="terminal-log" aria-live="polite"></ol>
           </div>
 
-          <div class="autocomplete-panel" id="autocomplete-panel" hidden>
+          <div
+            class="autocomplete-panel"
+            id="autocomplete-panel"
+            role="listbox"
+            hidden
+            aria-label="Command suggestions"
+          >
             <div class="autocomplete-list" id="autocomplete-list"></div>
           </div>
 
@@ -98,22 +121,33 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
               <label class="sr-only" for="terminal-input">Terminal command input</label>
               <span class="prompt-prefix">chris@pecunies:~$</span>
               <input
-                class="terminal-input"
+                class="terminal-input crt-text"
                 id="terminal-input"
                 name="command"
                 type="text"
                 spellcheck="false"
                 placeholder="help"
                 aria-label="Type a command"
+                aria-autocomplete="list"
+                aria-controls="autocomplete-list"
+                aria-expanded="false"
               />
               <button class="submit-button" type="submit">Run</button>
             </form>
           </div>
         </div>
+        <span class="shell-resize-handle shell-resize-n" data-resize="n" aria-hidden="true"></span>
+        <span class="shell-resize-handle shell-resize-s" data-resize="s" aria-hidden="true"></span>
+        <span class="shell-resize-handle shell-resize-e" data-resize="e" aria-hidden="true"></span>
+        <span class="shell-resize-handle shell-resize-w" data-resize="w" aria-hidden="true"></span>
+        <span class="shell-resize-handle shell-resize-ne" data-resize="ne" aria-hidden="true"></span>
+        <span class="shell-resize-handle shell-resize-nw" data-resize="nw" aria-hidden="true"></span>
+        <span class="shell-resize-handle shell-resize-se" data-resize="se" aria-hidden="true"></span>
+        <span class="shell-resize-handle shell-resize-sw" data-resize="sw" aria-hidden="true"></span>
       </section>
-      <button class="terminal-dock" id="terminal-dock" type="button" hidden>
+      <button class="terminal-dock is-active" id="terminal-dock" type="button" aria-label="Minimize terminal window">
         <span></span>
-        pecunies terminal
+        Terminal
       </button>
     </div>
   `;
@@ -136,6 +170,14 @@ export function renderLog(lines: SessionLine[]): string {
           <li class="log-line log-line-system is-${escapeAttribute(line.tone)}">
             <span class="log-label">[${escapeHtml(line.label)}]</span>
             <span class="log-copy">${escapeHtml(line.text)}</span>
+          </li>
+        `;
+      }
+
+      if (line.kind === 'pretty-response') {
+        return `
+          <li class="log-line log-line-pretty">
+            <div class="pretty-output markdown-body">${line.html}</div>
           </li>
         `;
       }
@@ -172,6 +214,18 @@ export function renderView(view: ViewDefinition): string {
         <h1 class="terminal-title">${escapeHtml(view.title)}</h1>
         <p class="terminal-copy">${escapeHtml(view.description)}</p>
         ${view.note ? `<p class="terminal-note">${escapeHtml(view.note)}</p>` : ''}
+        ${
+          view.tags?.length
+            ? `<div class="view-tag-row" aria-label="Content tags">
+                ${view.tags
+                  .map(
+                    (tag) =>
+                      `<button type="button" class="content-tag" data-command="tags ${escapeAttribute(tag)}">#${escapeHtml(tag)}</button>`,
+                  )
+                  .join('')}
+              </div>`
+            : ''
+        }
         ${actionsMarkup}
       </header>
 
@@ -305,6 +359,47 @@ function renderSection(section: TerminalSection): string {
           </div>
         </section>
       `;
+
+    case 'tag-index':
+      return `
+        <section class="output-block tag-index-panel">
+          <h2 class="output-heading">${escapeHtml(section.heading)}</h2>
+          ${
+            section.description
+              ? `<p class="terminal-copy tag-index-desc">${escapeHtml(section.description)}</p>`
+              : ''
+          }
+          ${
+            section.filter
+              ? `<p class="tag-index-active">Filtering: <strong>#${escapeHtml(section.filter)}</strong></p>`
+              : ''
+          }
+          <div class="tag-cloud" role="list">
+            ${section.allTags
+              .map(
+                (t) => `
+              <button type="button" class="tag-cloud-chip" data-command="tags ${escapeAttribute(t.slug)}" role="listitem">
+                <span class="tag-cloud-name">#${escapeHtml(t.slug)}</span>
+                <span class="tag-cloud-count">${t.count}</span>
+              </button>`,
+              )
+              .join('')}
+          </div>
+          <h3 class="output-heading output-heading-sub">Matching content</h3>
+          <div class="tag-result-list">
+            ${section.items
+              .map(
+                (item) => `
+              <button type="button" class="tag-result-row" data-command="${escapeAttribute(item.command)}">
+                <span class="tag-result-type">${escapeHtml(item.type)}</span>
+                <span class="tag-result-label">${escapeHtml(item.label)}</span>
+                <code class="tag-result-cmd">${escapeHtml(item.command)}</code>
+              </button>`,
+              )
+              .join('')}
+          </div>
+        </section>
+      `;
   }
 }
 
@@ -409,11 +504,24 @@ function renderContactCard(item: ContactCard): string {
 }
 
 function renderCommandHelpItem(item: CommandHelpItem): string {
+  const tagList = item.tags?.length ? item.tags : COMMAND_TAGS[item.name] ?? [];
+  const tagRow =
+    tagList.length > 0
+      ? `<div class="command-help-tags" aria-label="Tags">
+          ${tagList
+            .map(
+              (t) =>
+                `<button type="button" class="content-tag content-tag--compact" data-command="tags ${escapeAttribute(t)}">#${escapeHtml(t)}</button>`,
+            )
+            .join('')}
+        </div>`
+      : '';
   return `
     <article class="command-card">
       <div class="command-copy">
         <p class="command-name">/${escapeHtml(item.name)}</p>
         <p class="command-desc">${escapeHtml(item.description)}</p>
+        ${tagRow}
       </div>
       <div class="command-meta">
         <code>${escapeHtml(item.usage)}</code>
@@ -469,6 +577,25 @@ function renderAction(action: ViewAction): string {
   }
 
   return '';
+}
+
+/** Shell for CodeMirror + vim (mounted from TerminalApp). */
+export function renderEditor({ file, content }: { file: string; content: string }): string {
+  const lines = content.split('\n').length;
+  return `
+    <div class="editor-container">
+      <div class="editor-header">
+        <span class="editor-file">${escapeHtml(file)}</span>
+        <span class="editor-hints">Vim keys &middot; Ctrl+S save &middot; Esc close</span>
+      </div>
+      <div
+        class="editor-codemirror-root"
+        aria-label="Edit ${escapeHtml(file)}"
+        data-initial-lines="${lines}"
+      ></div>
+      <div class="editor-status">${lines} lines</div>
+    </div>
+  `;
 }
 
 function escapeHtml(value: string): string {

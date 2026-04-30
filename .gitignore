@@ -22,3 +22,15 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Private / IDE tool state
+.claude/
+.cursor/
+
+# Build artifacts
+tmp/
+wasm/chaos-engine/target/
+
+# Environment
+.env
+.env.*

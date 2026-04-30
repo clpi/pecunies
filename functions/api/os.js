@@ -1,3 +1,6 @@
+import { appendAiLog, readAiLogText } from './ai-log.js';
+import { collectAllPosts } from './posts.js';
+
 const MODEL = '@cf/meta/llama-3.1-8b-instruct';
 
 const PROFILE_CONTEXT = `
@@ -57,6 +60,8 @@ const FILES = {
     '# Pecunies Terminal\n\nThis site is a one-page terminal emulator portfolio for Chris Pecunies. It renders resume, projects, timeline, links, posts, PDF, AI chat, fake OS files, games, and network commands as terminal output. Static commands are registered in the frontend command registry; stateful commands run through Cloudflare Pages Functions backed by Workers AI and KV.\n\nDesign notes: glass terminal window, dark particle vortex, theme-driven red/amber/frost/ivory accents, autocomplete with man-page help, command history, and content rendered below the command that produced it.',
   '/TODO.md':
     '# TODO\n\n- Add real long-form posts and richer RSS entries.\n- Add validated chess rules and checkmate detection.\n- Expand the fake /internet browser with more sites and back/forward navigation.\n- Add richer Cloudflare Email Routing integration for /book.\n- Add authenticated private metrics export.\n- Add richer markdown rendering for OS files.\n- Expand down.nvim project notes as the plugin evolves.',
+  '/CHANGELOG.md':
+    '# Changelog\n\n## v1.2.0\n- Added /CHANGELOG.md documenting terminal application changes.\n- Added tags system: /tags command to discover content by tag.\n- Added environment variables with export and echo $VAR expansion.\n- Added piping support: `command1 | command2` pipes output.\n- Added /debug toggle for verbose logging.\n- Added cd, cp, mv, ln, and /dir aliases.\n- Enhanced sudo protection for /bin, /var, /root and root files.\n\n## v1.1.0\n- Added OS filesystem simulation with /bin, /var/log, /root.\n- Added tail, less, mkdir, and logs commands.\n- Added /cat --pretty for markdown syntax highlighting.\n- Added /explain last to explain previous command output.\n\n## v1.0.0\n- Initial release of Pecunies Terminal portfolio.',
   '/resume/resume.md':
     '# Chris Pecunies\n\nSoftware Engineer in Seattle, WA.\n\n## Summary\n\nSoftware Engineer with 4+ years across AWS, Azure, GCP, OCI, workflow automation, CI/CD, Infrastructure as Code, distributed systems, databases, and full-stack cloud applications.\n\n## Experience\n\n- **HashGraph, DevOps Engineer** - September 2025 to November 2025. Blockchain infrastructure, GitOps, ArgoCD, Grafana, PromQL, GCP, Terraform, and Ansible Vault.\n- **WiseBlocks LLC, Software Engineer** - June 2022 to April 2024. Distributed transaction database in Go, Rust WebAssembly VM, Next.js, FastAPI, gRPC, Protocol Buffers, Terraform, Ansible, Prometheus, and Grafana.\n- **Impresys Software Corporation, AWS Consultant** - September 2019 to May 2022. AWS/Azure training, AWS CDK, IaC automation, CI/CD material, and Python/Qt modernization.\n- **University of Washington, Research Assistant** - June 2018 to April 2021. AWS, React, Django, FastAPI, PostgreSQL, Docker, scientific simulations, and ML-driven analysis.\n\n## Education\n\nUniversity of Washington, B.S. Materials Science & Engineering, August 2015 - June 2019.',
   '/resume/skills.md':
@@ -68,22 +73,197 @@ const FILES = {
   '/projects/pi-cluster.md': `# ${PROJECTS['pi-cluster'].title}\n\n${PROJECTS['pi-cluster'].body}`,
   '/projects/down-nvim.md': `# ${PROJECTS['down-nvim'].title}\n\n${PROJECTS['down-nvim'].body}`,
   '/contact.md':
-    '# Contact\n\n- Email: chris@pecunies.com\n- GitHub: https://github.com/clpi\n- GitLab: https://gitlab.com/clpi\n- SourceHut: https://sr.ht/~clp/\n- LinkedIn: https://linkedin.com/in/chrispecunies\n- Website: https://pecunies.com\n- Short website: https://clp.is\n- Ko-fi: https://ko-fi.com/clp\n- X: https://x.com/clpif\n- Patreon: https://patreon.com/pecunies\n- Open Collective: https://opencollective.com/clp\n- Cal.com: https://cal.com/chrisp\n- Calendly: https://calendly.com/pecunies\n- Buy Me a Coffee: https://buymeacoffee.com/pecunies\n- Instagram: https://www.instagram.com/chris.pecunies/\n- Facebook: https://www.facebook.com/chris.pecunies/\n- Location: Seattle, WA',
+    '# Contact\n\n- Email: chris@pecunies.com\n- GitHub: https://github.com/clpi\n- GitLab: https://gitlab.com/clpi\n- SourceHut: https://sr.ht/~clp/\n- Codeberg: https://codeberg.org/clp\n- LinkedIn: https://linkedin.com/in/chrispecunies\n- Website: https://pecunies.com\n- Short website: https://clp.is\n- Ko-fi: https://ko-fi.com/clp\n- X: https://x.com/clpif\n- Threads: https://www.threads.com/@chris.pecunies\n- Patreon: https://patreon.com/pecunies\n- Open Collective: https://opencollective.com/clp\n- Cal.com: https://cal.com/chrisp\n- Calendly: https://calendly.com/pecunies\n- Buy Me a Coffee: https://buymeacoffee.com/pecunies\n- Instagram: https://www.instagram.com/chris.pecunies/\n- Facebook: https://www.facebook.com/chris.pecunies/\n- Location: Seattle, WA',
   '/posts/terminal-portfolio-changelog.md':
     '# Terminal Portfolio Changelog\n\nInitial post placeholder for the terminal-native writing system. Posts are markdown files under `/posts`; creating, editing, or removing them requires sudo privileges.',
   '/system/man.txt':
-    'Portfolio OS commands: ls, cat, man, whoami, history, ps, top, pwd, echo, cp, tree, find, grep, touch, rm, date, ask, explain, curl, ping, trace, weather, stock, metrics, leaderboard, internet, fzf, email, book, comment, sudo, su, 2048, clear, chat, exit, download, theme, maximize, minimize, shutdown.',
+    'Portfolio OS commands: ls, cat, man, whoami, history, ps, top, pwd, echo, cp, tree, find, grep, touch, rm, mkdir, tail, less, logs, date, ask, explain, curl, ping, trace, weather, stock, metrics, leaderboard, internet, fzf, clpsh, email, book, comment, sudo, su, 2048, clear, chat, exit, download, theme, maximize, minimize, shutdown.',
+  '/bin/clpsh': '#!/bin/clpsh\nPortfolio OS shell. Type commands at the prompt.',
+  '/bin/minesweeper': '#!/bin/minesweeper\nText-mode minesweeper game.',
+  '/bin/2048': '#!/bin/2048\nText-mode 2048 game.',
+  '/bin/chess': '#!/bin/chess\\nLightweight text-mode chess.',
+  '/bin/edit': '#!/bin/edit\\nText editor for the pecuOS filesystem.',
+  '/home/chris/README.txt':
+    'Home directory for chris@pecunies. See projects/ and skills/ for portfolio slices aligned with the terminal UI.',
+  '/home/chris/projects/README.md':
+    '# ~/projects\n\nSymlink-style view of shipped work. Use `projects` or `explain project` from the shell for full cards.',
+  '/home/chris/skills/README.md':
+    '# ~/skills\n\nSkill clusters mirror `skills` and resume markdown. Run `skills` or `cat /resume/skills.md`.',
+  '/etc/clpsh/clpshrc': '# pecuOS clpsh shell rc\\n# Runs when clpsh initializes\\n# Use export, alias, set commands here',
+  '/etc/edit/editrc': '# pecuOS edit rc\\n# Runs when /edit initializes\\n# Settings for the edit text editor',
+  '/etc/themes/red.json': JSON.stringify({
+    name: 'red', label: 'Red Signal', accent: '#ff6a66', accentStrong: '#ff3347',
+    accentSoft: 'rgba(255, 106, 102, 0.13)', panel: 'rgba(13, 10, 11, 0.58)',
+    panelStrong: 'rgba(22, 14, 16, 0.74)', text: '#f2eff0', muted: '#988f92',
+    depth: '#030203', mode: 0,
+  }, null, 2),
+  '/etc/themes/amber.json': JSON.stringify({
+    name: 'amber', label: 'Amber Phosphor', accent: '#f5b84b', accentStrong: '#ffd27a',
+    accentSoft: 'rgba(245, 184, 75, 0.13)', panel: 'rgba(9, 10, 12, 0.56)',
+    panelStrong: 'rgba(14, 15, 17, 0.72)', text: '#eceff1', muted: '#8b9299',
+    depth: '#020305', mode: 1,
+  }, null, 2),
+  '/etc/themes/frost.json': JSON.stringify({
+    name: 'frost', label: 'Blue Frost', accent: '#8bcaff', accentStrong: '#5da7ff',
+    accentSoft: 'rgba(139, 220, 255, 0.14)', panel: 'rgba(8, 10, 13, 0.55)',
+    panelStrong: 'rgba(13, 16, 19, 0.72)', text: '#f0f4f6', muted: '#8c99a3',
+    depth: '#020305', mode: 2,
+  }, null, 2),
+  '/etc/themes/ivory.json': JSON.stringify({
+    name: 'ivory', label: 'White Signal', accent: '#f4f7f8', accentStrong: '#ffffff',
+    accentSoft: 'rgba(244, 247, 248, 0.12)', panel: 'rgba(10, 10, 11, 0.56)',
+    panelStrong: 'rgba(16, 16, 18, 0.72)', text: '#f4f7f8', muted: '#92989d',
+    depth: '#020305', mode: 3,
+  }, null, 2),
+  '/etc/themes/magenta.json': JSON.stringify({
+    name: 'magenta', label: 'Magenta Pulse', accent: '#e066ff', accentStrong: '#d633ff',
+    accentSoft: 'rgba(224, 102, 255, 0.13)', panel: 'rgba(12, 10, 13, 0.56)',
+    panelStrong: 'rgba(18, 14, 19, 0.72)', text: '#f4f0f5', muted: '#9a92a3',
+    depth: '#030205', mode: 0,
+  }, null, 2),
+  '/etc/themes/blue.json': JSON.stringify({
+    name: 'blue', label: 'Deep Blue', accent: '#66b3ff', accentStrong: '#3385ff',
+    accentSoft: 'rgba(102, 179, 255, 0.13)', panel: 'rgba(8, 10, 14, 0.56)',
+    panelStrong: 'rgba(12, 16, 22, 0.72)', text: '#f0f2f6', muted: '#8c96a8',
+    depth: '#020305', mode: 2,
+  }, null, 2),
+  '/etc/themes/green.json': JSON.stringify({
+    name: 'green', label: 'Signal Green', accent: '#66ff99', accentStrong: '#33ff77',
+    accentSoft: 'rgba(102, 255, 153, 0.13)', panel: 'rgba(9, 12, 10, 0.56)',
+    panelStrong: 'rgba(14, 19, 16, 0.72)', text: '#f0f5f2', muted: '#8ca392',
+    depth: '#020503', mode: 1,
+  }, null, 2),
 };
 
 const DIRECTORIES = {
-  '/': ['README.md', 'TODO.md', 'app/', 'guest/', 'home/', 'posts/', 'resume/', 'projects/', 'contact.md', 'system/'],
+  '/': ['README.md', 'TODO.md', 'app/', 'bin/', 'etc/', 'guest/', 'home/', 'opt/', 'posts/', 'resume/', 'projects/', 'contact.md', 'system/', 'tmp/', 'usr/', 'var/', 'root/'],
   '/app': [],
+  '/bin': ['clpsh', 'minesweeper', '2048', 'chess'],
   '/guest': [],
-  '/home': [],
+  '/home': ['chris/'],
+  '/home/chris': ['projects/', 'skills/', 'README.txt'],
+  '/home/chris/projects': ['README.md'],
+  '/home/chris/skills': ['README.md'],
   '/posts': ['terminal-portfolio-changelog.md'],
   '/resume': ['resume.md', 'skills.md', 'projects.md'],
-  '/projects': ['marketplace-aggregator.md', 'webassembly-runtime.md', 'pi-cluster.md', 'down-nvim.md'],
+  '/projects': ['marketplace-aggregator.md', 'webassembly-runtime.md', 'down-nvim.md', 'pi-cluster.md'],
   '/system': ['man.txt'],
+  '/tmp': [],
+  '/var': ['log/'],
+  '/var/log': ['system.log', 'system_public.log', 'ai.log'],
+  '/root': [],
+  '/etc': ['clpsh/', 'edit/', 'themes/'],
+  '/etc/clpsh': ['clpshrc'],
+  '/etc/edit': ['editrc'],
+  '/etc/themes': ['red.json', 'amber.json', 'frost.json', 'ivory.json', 'magenta.json', 'blue.json', 'green.json'],
+  '/usr': [],
+  '/opt': [],
+};
+
+const TAGS = {
+  'portfolio': [
+    { label: 'README.md', type: 'file', command: 'cat README.md' },
+    { label: 'TODO.md', type: 'file', command: 'cat TODO.md' },
+    { label: 'CHANGELOG.md', type: 'file', command: 'cat CHANGELOG.md' },
+    { label: 'contact.md', type: 'file', command: 'cat contact.md' },
+    { label: 'system/man.txt', type: 'file', command: 'cat system/man.txt' },
+  ],
+  'system': [
+    { label: 'ps', type: 'command', command: 'ps' },
+    { label: 'top', type: 'command', command: 'top' },
+    { label: 'whoami', type: 'command', command: 'whoami' },
+    { label: 'date', type: 'command', command: 'date' },
+    { label: 'pwd', type: 'command', command: 'pwd' },
+    { label: 'system/man.txt', type: 'file', command: 'cat system/man.txt' },
+    { label: 'logs', type: 'command', command: 'logs' },
+    { label: 'debug', type: 'command', command: 'debug' },
+    { label: '/bin', type: 'dir', command: 'ls /bin' },
+    { label: '/var', type: 'dir', command: 'ls /var' },
+    { label: '/root', type: 'dir', command: 'sudo ls /root' },
+    { label: '/etc', type: 'dir', command: 'sudo ls /etc' },
+    { label: '/etc/themes', type: 'dir', command: 'sudo ls /etc/themes' },
+  ],
+  'project': [
+    { label: 'Marketplace Aggregator', type: 'view', command: 'explain project market' },
+    { label: 'WebAssembly Runtime', type: 'view', command: 'explain project wasm' },
+    { label: 'down.nvim', type: 'view', command: 'explain project down' },
+    { label: 'Raspberry Pi Cluster', type: 'view', command: 'explain project pi' },
+    { label: '/projects', type: 'dir', command: 'ls /projects' },
+  ],
+  'games': [
+    { label: '2048', type: 'command', command: '2048' },
+    { label: 'chess', type: 'command', command: 'chess' },
+    { label: 'minesweeper', type: 'command', command: 'minesweeper' },
+    { label: 'leaderboard', type: 'command', command: 'leaderboard' },
+  ],
+  'cloud': [
+    { label: 'weather', type: 'command', command: 'weather' },
+    { label: 'stock', type: 'command', command: 'stock' },
+    { label: 'curl', type: 'command', command: 'curl' },
+    { label: 'ping', type: 'command', command: 'ping' },
+    { label: 'trace', type: 'command', command: 'trace' },
+    { label: 'internet', type: 'command', command: 'internet' },
+    { label: 'Marketplace Aggregator on AWS', type: 'view', command: 'explain project market' },
+  ],
+  'content': [
+    { label: 'README.md', type: 'file', command: 'cat README.md' },
+    { label: 'TODO.md', type: 'file', command: 'cat TODO.md' },
+    { label: 'CHANGELOG.md', type: 'file', command: 'cat CHANGELOG.md' },
+    { label: 'posts/', type: 'dir', command: 'ls /posts' },
+    { label: 'cat --pretty', type: 'command', command: 'cat --pretty README.md' },
+  ],
+  'career': [
+    { label: 'resume.md', type: 'file', command: 'cat resume/resume.md' },
+    { label: 'skills.md', type: 'file', command: 'cat resume/skills.md' },
+    { label: 'projects.md', type: 'file', command: 'cat resume/projects.md' },
+    { label: 'explain work', type: 'command', command: 'explain work' },
+    { label: 'explain education', type: 'command', command: 'explain education' },
+    { label: 'whoami', type: 'command', command: 'whoami' },
+  ],
+  'tooling': [
+    { label: 'grep', type: 'command', command: 'grep' },
+    { label: 'find', type: 'command', command: 'find' },
+    { label: 'fzf', type: 'command', command: 'fzf' },
+    { label: 'tree', type: 'command', command: 'tree' },
+    { label: 'man', type: 'command', command: 'man' },
+    { label: 'mkdir', type: 'command', command: 'mkdir' },
+    { label: 'touch', type: 'command', command: 'touch' },
+    { label: 'rm', type: 'command', command: 'rm' },
+    { label: 'cp', type: 'command', command: 'cp' },
+    { label: 'mv', type: 'command', command: 'mv' },
+    { label: 'ln', type: 'command', command: 'ln' },
+    { label: 'tail', type: 'command', command: 'tail' },
+    { label: 'less', type: 'command', command: 'less' },
+    { label: 'echo', type: 'command', command: 'echo' },
+    { label: 'cd', type: 'command', command: 'cd' },
+    { label: 'clpsh', type: 'command', command: 'clpsh' },
+    { label: 'export', type: 'command', command: 'export' },
+    { label: 'download', type: 'command', command: 'download' },
+    { label: 'theme', type: 'command', command: 'theme' },
+    { label: 'maximize', type: 'command', command: 'maximize' },
+    { label: 'minimize', type: 'command', command: 'minimize' },
+    { label: 'clear', type: 'command', command: 'clear' },
+    { label: 'shutdown', type: 'command', command: 'shutdown' },
+  ],
+  'ai': [
+    { label: 'ask', type: 'command', command: 'ask' },
+    { label: 'chat', type: 'command', command: 'chat' },
+    { label: 'explain', type: 'command', command: 'explain' },
+  ],
+  'network': [
+    { label: 'curl', type: 'command', command: 'curl' },
+    { label: 'ping', type: 'command', command: 'ping' },
+    { label: 'trace', type: 'command', command: 'trace' },
+    { label: 'internet', type: 'command', command: 'internet' },
+    { label: 'email', type: 'command', command: 'email' },
+    { label: 'book', type: 'command', command: 'book' },
+  ],
+  'social': [
+    { label: 'contact.md', type: 'file', command: 'cat contact.md' },
+    { label: 'comment', type: 'command', command: 'comment' },
+    { label: 'email', type: 'command', command: 'email' },
+    { label: 'book', type: 'command', command: 'book' },
+  ],
 };
 
 const MANUALS = {
@@ -109,6 +289,7 @@ const MANUALS = {
   sudo: 'sudo <command>\nAsk for the root password, then run one command with elevated privileges. Inline form also works: sudo <password> <command>.',
   su: 'su\nAsk for the root password and grant a short-lived root session for protected filesystem operations.',
   comment: 'comment <post> <name> <message>\nAdd a viewer comment to a markdown post. Example: comment terminal-portfolio-changelog alice nice post.',
+  new: 'new post --title=<title> --tags=<comma,tags> [--description=<text>] <body>\nCreate a dated markdown post under /posts/YYYY/MM/DD/ (sudo required). Body is the markdown after flags.',
   date: 'date\nPrint current Cloudflare edge time.',
   curl: 'curl <url>\nFetch a URL from the Cloudflare edge and print status plus a short text preview.',
   ping: 'ping <host>\nApproximate network reachability with an HTTP request from Cloudflare Workers.',
@@ -120,7 +301,8 @@ const MANUALS = {
   internet: 'internet [site]\nOpen a fake text web browser. Try internet home, internet foundry, internet moe, or internet notes.',
   fzf: 'fzf [query]\nFuzzy-find commands, files, projects, and views.',
   download: 'download [--markdown]\nDownload the resume PDF, or Markdown with --markdown.',
-  theme: 'theme <red|amber|frost|ivory|auto>\nPin the terminal palette or return to view-driven automatic themes.',
+  theme:
+    'theme [set <name>|list|random|auto|<name>]\nPin a palette (red, amber, frost, ivory, green, magenta, blue, purple) or use theme auto for view-driven colors. Try theme list.',
   maximize: 'maximize\nToggle the terminal window between default and maximized size.',
   minimize: 'minimize\nMinimize the terminal to the dock icon.',
   shutdown: 'shutdown\nVisually shut down the terminal window.',
@@ -130,6 +312,51 @@ const MANUALS = {
   clear: 'clear\nClear the terminal buffer.',
   chat: 'chat\nEnter chat mode backed by Workers AI.',
   exit: 'exit\nLeave chat or game mode.',
+  clpsh: 'clpsh\nStart a new portfolio OS shell process.',
+  logs: 'logs [--full]\nShow system log entries. Use sudo logs --full for the complete log.',
+  mkdir: 'mkdir <path>\nCreate a directory. Allowed in /home, /guest, /tmp without sudo.',
+  tail: 'tail [-n N] <path>\nShow the last N lines of a file. Defaults to 10 lines.',
+  head: 'head [-n N] <path>\nShow the first N lines of a file. Defaults to 10 lines.',
+  less: 'less <path>\nView a file content in the terminal.',
+  dir: 'dir [path]\nAlias for ls. List directories in the portfolio OS.',
+  edit: 'edit <path>\nOpen a text editor for a portfolio OS file. Ctrl+S to save, Esc to close.',
+  open: 'open <path|url>\nOpen a file, directory, or URL with the appropriate handler.',
+  write: 'write <path> <content>\nWrite content to a file. Requires sudo for protected paths.',
+  tags: 'tags [fragment]\nList all tags used in the portfolio OS, or show content for tags whose names match <fragment> (substring).',
+  post: 'post open <slug>\nFrontend command: load a full post from /api/posts. Use posts to browse the index.',
+  config:
+    'config <set|get|list|reset> [key] [value]\nSession preferences: crt on|off (CRT scanline effect), theme, font_size, font, dark, name, email.',
+};
+
+/** Command → taxonomy tags (shown on man pages); keep in sync with src/data/content-tags.ts COMMAND_TAGS */
+const COMMAND_TAGS = {
+  ask: ['ai', 'network', 'portfolio'],
+  explain: ['ai', 'portfolio', 'career'],
+  chat: ['ai', 'terminal'],
+  ls: ['system', 'tooling'],
+  cat: ['portfolio', 'content', 'tooling'],
+  man: ['terminal', 'tooling'],
+  tags: ['portfolio', 'tooling', 'terminal'],
+  config: ['system', 'terminal'],
+  theme: ['theme', 'terminal'],
+  grep: ['tooling', 'devops'],
+  find: ['tooling'],
+  curl: ['network', 'cloud'],
+  ping: ['network'],
+  weather: ['cloud', 'network'],
+  internet: ['network', 'games'],
+  fzf: ['tooling', 'terminal'],
+  sudo: ['system'],
+  ps: ['system'],
+  logs: ['system'],
+  session: ['system'],
+  email: ['contact', 'social'],
+  book: ['contact', 'social'],
+  download: ['resume', 'document'],
+  clear: ['terminal'],
+  neofetch: ['system', 'terminal'],
+  new: ['writing', 'content', 'terminal'],
+  post: ['writing', 'content'],
 };
 
 const jsonHeaders = {
@@ -169,16 +396,27 @@ export async function onRequestPost({ request, env }) {
 
   if (pendingAuth) {
     await writeState(env, sessionId, state);
-    return Response.json({ output: pendingAuth.output, mode: pendingAuth.mode }, { status: pendingAuth.status ?? 200, headers: jsonHeaders });
+    return Response.json(
+      {
+        output: pendingAuth.output,
+        mode: pendingAuth.mode,
+        config: mergeConfigDefaults(state.config),
+      },
+      { status: pendingAuth.status ?? 200, headers: jsonHeaders },
+    );
   }
 
   appendHistory(state, sanitizeHistoryCommand(command));
   const parsed = parseCommand(stripRedirection(command).command);
+  logSystemEvent(state, `command: ${sanitizeHistoryCommand(command)}`, true);
   await incrementCommandMetrics(env, parsed.name, request);
 
   if (body?.recordOnly) {
     await writeState(env, sessionId, state);
-    return Response.json({ output: 'recorded' }, { headers: jsonHeaders });
+    return Response.json(
+      { output: 'recorded', config: mergeConfigDefaults(state.config) },
+      { headers: jsonHeaders },
+    );
   }
 
   let result;
@@ -186,6 +424,7 @@ export async function onRequestPost({ request, env }) {
   try {
     result = await executeCommandText(command, state, env, visibleContext, request, {
       elevated: hasRoot(state),
+      sessionId,
     });
   } catch (error) {
     result = {
@@ -195,7 +434,14 @@ export async function onRequestPost({ request, env }) {
   }
 
   await writeState(env, sessionId, state);
-  return Response.json({ output: result.output, mode: result.mode }, { status: result.status ?? 200, headers: jsonHeaders });
+  return Response.json(
+    {
+      output: result.output,
+      mode: result.mode,
+      config: mergeConfigDefaults(state.config),
+    },
+    { status: result.status ?? 200, headers: jsonHeaders },
+  );
 }
 
 export async function onRequest() {
@@ -203,6 +449,24 @@ export async function onRequest() {
 }
 
 async function executeCommandText(commandText, state, env, visibleContext, request, options = {}) {
+  /* Pipelines: split on first bare | so `ls|grep` and `a | b | c` work (left-associative chain). */
+  const pipeIndex = commandText.indexOf('|');
+  if (pipeIndex > 0) {
+    const leftCommand = commandText.slice(0, pipeIndex).trim();
+    const rightCommand = commandText.slice(pipeIndex + 1).trim();
+    if (leftCommand && rightCommand) {
+      const leftResult = await executeCommandText(leftCommand, state, env, visibleContext, request, options);
+      if (leftResult.status && leftResult.status >= 400) {
+        return leftResult;
+      }
+      const pipeData = leftResult.output ?? '';
+      return executeCommandText(rightCommand, state, env, visibleContext, request, {
+        ...options,
+        inputData: pipeData,
+      });
+    }
+  }
+
   const redirected = stripRedirection(commandText);
   const parsed = parseCommand(redirected.command);
   const sudoPrefix = parseSudoPrefix(parsed);
@@ -277,37 +541,98 @@ async function executeCommandText(commandText, state, env, visibleContext, reque
 }
 
 async function runCommand(parsed, state, env, visibleContext, request, options = {}) {
+  // Path executor: /bin/xxx routes to the appropriate command
+  if (parsed.name.startsWith('/bin/')) {
+    const binCommand = parsed.name.replace(/^\/bin\//, '');
+    if (['2048', 'chess', 'minesweeper'].includes(binCommand)) {
+      return { output: `Booting ${binCommand}... Type /${binCommand} to start.` };
+    }
+    if (binCommand === 'clpsh') {
+      return { output: 'clpsh: portfolio OS shell session active' };
+    }
+    if (binCommand === 'edit') {
+      return editFile(parsed.args.slice(1), state, env, options);
+    }
+    return { output: `/bin/${binCommand}: command not found`, status: 404 };
+  }
+
   switch (parsed.name) {
     case 'ls':
+    case 'dir':
       return listPath(parsed.rest || '/', env);
-    case 'cat':
-      return catPath(parsed.rest, state, env);
-    case 'man':
-      return { output: MANUALS[parsed.args[0]] ?? 'No manual entry. Try man ask or cat /system/man.txt.' };
+    case 'cat': {
+      const pretty = parsed.args.includes('--pretty');
+      const cleanRest = parsed.rest.replace('--pretty', '').replace('--pretty', '').trim() || parsed.rest;
+      return catPath(cleanRest, state, env, { pretty, elevated: Boolean(options.elevated) });
+    }
+    case 'man': {
+      const cmd = parsed.args[0];
+      const body = MANUALS[cmd];
+      if (!body) return { output: 'No manual entry. Try man ask or cat /system/man.txt.' };
+      const tagLine =
+        COMMAND_TAGS[cmd]?.length > 0 ? `\n\nTags: ${COMMAND_TAGS[cmd].join(', ')}` : '';
+      return { output: `${body}${tagLine}` };
+    }
     case 'whoami':
       return { output: 'chris@pecunies: Software Engineer, Seattle, WA, U.S. Citizen' };
     case 'history':
+      if (parsed.args[0] === 'clear') {
+        state.history = [];
+        return { output: 'History cleared for this session.' };
+      }
       return { output: state.history.map((entry, index) => `${String(index + 1).padStart(3, ' ')}  ${entry.command}`).join('\n') || '(empty)' };
     case 'ps':
+      if (parsed.args.includes('aux')) {
+        return { output: psAuxOutput() };
+      }
       return { output: psOutput() };
-    case 'top':
-      return { output: topOutput(state) };
-    case 'pwd':
-      return { output: '/' };
-    case 'echo':
-      return { output: parsed.rest };
     case 'cp':
-      return { output: parsed.rest ? `copied: ${parsed.rest}` : 'Usage: cp <text>', status: parsed.rest ? 200 : 400 };
+      return copyFile(parsed.args[0], parsed.args[1], state, env, options);
+    case 'mv':
+      return moveFile(parsed.args[0], parsed.args[1], state, env, options);
+    case 'ln':
+      return linkFile(parsed.args[0], parsed.args[1], state, env, options);
+    case 'cd':
+      return changeDir(parsed.args[0], state);
+    case 'tags':
+      return await tagsOutput(parsed.args[0], env);
+    case 'new':
+      return await createNewPost(parsed, env, options);
+    case 'export': {
+      const eq = parsed.rest.indexOf('=');
+      if (eq < 0) return { output: 'Usage: export KEY=VALUE', status: 400 };
+      const key = parsed.rest.slice(0, eq).trim();
+      const value = parsed.rest.slice(eq + 1).trim();
+      if (!state.envVars) state.envVars = {};
+      state.envVars[key] = value;
+      return { output: `exported ${key}=${value}` };
+    }
+    case 'echo':
+      return { output: expandEnvVars(parsed.rest, state) };
+    case 'pwd':
+      return { output: state.cwd || '/' };
     case 'tree':
       return treePath(parsed.rest || '/', env);
     case 'find':
       return findPath(parsed.rest, env);
     case 'grep':
-      return grepFiles(parsed.rest, env);
+      return grepFiles(parsed.rest, env, options.inputData);
     case 'touch':
       return touchFile(parsed.rest, state, env, options);
     case 'rm':
       return removeFile(parsed.rest, state, env, options);
+    case 'mkdir':
+      return mkdirPath(parsed.args, options);
+    case 'head':
+      return headFile(parsed.args, state, env);
+    case 'tail':
+      return tailFile(parsed.args, state, env);
+    case 'less':
+      return lessFile(parsed.args, state, env);
+    case 'logs':
+      return logsOutput(parsed.args, state, options);
+    case 'clpsh':
+      return { output: 'clpsh: portfolio OS shell session active' };
     case 'sudo':
       return { output: 'Usage: sudo <command>', status: 400 };
     case 'su':
@@ -316,10 +641,35 @@ async function runCommand(parsed, state, env, visibleContext, request, options =
       return addComment(parsed.args, env);
     case 'date':
       return { output: new Date().toString() };
-    case 'ask':
-      return askAi(parsed.rest, state, env, visibleContext);
-    case 'explain':
-      return explainThing(parsed.args, state, env, visibleContext);
+    case 'ask': {
+      const simple = parsed.args.includes('--simple');
+      const cleanRest = simple ? parsed.rest.replace('--simple', '').trim() : parsed.rest;
+      const question = simple ? `Explain this simply and concisely, as if to a junior developer: ${cleanRest}` : cleanRest;
+      if (!question) return { output: 'Question:', status: 200 };
+      logSystemEvent(state, `ask: ${question.slice(0, 80)}`, true);
+      return askAi(question, state, env, visibleContext, options.sessionId);
+    }
+    case 'explain': {
+      const simple = parsed.args.includes('--simple');
+      const sid = options.sessionId;
+      if (parsed.args[0] === '--simple' && parsed.args[1] === 'last') {
+        const lastEntry = state.history.at(-2);
+        if (!lastEntry) return { output: 'explain last: no previous command in history' };
+        return explainWithAiOrFallback(env, state, visibleContext,
+          `Explain what the previous terminal command "${lastEntry.command}" does and what its output likely means. Keep it dead simple — explain like I am a beginner.`,
+          { sessionId: sid, source: 'explain-last' },
+        );
+      }
+      if (parsed.args[0] === 'last') {
+        const lastEntry = state.history.at(-2);
+        if (!lastEntry) return { output: 'explain last: no previous command in history' };
+        const question = simple
+          ? `Explain what the previous terminal command "${lastEntry.command}" does and what its output likely means. Keep it dead simple — explain like I am a beginner.`
+          : `Explain what the previous terminal command "${lastEntry.command}" does and what its output likely means. Be concise and practical.`;
+        return explainWithAiOrFallback(env, state, visibleContext, question, { sessionId: sid, source: 'explain-last' });
+      }
+      return explainThing(parsed.args.filter(a => a !== '--simple'), state, env, visibleContext, sid);
+    }
     case 'email':
       return emailDraft(parsed.args, parsed.rest);
     case 'book':
@@ -344,6 +694,24 @@ async function runCommand(parsed, state, env, visibleContext, request, options =
       return internet(parsed.args[0] || 'home');
     case 'fzf':
       return fzf(parsed.rest);
+    case 'session':
+      return sessionOutput(state, env, request);
+    case 'dig':
+      return digHost(parsed.args);
+    case 'edit':
+      return editFile(parsed.args, state, env, options);
+    case 'note':
+      return noteHandler(parsed.args, state);
+    case 'config':
+      return configHandler(parsed.args, state);
+    case 'alias':
+      return aliasHandler(parsed.args, state);
+    case 'unalias':
+      return unaliasHandler(parsed.args, state);
+    case 'set':
+      return setVarHandler(parsed.args, state);
+    case 'unset':
+      return unsetVarHandler(parsed.args, state);
     default:
       return { output: `Unknown OS command "${parsed.name}". Try man ${parsed.name} or help.`, status: 404 };
   }
@@ -396,7 +764,7 @@ function parseSudoPrefix(parsed) {
 }
 
 function looksLikePassword(value) {
-  return value === 'PECUnies797++';
+  return value.length >= 6 && !/^\[/.test(value);
 }
 
 async function handlePendingAuth(command, state, env, visibleContext, request) {
@@ -423,7 +791,10 @@ async function handlePendingAuth(command, state, env, visibleContext, request) {
 }
 
 async function verifyPassword(env, value) {
-  return value === (env.PECUNIES_SUDO_PASSWD || 'PECUnies797++');
+  if (!env.PECUNIES_SUDO_PASSWD) {
+    return false;
+  }
+  return value === env.PECUNIES_SUDO_PASSWD;
 }
 
 function hasRoot(state) {
@@ -453,13 +824,19 @@ async function listPath(path, env) {
   return { output: entries.join('\n') };
 }
 
-async function catPath(path, state, env) {
+async function catPath(path, state, env, options = {}) {
   if (!path) {
     return { output: 'Usage: cat <path>', status: 400 };
   }
 
   const normalized = normalizePath(path);
-  const file = await readFile(normalized, env);
+
+  // /root/ and /etc/ require elevated to read
+  if ((normalized.startsWith('/root/') || normalized.startsWith('/etc/')) && !options.elevated) {
+    return { output: `cat: ${normalized}: permission denied; use sudo`, status: 403 };
+  }
+
+  const file = await readFile(normalized, env, options);
 
   if (file === null || file === undefined) {
     return { output: `cat: ${path}: no such file`, status: 404 };
@@ -469,10 +846,18 @@ async function catPath(path, state, env) {
     state.reads.push(normalized);
   }
 
+  if (options.pretty) {
+    const ext = normalized.split('.').pop()?.toLowerCase();
+    if (ext === 'md' || ext === 'markdown') {
+      return { output: file };
+    }
+    return { output: prettyPrint(file, normalized) };
+  }
+
   return { output: file };
 }
 
-async function askAi(question, state, env, visibleContext) {
+async function askAi(question, state, env, visibleContext, sessionId) {
   if (!question) {
     return { output: 'Question:', status: 200 };
   }
@@ -481,17 +866,17 @@ async function askAi(question, state, env, visibleContext) {
     return { output: 'Workers AI binding is not configured.', status: 500 };
   }
 
-  const answer = await runAi(env, question, state, visibleContext);
+  const answer = await runAi(env, question, state, visibleContext, { sessionId, source: 'ask' });
   return { output: answer };
 }
 
-async function explainThing(args, state, env, visibleContext) {
+async function explainThing(args, state, env, visibleContext, sessionId) {
   const [kind = 'project', ...rest] = args;
   const target = rest.join(' ').trim();
   const normalizedKind = kind.toLowerCase();
 
   if (normalizedKind === 'project') {
-    return explainProject(target, state, env, visibleContext);
+    return explainProject(target, state, env, visibleContext, sessionId);
   }
 
   if (normalizedKind === 'command') {
@@ -507,6 +892,7 @@ async function explainThing(args, state, env, visibleContext) {
       state,
       visibleContext,
       `Explain the terminal command "${command}" in practical terms. Include usage, parameters, and related commands.\n\nManual:\n${manual}`,
+      { sessionId, source: 'explain-command' },
     );
   }
 
@@ -516,6 +902,7 @@ async function explainThing(args, state, env, visibleContext) {
       state,
       visibleContext,
       `Explain Chris Pecunies' skill area "${target || 'cloud and systems engineering'}" using the supplied resume and app context.`,
+      { sessionId, source: 'explain-skill' },
     );
   }
 
@@ -525,6 +912,7 @@ async function explainThing(args, state, env, visibleContext) {
       state,
       visibleContext,
       `Explain Chris Pecunies' work-history entry "${target || 'overall experience'}" using the supplied resume context.`,
+      { sessionId, source: 'explain-work' },
     );
   }
 
@@ -534,13 +922,14 @@ async function explainThing(args, state, env, visibleContext) {
       state,
       visibleContext,
       'Explain Chris Pecunies education background and how it connects to the software portfolio.',
+      { sessionId, source: 'explain-education' },
     );
   }
 
   return { output: 'Usage: explain <project|skill|work|education|command> [name]', status: 400 };
 }
 
-async function explainProject(projectName, state, env, visibleContext) {
+async function explainProject(projectName, state, env, visibleContext, sessionId) {
   if (!projectName) {
     return { output: 'Usage: explain project <market|pi|wasm|down>', status: 400 };
   }
@@ -557,19 +946,25 @@ async function explainProject(projectName, state, env, visibleContext) {
     state,
     `${visibleContext}\n\nSelected project:\n${project.body}`,
     `Explain ${project.title} clearly. Include what it is, why it matters, architecture/implementation details, and what it says about Chris as an engineer.`,
+    { sessionId, source: 'explain-project' },
   );
 }
 
-async function explainWithAiOrFallback(env, state, visibleContext, question) {
+async function explainWithAiOrFallback(env, state, visibleContext, question, meta = {}) {
   if (!env.AI) {
     return { output: question, mode: 'chat' };
   }
 
-  const answer = await runAi(env, question, state, visibleContext);
+  const answer = await runAi(env, question, state, visibleContext, {
+    sessionId: meta.sessionId,
+    source: meta.source ?? 'explain',
+  });
   return { output: answer, mode: 'chat' };
 }
 
-async function runAi(env, question, state, visibleContext) {
+async function runAi(env, question, state, visibleContext, meta = {}) {
+  const sessionId = meta.sessionId ?? 'anonymous';
+  const source = meta.source ?? 'os';
   const readContext = state.reads.map((path) => `${path}\n${FILES[path]}`).join('\n\n') || '(no files read yet)';
   const commandContext = state.history
     .slice(-20)
@@ -581,23 +976,49 @@ async function runAi(env, question, state, visibleContext) {
     .map(([name, manual]) => `${name}: ${manual}`)
     .join('\n\n');
 
-  const result = await env.AI.run(MODEL, {
-    messages: [
-      {
-        role: 'system',
-        content:
-          'You are a concise terminal AI for Chris Pecunies portfolio. Use only the supplied profile, file, visible, and command-history context. If unknown, say so.',
-      },
-      {
-        role: 'user',
-        content: `Profile:\n${PROFILE_CONTEXT}\n\nFull terminal app command context:\n${appContext}\n\nMetrics state:\n${JSON.stringify(metrics).slice(0, 3000)}\n\nLeaderboard state:\n${JSON.stringify(leaderboard).slice(0, 2000)}\n\nFiles read by user:\n${readContext}\n\nRecent commands:\n${commandContext}\n\nVisible terminal context:\n${visibleContext}\n\nQuestion:\n${question}`,
-      },
-    ],
-    temperature: 0.2,
-    max_tokens: 800,
-  });
+  const userContent = `Profile:\n${PROFILE_CONTEXT}\n\nFull terminal app command context:\n${appContext}\n\nMetrics state:\n${JSON.stringify(metrics).slice(0, 3000)}\n\nLeaderboard state:\n${JSON.stringify(leaderboard).slice(0, 2000)}\n\nFiles read by user:\n${readContext}\n\nRecent commands:\n${commandContext}\n\nVisible terminal context:\n${visibleContext}\n\nQuestion:\n${question}`;
 
-  return typeof result?.response === 'string' ? result.response : 'No text response returned by Workers AI.';
+  try {
+    const result = await env.AI.run(MODEL, {
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are a concise terminal AI for Chris Pecunies portfolio. Use only the supplied profile, file, visible, and command-history context. If unknown, say so.',
+        },
+        {
+          role: 'user',
+          content: userContent,
+        },
+      ],
+      temperature: 0.2,
+      max_tokens: 800,
+    });
+
+    const out =
+      typeof result?.response === 'string' ? result.response : 'No text response returned by Workers AI.';
+
+    await appendAiLog(env, {
+      source,
+      sessionId,
+      query: question,
+      contextExcerpt: userContent,
+      response: out,
+      model: MODEL,
+    });
+
+    return out;
+  } catch (err) {
+    await appendAiLog(env, {
+      source,
+      sessionId,
+      query: question,
+      contextExcerpt: userContent,
+      error: err instanceof Error ? err.message : String(err),
+      model: MODEL,
+    });
+    throw err;
+  }
 }
 
 async function curlUrl(rawUrl) {
@@ -731,11 +1152,21 @@ async function findPath(query, env) {
   return { output: entries.join('\n') || `find: no matches for "${query}"` };
 }
 
-async function grepFiles(query, env) {
+async function grepFiles(query, env, inputData) {
   const needle = String(query || '').toLowerCase();
 
   if (!needle) {
     return { output: 'Usage: grep <query>', status: 400 };
+  }
+
+  // If inputData is provided (from pipe), search that instead of files
+  if (inputData) {
+    const lines = String(inputData).split('\n');
+    const matches = lines
+      .map((line, index) => ({ line, number: index + 1 }))
+      .filter((entry) => entry.line.toLowerCase().includes(needle))
+      .map((entry) => `stdin:${entry.number}: ${entry.line}`);
+    return { output: matches.join('\n') || `grep: no matches for "${query}"` };
   }
 
   const userEntries = await userFileEntries(env);
@@ -772,6 +1203,11 @@ async function removeFile(path, state, env, options) {
 
   const normalized = normalizePath(path);
 
+  /* Refuse to remove the root filesystem */
+  if (normalized === '/' || normalized === '') {
+    return { output: 'rm: refusing to operate on / — this is a simulated filesystem', status: 403 };
+  }
+
   if (FILES[normalized]) {
     return { output: `rm: ${normalized}: immutable static file`, status: 403 };
   }
@@ -796,11 +1232,10 @@ async function addComment(args, env) {
     return { output: 'Usage: comment <post> <name> <message>', status: 400 };
   }
 
-  const slug = post.replace(/\.md$/, '').replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 80);
-  const path = `/posts/${slug}.md`;
+  const path = await resolvePostIdentifierToPath(post, env);
 
-  if (!(await fileExists(path, env))) {
-    return { output: `comment: ${path}: no such post`, status: 404 };
+  if (!path) {
+    return { output: `comment: no post matching "${post}"`, status: 404 };
   }
 
   if (!env.PORTFOLIO_OS) {
@@ -844,7 +1279,19 @@ async function writeUserFile(env, _state, rawPath, content, options = {}) {
   return { output: `${options.createOnly ? 'touched' : 'wrote'} ${path}` };
 }
 
-async function readFile(path, env) {
+async function readFile(path, env, options = {}) {
+  // Intercept log files to return dynamic content from state
+  if (path === '/var/log/system.log') {
+    if (!options.elevated) return 'permission denied; use sudo cat /var/log/system.log';
+    return Array.isArray(options.logEntries) ? options.logEntries.join('\n') || '(no log entries)' : '';
+  }
+  if (path === '/var/log/ai.log') {
+    if (!options.elevated) return 'permission denied; use sudo cat /var/log/ai.log';
+    return readAiLogText(env);
+  }
+  if (path === '/var/log/system_public.log') {
+    return Array.isArray(options.publicLogEntries) ? options.publicLogEntries.join('\n') || '(no public log entries)' : '';
+  }
   return FILES[path] ?? (await readUserFile(env, path));
 }
 
@@ -927,11 +1374,11 @@ async function userFileEntries(env) {
 }
 
 function canCreatePath(path, elevated) {
-  if (path.startsWith('/home/') || path.startsWith('/guest/')) {
+  if (path.startsWith('/home/') || path.startsWith('/guest/') || path.startsWith('/tmp/')) {
     return true;
   }
 
-  if (elevated && (path.startsWith('/posts/') || path.startsWith('/resume/') || path.startsWith('/projects/') || path.startsWith('/system/'))) {
+  if (elevated && (path.startsWith('/posts/') || path.startsWith('/resume/') || path.startsWith('/projects/') || path.startsWith('/system/') || path.startsWith('/bin/') || path.startsWith('/root/') || path.startsWith('/etc/') || path.startsWith('/usr/') || path.startsWith('/opt/'))) {
     return true;
   }
 
@@ -947,6 +1394,12 @@ function isProtectedPath(path) {
     path.startsWith('/resume/') ||
     path.startsWith('/projects/') ||
     path.startsWith('/system/') ||
+    path.startsWith('/bin/') ||
+    path.startsWith('/var/') ||
+    path.startsWith('/root/') ||
+    path.startsWith('/etc/') ||
+    path.startsWith('/usr/') || path === '/usr' ||
+    path.startsWith('/opt/') || path === '/opt' ||
     rootFile
   );
 }
@@ -1153,6 +1606,287 @@ function fzf(query) {
   return { output: scored.map((entry) => `${entry.label} - ${entry.detail}`).join('\n') || '(empty)' };
 }
 
+async function mergeTagRegistryWithPosts(env) {
+  const merged = { ...TAGS };
+  try {
+    const posts = await collectAllPosts(env);
+    for (const p of posts) {
+      for (const raw of p.tags || []) {
+        const t = String(raw).toLowerCase().trim();
+        if (!t) {
+          continue;
+        }
+        if (!merged[t]) {
+          merged[t] = [];
+        }
+        merged[t].push({
+          label: p.title,
+          type: 'post',
+          command: `post open ${p.slug}`,
+        });
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return merged;
+}
+
+async function resolvePostIdentifierToPath(identifier, env) {
+  const raw = String(identifier).trim();
+  if (raw.startsWith('/posts/') && raw.endsWith('.md')) {
+    const n = normalizePath(raw);
+    if (await fileExists(n, env)) {
+      return n;
+    }
+  }
+  const slug = raw.replace(/\.md$/i, '').replace(/[^a-zA-Z0-9._/-]/g, '').slice(0, 160);
+  const flat = `/posts/${slug.split('/').pop()}.md`;
+  if (await fileExists(flat, env)) {
+    return flat;
+  }
+  const all = await listUserFiles(env);
+  const hits = all.filter(
+    (p) =>
+      p.startsWith('/posts/') &&
+      (p === `/posts/${slug}.md` || p.endsWith(`/${slug}.md`) || p.split('/').pop()?.replace(/\.md$/i, '') === slug.split('/').pop()),
+  );
+  if (hits.length === 1) {
+    return hits[0];
+  }
+  return null;
+}
+
+function parseNewPostFlags(rest) {
+  const flags = { title: '', tags: '', description: '', body: '' };
+  let s = rest.trim();
+  let guard = 0;
+  while (guard++ < 64) {
+    let m = s.match(/^--(title|tags|description)="([^"]*)"\s*/);
+    if (m) {
+      flags[m[1]] = m[2];
+      s = s.slice(m[0].length).trim();
+      continue;
+    }
+    m = s.match(/^--(title|tags|description)='([^']*)'\s*/);
+    if (m) {
+      flags[m[1]] = m[2];
+      s = s.slice(m[0].length).trim();
+      continue;
+    }
+    m = s.match(/^--(title|tags|description)=(\S+)\s*/);
+    if (m) {
+      flags[m[1]] = m[2];
+      s = s.slice(m[0].length).trim();
+      continue;
+    }
+    break;
+  }
+  flags.body = s.trim();
+  return flags;
+}
+
+function slugifyPostTitle(title) {
+  return (
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 96) || 'post'
+  );
+}
+
+function yamlEscapeLine(s) {
+  return String(s).replace(/"/g, '\\"');
+}
+
+async function createNewPost(parsed, env, options) {
+  if ((parsed.args[0] || '').toLowerCase() !== 'post') {
+    return {
+      output: 'Usage: new post --title=<title> --tags=<a,b> [--description=<text>] <body markdown>',
+      status: 400,
+    };
+  }
+  if (!options.elevated) {
+    return { output: 'new post: writing under /posts requires sudo (sudo new post … or root session)', status: 403 };
+  }
+  const rest = parsed.args.slice(1).join(' ').trim();
+  const flags = parseNewPostFlags(rest);
+  if (!flags.title) {
+    return { output: 'new post: --title= is required', status: 400 };
+  }
+
+  const now = new Date();
+  const y = now.getFullYear();
+  const mo = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  const dateStr = `${y}-${mo}-${d}`;
+  let baseSlug = slugifyPostTitle(flags.title);
+  let relPath = `/posts/${y}/${mo}/${d}/${baseSlug}.md`;
+  let n = 2;
+  while (await readUserFile(env, relPath)) {
+    relPath = `/posts/${y}/${mo}/${d}/${baseSlug}-${n}.md`;
+    n += 1;
+  }
+
+  const tagLine = flags.tags || 'general';
+  const desc =
+    flags.description ||
+    flags.body.replace(/^#\s+.*$/m, '').trim().slice(0, 280) ||
+    flags.title;
+  const md = `---
+title: "${yamlEscapeLine(flags.title)}"
+date: ${dateStr}
+tags: ${tagLine}
+description: "${yamlEscapeLine(desc)}"
+---
+
+# ${flags.title}
+
+${flags.body || ''}
+`;
+
+  const write = await writeUserFile(env, {}, relPath, md, { elevated: true });
+  if (write.status && write.status >= 400) {
+    return write;
+  }
+  const slug = relPath.split('/').pop()?.replace(/\.md$/i, '') ?? 'post';
+  return { output: `published ${relPath}\nRun posts or post open ${slug} to view.` };
+}
+
+async function tagsOutput(tagFilter, env) {
+  const REG = await mergeTagRegistryWithPosts(env);
+  const keys = Object.keys(REG);
+  if (!tagFilter) {
+    const lines = keys.sort().map((tag) => `${tag.padEnd(16)} (${REG[tag].length} items)`);
+    return { output: lines.join('\n') || '(no tags)' };
+  }
+  const needle = tagFilter.toLowerCase();
+  const matchingKeys = keys.filter((k) => k === needle || k.includes(needle));
+  if (!matchingKeys.length) {
+    return {
+      output: `No tags matching "${tagFilter}". Run tags with no argument to list all tags.`,
+    };
+  }
+  const merged = [];
+  const seen = new Set();
+  for (const k of matchingKeys.sort()) {
+    for (const item of REG[k]) {
+      const id = `${item.label}|${item.command}`;
+      if (!seen.has(id)) {
+        seen.add(id);
+        merged.push(item);
+      }
+    }
+  }
+  const header =
+    matchingKeys.length > 1 ? `Tags matched: ${matchingKeys.join(', ')}\n\n` : '';
+  const body = merged.map((e) => `  ${e.type.padEnd(8)} ${e.label}  →  ${e.command}`).join('\n');
+  return { output: `${header}${body}` };
+}
+
+function changeDir(path, state) {
+  if (!path || path === '~' || path === '/') {
+    state.cwd = '/';
+    return { output: '' };
+  }
+  if (path === '..') {
+    const parts = (state.cwd || '/').split('/').filter(Boolean);
+    parts.pop();
+    state.cwd = '/' + parts.join('/') || '/';
+    return { output: '' };
+  }
+  if (path === '-') {
+    const prev = state.previousCwd || '/';
+    state.previousCwd = state.cwd;
+    state.cwd = prev;
+    return { output: '' };
+  }
+  const base = (state.cwd || '/').replace(/\/$/, '');
+  const target = path.startsWith('/') ? normalizePath(path) : normalizePath(`${base}/${path}`);
+  if (DIRECTORIES[target]) {
+    state.previousCwd = state.cwd || '/';
+    state.cwd = target;
+    return { output: '' };
+  }
+  return { output: `cd: ${path}: no such directory`, status: 404 };
+}
+
+async function copyFile(src, dest, state, env, options = {}) {
+  if (!src || !dest) return { output: 'Usage: cp <source> <destination>', status: 400 };
+  const srcPath = normalizePath(src);
+  const destPath = normalizePath(dest);
+  const content = await readFile(srcPath, env);
+  if (content === null || content === undefined) return { output: `cp: ${src}: no such file`, status: 404 };
+  const allowed = ['/home/', '/guest/', '/tmp/'];
+  const inAllowed = allowed.some(p => destPath.startsWith(p));
+  if (!inAllowed && !options.elevated) return { output: `cp: ${destPath}: permission denied; use sudo`, status: 403 };
+  if (FILES[destPath] || DIRECTORIES[destPath]) {
+    if (!options.force) return { output: `cp: ${destPath}: file exists (use -f to force)`, status: 400 };
+  }
+  FILES[destPath] = content;
+  const parentDir = destPath.substring(0, destPath.lastIndexOf('/')) || '/';
+  if (DIRECTORIES[parentDir] && !DIRECTORIES[parentDir].some(e => e.replace(/\/$/, '') === destPath.split('/').pop())) {
+    DIRECTORIES[parentDir].push(destPath.split('/').pop());
+  }
+  return { output: `copied ${srcPath} → ${destPath}` };
+}
+
+async function moveFile(src, dest, state, env, options = {}) {
+  if (!src || !dest) return { output: 'Usage: mv <source> <destination>', status: 400 };
+  const srcPath = normalizePath(src);
+  const destPath = normalizePath(dest);
+  const content = await readFile(srcPath, env);
+  if (content === null || content === undefined) return { output: `mv: ${src}: no such file`, status: 404 };
+  const protectedPaths = ['/bin/', '/var/', '/root/', '/CHANGELOG.md', '/README.md', '/system/', '/etc/'];
+  const isProtected = protectedPaths.some(p => srcPath.startsWith(p) || srcPath === p.replace(/\/$/, ''));
+  if (isProtected && !options.elevated) return { output: `mv: ${srcPath}: permission denied; use sudo`, status: 403 };
+  const newAllowed = ['/home/', '/guest/', '/tmp/'];
+  const destAllowed = newAllowed.some(p => destPath.startsWith(p));
+  if (!destAllowed && !options.elevated) return { output: `mv: ${destPath}: permission denied; use sudo`, status: 403 };
+  FILES[destPath] = content;
+  delete FILES[srcPath];
+  const srcDir = srcPath.substring(0, srcPath.lastIndexOf('/')) || '/';
+  if (DIRECTORIES[srcDir]) {
+    DIRECTORIES[srcDir] = DIRECTORIES[srcDir].filter(e => e.replace(/\/$/, '') !== srcPath.split('/').pop());
+  }
+  const destDir = destPath.substring(0, destPath.lastIndexOf('/')) || '/';
+  const fileName = destPath.split('/').pop();
+  if (DIRECTORIES[destDir] && !DIRECTORIES[destDir].includes(fileName)) {
+    DIRECTORIES[destDir].push(fileName);
+  }
+  return { output: `moved ${srcPath} → ${destPath}` };
+}
+
+async function linkFile(src, dest, state, env, options = {}) {
+  if (!src || !dest) return { output: 'Usage: ln [-s] <source> <destination>', status: 400 };
+  const symlink = options.symlink !== false;
+  const srcPath = normalizePath(src);
+  const destPath = normalizePath(dest);
+  if (!FILES[srcPath] && !DIRECTORIES[srcPath]) return { output: `ln: ${src}: no such file or directory`, status: 404 };
+  const allowed = ['/home/', '/guest/', '/tmp/'];
+  const inAllowed = allowed.some(p => destPath.startsWith(p));
+  if (!inAllowed && !options.elevated) return { output: `ln: ${destPath}: permission denied; use sudo`, status: 403 };
+  FILES[destPath] = symlink ? `→ ${srcPath}` : (FILES[srcPath] || `(dir: ${srcPath})`);
+  const destDir = destPath.substring(0, destPath.lastIndexOf('/')) || '/';
+  if (DIRECTORIES[destDir] && !DIRECTORIES[destDir].includes(destPath.split('/').pop())) {
+    DIRECTORIES[destDir].push(destPath.split('/').pop());
+  }
+  return { output: `linked ${destPath} → ${srcPath}${symlink ? ' (symbolic)' : ''}` };
+}
+
+function expandEnvVars(text, state) {
+  if (!text) return '';
+  const envVars = state.envVars || {};
+  return text.replace(/\$\{?(\w+)\}?/g, (match, name) => {
+    if (name === '?') return String(process?.exitCode ?? 0);
+    if (name === 'PWD') return state.cwd || '/';
+    if (name === 'HOME') return '/home';
+    if (name === 'USER') return 'guest';
+    return envVars[name] ?? '';
+  });
+}
+
 function fuzzyScore(value, query) {
   if (!query) {
     return 1;
@@ -1179,7 +1913,7 @@ function psOutput() {
   return [
     'PID   TTY      STAT  COMMAND',
     '1     tty0     Ss    portfolio-os',
-    '7     tty0     S     vortex-particles',
+    '7     tty0     S     ambient-dust',
     '12    tty0     S     command-registry',
     '31    edge     S     workers-ai-proxy',
     '48    edge     S     kv-history-writer',
@@ -1198,6 +1932,85 @@ function topOutput(state) {
   ].join('\n');
 }
 
+function logSystemEvent(state, message, isPublic = false) {
+  const entry = `[${new Date().toISOString()}] ${message}`;
+  if (!Array.isArray(state.logEntries)) state.logEntries = [];
+  state.logEntries.push(entry);
+  if (isPublic) {
+    if (!Array.isArray(state.publicLogEntries)) state.publicLogEntries = [];
+    state.publicLogEntries.push(entry);
+  }
+}
+
+function logsOutput(args, state, options) {
+  if (args.includes('--full')) {
+    if (!options.elevated) return { output: 'logs --full: permission denied; use sudo', status: 403 };
+    return { output: (Array.isArray(state.logEntries) ? state.logEntries.join('\n') : '') || '(no log entries)' };
+  }
+  return { output: (Array.isArray(state.publicLogEntries) ? state.publicLogEntries.join('\n') : '') || '(no public log entries)' };
+}
+
+async function tailFile(args, state, env) {
+  const path = args.find((a) => !a.startsWith('-'));
+  if (!path) return { output: 'Usage: tail [-n N] <path>', status: 400 };
+  const n = args.includes('-n') ? Number(args[args.indexOf('-n') + 1]) || 10 : 10;
+  const normalized = normalizePath(path);
+  const content = await readFile(normalized, env);
+  if (content === null || content === undefined) return { output: `tail: ${path}: no such file`, status: 404 };
+  const lines = content.split('\n');
+  return { output: lines.slice(-n).join('\n') };
+}
+
+async function headFile(args, state, env) {
+  const path = args.find((a) => !a.startsWith('-'));
+  if (!path) return { output: 'Usage: head [-n N] <path>', status: 400 };
+  const n = args.includes('-n') ? Number(args[args.indexOf('-n') + 1]) || 10 : 10;
+  const normalized = normalizePath(path);
+  const content = await readFile(normalized, env);
+  if (content === null || content === undefined) return { output: `head: ${path}: no such file`, status: 404 };
+  const lines = content.split('\n');
+  return { output: lines.slice(0, n).join('\n') };
+}
+
+async function lessFile(args, state, env) {
+  const path = args[0];
+  if (!path) return { output: 'Usage: less <path>', status: 400 };
+  const normalized = normalizePath(path);
+  const content = await readFile(normalized, env);
+  if (content === null || content === undefined) return { output: `less: ${path}: no such file`, status: 404 };
+  return { output: content };
+}
+
+function mkdirPath(args, options) {
+  const path = args[0];
+  if (!path) return { output: 'Usage: mkdir <path>', status: 400 };
+  const normalized = normalizePath(path);
+  const allowed = normalized.startsWith('/home/') || normalized.startsWith('/guest/') || normalized.startsWith('/tmp/');
+  if (!allowed && !options.elevated) return { output: `mkdir: ${normalized}: permission denied; allowed in /home, /guest, /tmp`, status: 403 };
+  if (DIRECTORIES[normalized]) return { output: `mkdir: ${normalized}: directory exists` };
+  DIRECTORIES[normalized] = [];
+  return { output: `created directory ${normalized}` };
+}
+
+function prettyPrint(content, path) {
+  const ext = path.split('.').pop()?.toLowerCase();
+  if (ext === 'md') {
+    return content
+      .replace(/^### (.+)$/gm, '  ┃ $1')
+      .replace(/^## (.+)$/gm, '  ┃▎$1')
+      .replace(/^# (.+)$/gm, '  ╍━━━ $1 ━━━╍')
+      .replace(/\*\*(.+?)\*\*/g, '«$1»')
+      .replace(/`(.+?)`/g, '⟨$1⟩')
+      .replace(/^[-*] /gm, '  • ');
+  }
+  if (['ts', 'js', 'py', 'go', 'rs', 'zig', 'sh', 'json', 'css'].includes(ext)) {
+    const lines = content.split('\n');
+    const width = String(lines.length).length;
+    return lines.map((line, i) => `${String(i + 1).padStart(width)} │ ${line}`).join('\n');
+  }
+  return content;
+}
+
 function normalizePath(path) {
   if (!path || path === '.') {
     return '/';
@@ -1211,18 +2024,42 @@ function normalizeUrl(rawUrl) {
   return /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
 }
 
+function mergeConfigDefaults(raw) {
+  return {
+    theme: 'auto',
+    font_size: 14,
+    font: 'monospace',
+    dark: true,
+    name: 'guest',
+    email: '',
+    crt: true,
+    ...(raw && typeof raw === 'object' ? raw : {}),
+  };
+}
+
+function normalizeState(state) {
+  const s = state && typeof state === 'object' ? state : {};
+  return {
+    history: Array.isArray(s.history) ? s.history : [],
+    reads: Array.isArray(s.reads) ? s.reads : [],
+    pendingAuth: s.pendingAuth && typeof s.pendingAuth === 'object' ? s.pendingAuth : null,
+    rootUntil: Number(s.rootUntil ?? 0),
+    logEntries: Array.isArray(s.logEntries) ? s.logEntries : [],
+    publicLogEntries: Array.isArray(s.publicLogEntries) ? s.publicLogEntries : [],
+    cwd: typeof s.cwd === 'string' ? s.cwd : '/',
+    previousCwd: typeof s.previousCwd === 'string' ? s.previousCwd : null,
+    envVars: s.envVars && typeof s.envVars === 'object' ? s.envVars : {},
+    config: mergeConfigDefaults(s.config),
+  };
+}
+
 async function readState(env, sessionId) {
   if (!env.PORTFOLIO_OS) {
     return defaultState();
   }
 
-  const state = (await env.PORTFOLIO_OS.get(`session:${sessionId}`, { type: 'json' })) ?? defaultState();
-  return {
-    history: Array.isArray(state.history) ? state.history : [],
-    reads: Array.isArray(state.reads) ? state.reads : [],
-    pendingAuth: state.pendingAuth && typeof state.pendingAuth === 'object' ? state.pendingAuth : null,
-    rootUntil: Number(state.rootUntil ?? 0),
-  };
+  const raw = (await env.PORTFOLIO_OS.get(`session:${sessionId}`, { type: 'json' })) ?? {};
+  return normalizeState(raw);
 }
 
 async function readMetrics(env) {
@@ -1387,12 +2224,7 @@ async function writeState(env, sessionId, state) {
 }
 
 function defaultState() {
-  return {
-    history: [],
-    reads: [],
-    pendingAuth: null,
-    rootUntil: 0,
-  };
+  return normalizeState({});
 }
 
 function appendHistory(state, command) {
@@ -1409,4 +2241,191 @@ function appendHistory(state, command) {
 function sanitizeSessionId(value) {
   const raw = String(value || 'anonymous');
   return raw.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 96) || 'anonymous';
+}
+
+// ── Session info ──
+async function sessionOutput(state, env, request) {
+  const metrics = await readMetrics(env);
+  const cf = request?.cf ?? {};
+  const topCmd = Object.entries(metrics.commands).sort((a, b) => Number(b[1]) - Number(a[1]))[0];
+  return {
+    output: [
+      '=== Session Info ===',
+      `commands run: ${state.history.length}`,
+      `files read: ${state.reads.length}`,
+      `root active: ${hasRoot(state) ? 'yes' : 'no'}`,
+      '',
+      '=== Connection ===',
+      `country: ${cf.country ?? 'unknown'}`,
+      `colo: ${cf.colo ?? 'unknown'}`,
+      `tls: ${cf.tlsVersion ?? 'unknown'}`,
+      '',
+      '=== Whoami ===',
+      'chris@pecunies: Software Engineer, Seattle, WA, U.S. Citizen',
+      '',
+      '=== Site Metrics ===',
+      `total visits: ${metrics.visits}`,
+      `unique countries: ${Object.keys(metrics.countries).length}`,
+      `top command: ${topCmd ? `${topCmd[0]} (${topCmd[1]})` : 'none'}`,
+    ].join('\n'),
+  };
+}
+
+// ── ps aux ──
+function psAuxOutput() {
+  return [
+    'USER       PID  %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND',
+    'root         1   0.0  0.1   4096  1024 tty0     Ss   00:00   0:01 portfolio-os',
+    'chris        7   0.2  0.3  16384  3072 tty0     S    00:01   0:12 ambient-dust',
+    'chris       12   0.1  0.2  12288  2048 tty0     S    00:01   0:05 command-registry',
+    'guest       31   0.0  0.4  20480  4096 edge     S    00:02   0:03 workers-ai-proxy',
+    'guest       48   0.0  0.2   8192  2048 edge     S    00:02   0:01 kv-history-writer',
+    'guest       55   0.0  0.1   4096  1024 edge     S    now     0:00 clpsh-session',
+    'guest       67   0.0  0.1   4096  1024 edge     R    now     0:00 ps-aux',
+  ].join('\n');
+}
+
+// ── dig ──
+function digHost(args) {
+  const host = args[0];
+  if (!host) return { output: 'Usage: dig <hostname>', status: 400 };
+  const mock = {
+    'pecunies.com': { ip: '172.67.168.89', ttl: 300, ns: 'alec.ns.cloudflare.com' },
+    'clp.is': { ip: '104.21.42.196', ttl: 300, ns: 'alec.ns.cloudflare.com' },
+    'github.com': { ip: '140.82.112.3', ttl: 60, ns: 'dns1.p08.nsone.net' },
+  };
+  const result = mock[host.toLowerCase()] || {
+    ip: `${Math.floor(Math.random() * 223) + 1}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`,
+    ttl: 300,
+    ns: 'unknown',
+  };
+  return {
+    output: [
+      `; <<>> pecuOS dig <<>> ${host}`,
+      `;; global options: +cmd`,
+      `;; Got answer:`,
+      `;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: ${Math.floor(Math.random() * 60000)}`,
+      `;; flags: qr rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 1`,
+      '',
+      `;; QUESTION SECTION:`,
+      `;${host}.                    IN      A`,
+      '',
+      `;; ANSWER SECTION:`,
+      `${host}.             ${result.ttl}     IN      A       ${result.ip}`,
+      '',
+      `;; Query time: ${Math.floor(Math.random() * 30 + 5)} msec`,
+      `;; SERVER: 1.1.1.1#53(1.1.1.1)`,
+      `;; WHEN: ${new Date().toUTCString()}`,
+      `;; MSG SIZE  rcvd: 56`,
+    ].join('\n'),
+  };
+}
+
+// ── edit ──
+async function editFile(args, state, env, options) {
+  const path = args[0];
+  if (!path) return { output: 'Usage: edit <path>', status: 400 };
+  const normalized = normalizePath(path);
+  const content = await readFile(normalized, env, options);
+  if (content === null || content === undefined) {
+    return { output: `New file: ${normalized}\n\n[empty buffer — use write to save or :q to quit]` };
+  }
+  return {
+    output: `Editing: ${normalized}\n\n${content}\n\n[edit mode — run write <path> <content> to save, or :q to exit]`,
+  };
+}
+
+// ── note ──
+function noteHandler(args, state) {
+  if (!state.notes) state.notes = [];
+  const sub = args[0]?.toLowerCase();
+  if (sub === 'add' || sub === 'new') {
+    const text = args.slice(1).join(' ').trim();
+    if (!text) return { output: 'Usage: note add <text>', status: 400 };
+    state.notes.push({ text, at: new Date().toISOString() });
+    return { output: `Note ${state.notes.length} added.` };
+  }
+  if (sub === 'list') {
+    if (!state.notes.length) return { output: 'No notes yet. Use note add <text> to create one.' };
+    return { output: state.notes.map((n, i) => `${i + 1}. [${n.at.slice(0, 10)}] ${n.text}`).join('\n') };
+  }
+  if (sub === 'clear') {
+    state.notes = [];
+    return { output: 'All notes cleared.' };
+  }
+  return { output: 'Usage: note <add|list|clear>', status: 400 };
+}
+
+// ── config ──
+function configHandler(args, state) {
+  state.config = mergeConfigDefaults(state.config);
+  const sub = args[0]?.toLowerCase();
+  if (sub === 'list' || sub === 'get') {
+    const prop = args[1];
+    if (prop) return { output: `${prop}: ${state.config[prop] ?? '(not set)'}` };
+    return { output: Object.entries(state.config).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join('\n') };
+  }
+  if (sub === 'set' && args[1] && args[2] !== undefined) {
+    const key = args[1];
+    let val = args.slice(2).join(' ');
+    if (key === 'crt') {
+      const s = String(val).toLowerCase();
+      if (s === 'on' || s === 'true') val = true;
+      else if (s === 'off' || s === 'false') val = false;
+    } else {
+      if (val === 'true') val = true;
+      else if (val === 'false') val = false;
+      else if (/^\d+$/.test(val)) val = Number(val);
+    }
+    state.config[key] = val;
+    return { output: `config: ${key} = ${JSON.stringify(val)}` };
+  }
+  if (sub === 'reset') {
+    state.config = mergeConfigDefaults();
+    return { output: 'Config reset to defaults.' };
+  }
+  return { output: 'Usage: config <set|get|list|reset> [key] [value]', status: 400 };
+}
+
+// ── alias ──
+function aliasHandler(args, state) {
+  if (!state.aliases) state.aliases = {};
+  if (args.length === 0) {
+    const entries = Object.entries(state.aliases);
+    if (!entries.length) return { output: 'No aliases defined.' };
+    return { output: entries.map(([k, v]) => `alias ${k}='${v}'`).join('\n') };
+  }
+  const name = args[0];
+  const value = args.slice(1).join(' ');
+  if (!value) return { output: `alias ${name}='${state.aliases[name] ?? '(not set)'}'` };
+  state.aliases[name] = value;
+  return { output: `alias ${name}='${value}'` };
+}
+
+function unaliasHandler(args, state) {
+  if (!state.aliases) state.aliases = {};
+  if (args.length === 0) return { output: 'Usage: unalias <name>', status: 400 };
+  const name = args[0];
+  if (!(name in state.aliases)) return { output: `unalias: ${name}: not found`, status: 404 };
+  delete state.aliases[name];
+  return { output: `unalias ${name}: removed` };
+}
+
+// ── set / unset (config vars) ──
+function setVarHandler(args, state) {
+  if (!state.shellVars) state.shellVars = {};
+  if (args.length < 2) return { output: 'Usage: set <key> <value>', status: 400 };
+  const key = args[0];
+  const value = args.slice(1).join(' ');
+  state.shellVars[key] = value;
+  return { output: `set ${key}=${value}` };
+}
+
+function unsetVarHandler(args, state) {
+  if (!state.shellVars) state.shellVars = {};
+  if (args.length < 1) return { output: 'Usage: unset <key>', status: 400 };
+  const key = args[0];
+  if (!(key in state.shellVars)) return { output: `unset: ${key}: not found`, status: 404 };
+  delete state.shellVars[key];
+  return { output: `unset ${key}: removed` };
 }

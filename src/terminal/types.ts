@@ -1,6 +1,11 @@
 import type { ResumeData } from '../data/resume';
 import type { ThemeName } from './palette';
 
+export type EditorOptions = {
+  file: string;
+  content: string;
+};
+
 export type ViewStat = {
   label: string;
   value: string;
@@ -61,6 +66,7 @@ export type CommandHelpItem = {
   description: string;
   command: string;
   group: string;
+  tags?: string[];
 };
 
 export type PdfPreview = {
@@ -131,6 +137,15 @@ export type NoteSection = {
   lines: string[];
 };
 
+export type TagIndexSection = {
+  type: 'tag-index';
+  heading: string;
+  description?: string;
+  filter?: string;
+  allTags: { slug: string; count: number }[];
+  items: { label: string; type: string; command: string }[];
+};
+
 export type TerminalSection =
   | ParagraphSection
   | MetricsSection
@@ -141,7 +156,8 @@ export type TerminalSection =
   | EducationSection
   | CommandListSection
   | PdfSection
-  | NoteSection;
+  | NoteSection
+  | TagIndexSection;
 
 export type ViewDefinition = {
   id: string;
@@ -153,6 +169,8 @@ export type ViewDefinition = {
   note?: string;
   theme: ThemeName;
   logline: string;
+  /** Content taxonomy — shown in tags browser and related surfaces */
+  tags?: string[];
   stats?: ViewStat[];
   actions?: ViewAction[];
   sections: TerminalSection[];
@@ -164,6 +182,7 @@ export type SessionLine =
   | { id: string; kind: 'system'; label: string; text: string; tone: LogTone }
   | { id: string; kind: 'command'; text: string }
   | { id: string; kind: 'response'; text: string; tone: LogTone }
+  | { id: string; kind: 'pretty-response'; html: string; text: string }
   | { id: string; kind: 'view'; html: string; text: string };
 
 export type CommandContext = {
@@ -175,6 +194,13 @@ export type CommandContext = {
 
 export type CommandOutcome =
   | { kind: 'view'; view: ViewDefinition; tone?: LogTone }
+  | {
+      kind: 'markdown-view';
+      title: string;
+      html: string;
+      text: string;
+      tone?: LogTone;
+    }
   | { kind: 'system'; text: string; tone?: LogTone }
   | { kind: 'chat'; text: string; tone?: LogTone }
   | { kind: 'exit'; text: string; tone?: LogTone }
@@ -182,7 +208,17 @@ export type CommandOutcome =
   | { kind: 'download'; format: 'pdf' | 'markdown'; text?: string; tone?: LogTone }
   | { kind: 'os'; command: string; tone?: LogTone }
   | { kind: 'game'; game: '2048' | 'chess' | 'minesweeper'; text: string; tone?: LogTone }
+  | { kind: 'editor'; file: string; content: string; tone?: LogTone }
+  | { kind: 'url'; url: string; text: string; tone?: LogTone }
   | { kind: 'clear' };
+
+export type TaggedItem = {
+  label: string;
+  type: 'command' | 'view' | 'file' | 'link' | 'post' | 'section';
+  command?: string;
+  href?: string;
+  tags: string[];
+};
 
 export type CommandDefinition = {
   name: string;
@@ -192,5 +228,12 @@ export type CommandDefinition = {
   group: string;
   route?: string;
   featured?: boolean;
-  execute: (context: CommandContext, args: string[], raw: string) => CommandOutcome;
+  tags?: string[];
+  /** When true, running this view clears the terminal buffer first (navbar-style pages). */
+  fullPageView?: boolean;
+  execute: (
+    context: CommandContext,
+    args: string[],
+    raw: string,
+  ) => CommandOutcome | Promise<CommandOutcome>;
 };

@@ -1,7 +1,7 @@
 import './style.css';
 import { TerminalApp } from './terminal/app';
 import { createCommandRegistry } from './terminal/registry';
-import { mountVortexField } from './vortex';
+import { mountParticleField } from './particle-field';
 
 const appRoot = document.querySelector<HTMLDivElement>('#app');
 
@@ -21,5 +21,5 @@ terminalApp.boot();
 const fieldCanvas = document.querySelector<HTMLCanvasElement>('#field-canvas');
 
 if (fieldCanvas) {
-  terminalApp.attachFieldHandle(mountVortexField({ canvas: fieldCanvas }));
+  terminalApp.attachFieldHandle(mountParticleField({ canvas: fieldCanvas }));
 }

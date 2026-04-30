@@ -1,7 +1,10 @@
 import { resumeData } from '../data/resume';
 import type { AmbientFieldHandle } from '../wasm';
+import type { CodeMirrorMount } from './editor-codemirror';
+import { bumpCommandFrequency, fuzzyScore, rankByFuzzyAndFrequency, readCommandFrequency } from './fuzzy-rank';
+import { renderMarkdownToHtml } from './markdown';
 import { terminalThemes, type ThemeName } from './palette';
-import { renderLog, renderShell, renderView } from './render';
+import { renderEditor, renderLog, renderShell, renderView } from './render';
 import type {
   CommandContext,
   CommandDefinition,
@@ -35,7 +38,8 @@ type OsResponse = {
   output?: string;
   error?: string;
   mode?: 'chat';
- };
+  config?: Record<string, unknown>;
+};
 
 type GameKind = '2048' | 'chess' | 'minesweeper';
 
@@ -50,6 +54,7 @@ const ARG_COMMANDS = new Set([
   'ask',
   'book',
   'cat',
+  'config',
   'cp',
   'curl',
   'download',
@@ -59,12 +64,19 @@ const ARG_COMMANDS = new Set([
   'find',
   'fzf',
   'grep',
+  'head',
   'internet',
   'leaderboard',
+  'less',
   'ls',
   'man',
+  'mkdir',
+  'new',
   'ping',
+  'post',
   'stock',
+  'tail',
+  'tags',
   'trace',
   'tree',
   'weather',
@@ -73,9 +85,20 @@ const FILE_PATHS = [
   '/',
   '/README.md',
   '/TODO.md',
+  '/CHANGELOG.md',
   '/app',
+  '/bin/clpsh',
+  '/bin/minesweeper',
+  '/bin/2048',
+  '/bin/chess',
+  '/bin/edit',
+  '/etc/clpsh/clpshrc',
+  '/etc/edit/editrc',
   '/guest',
   '/home',
+  '/home/chris',
+  '/home/chris/projects',
+  '/home/chris/skills',
   '/posts',
   '/posts/terminal-portfolio-changelog.md',
   '/resume',
@@ -89,8 +112,34 @@ const FILE_PATHS = [
   '/projects/down-nvim.md',
   '/contact.md',
   '/system/man.txt',
+  '/var/log/system.log',
+  '/var/log/system_public.log',
+  '/var/log/ai.log',
 ];
-const DIRECTORY_PATHS = ['/', '/app', '/guest', '/home', '/posts', '/resume', '/projects', '/system'];
+const DIRECTORY_PATHS = [
+  '/',
+  '/app',
+  '/bin',
+  '/etc',
+  '/etc/clpsh',
+  '/etc/edit',
+  '/etc/themes',
+  '/guest',
+  '/home',
+  '/home/chris',
+  '/home/chris/projects',
+  '/home/chris/skills',
+  '/opt',
+  '/posts',
+  '/resume',
+  '/projects',
+  '/root',
+  '/system',
+  '/tmp',
+  '/usr',
+  '/var',
+  '/var/log',
+];
 const ARG_HINTS: Record<string, Array<{ token: string; description: string }>> = {
   ask: [{ token: '<question>', description: 'question to answer with Workers AI' }],
   book: [
@@ -118,6 +167,16 @@ const ARG_HINTS: Record<string, Array<{ token: string; description: string }>> =
   grep: [{ token: '<query>', description: 'text to search for in files' }],
   touch: [{ token: '<path>', description: 'file to create, for example /guest/note.md' }],
   rm: [{ token: '<path>', description: 'file to remove' }],
+  post: [
+    { token: 'open <slug>', description: 'open a post from the index' },
+  ],
+  new: [
+    { token: 'post', description: 'subcommand for new markdown under /posts/' },
+    { token: '--title=', description: 'post title (required)' },
+    { token: '--tags=', description: 'comma-separated tags' },
+    { token: '--description=', description: 'optional summary' },
+    { token: '<body>', description: 'markdown body after flags' },
+  ],
   sudo: [{ token: '<command>', description: 'command to run after password prompt' }],
   su: [{ token: '<password>', description: 'optional password to become root for 5 minutes' }],
   comment: [
@@ -125,7 +184,35 @@ const ARG_HINTS: Record<string, Array<{ token: string; description: string }>> =
     { token: '<name>', description: 'display name' },
     { token: '<message>', description: 'comment text' },
   ],
+  theme: [
+    { token: '<set|list|random>', description: 'theme subcommand or direct name' },
+    { token: '<name>', description: 'red, amber, frost, ivory, green, magenta, blue, purple, auto' },
+  ],
+  config: [
+    { token: '<set|get|list|reset>', description: 'config subcommand' },
+    { token: '<key>', description: 'theme, font_size, font, dark, name, email' },
+    { token: '<value>', description: 'value for the config key' },
+  ],
+  note: [
+    { token: '<add|list|clear>', description: 'note subcommand' },
+    { token: '<text>', description: 'note content (for add)' },
+  ],
+  alias: [{ token: '<name>', description: 'alias name' }, { token: '<value>', description: 'aliased command' }],
+  dig: [{ token: '<hostname>', description: 'host to look up' }],
+  edit: [{ token: '<path>', description: 'file to edit' }],
+  mkdir: [{ token: '<path>', description: 'directory to create' }],
+  tail: [{ token: '<path>', description: 'file to read last lines from' }],
+  less: [{ token: '<path>', description: 'file to view with pagination' }],
 };
+
+type ShellFrame = { left: number; top: number; width: number; height: number };
+
+const MIN_SHELL_W = 360;
+const MIN_SHELL_H = 400;
+const SHELL_FRAME_STORAGE = 'pecunies.terminalFrame';
+const SHELL_PROFILE_STORAGE = 'pecunies.shellProfile';
+/** Cap autocomplete rows so the panel never looks like a “153 results” dump. */
+const MAX_AUTOCOMPLETE_RESULTS = 14;
 
 export class TerminalApp {
   private readonly root: HTMLElement;
@@ -146,6 +233,7 @@ export class TerminalApp {
   private readonly autocompleteList: HTMLElement;
   private readonly promptLabel: HTMLElement;
   private readonly dockElement: HTMLButtonElement;
+  private readonly siteShellElement: HTMLElement;
 
   private fieldHandle: AmbientFieldHandle | null = null;
   private manualTheme: ThemeName | null = null;
@@ -160,6 +248,11 @@ export class TerminalApp {
   private chatMode = false;
   private chatPending = false;
   private gameMode: GameKind | null = null;
+  private editorFile: string | null = null;
+  private editorContent = '';
+  private editorTextarea: HTMLTextAreaElement | null = null;
+  private editorMount: CodeMirrorMount | null = null;
+  private debugMode = true;
   private pendingPrompt: 'ask' | null = null;
   private sensitiveNextInput = false;
   private gameBoard: number[][] = [];
@@ -171,6 +264,11 @@ export class TerminalApp {
   private minesGameOver = false;
   private pendingScore: { game: GameKind; score: number } | null = null;
   private readonly sessionId: string;
+  private preMaximizeFrame: ShellFrame | null = null;
+  private shellWindowingActive = false;
+  private shellBindingsDone = false;
+  private shellAliases: Record<string, string> = { ls: 'timeline' };
+  private typingIdleTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor({ root, commands, featuredCommands }: TerminalAppOptions) {
     this.root = root;
@@ -180,6 +278,7 @@ export class TerminalApp {
     this.root.innerHTML = renderShell({ featuredCommands });
 
     this.shellElement = this.requireElement<HTMLElement>('#terminal-shell');
+    this.siteShellElement = this.requireElement<HTMLElement>('.site-shell');
     this.outputElement = this.requireElement<HTMLElement>('.terminal-output');
     this.logElement = this.requireElement<HTMLOListElement>('#terminal-log');
     this.viewElement = this.requireElement<HTMLElement>('#active-view');
@@ -200,6 +299,10 @@ export class TerminalApp {
       }
     }
     this.restorePersistedHistory();
+    this.initCrtFromStorage();
+    this.loadShellProfile();
+    this.startParallaxLoop();
+    this.setupInputCaretClasses();
 
     this.formElement.addEventListener('submit', (event) => {
       event.preventDefault();
@@ -216,6 +319,11 @@ export class TerminalApp {
       if (!submitted) {
         return;
       }
+
+      this.shellElement.classList.add('terminal-submit-pulse');
+      window.setTimeout(() => this.shellElement.classList.remove('terminal-submit-pulse'), 520);
+      this.siteShellElement.classList.add('site-shell-nudge');
+      window.setTimeout(() => this.siteShellElement.classList.remove('site-shell-nudge'), 380);
 
       if (this.chatMode && !this.shouldRunCommandInChat(submitted)) {
         this.pushHistory(submitted);
@@ -236,10 +344,23 @@ export class TerminalApp {
       this.updateAutocomplete();
     });
 
+    this.inputElement.addEventListener('focus', () => {
+      this.updateAutocomplete();
+    });
+
+    /* Keep focus on the input while scrolling or clicking the autocomplete list (avoids blur-close race). */
+    this.autocompletePanel.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+    });
+
     this.inputElement.addEventListener('blur', () => {
-      window.setTimeout(() => {
+      requestAnimationFrame(() => {
+        const active = document.activeElement;
+        if (active && this.autocompletePanel.contains(active)) {
+          return;
+        }
         this.hideAutocomplete();
-      }, 120);
+      });
     });
 
     this.inputElement.addEventListener('keydown', (event) => {
@@ -307,6 +428,7 @@ export class TerminalApp {
         return;
       }
 
+      this.hideAutocomplete();
       this.inputElement.focus();
     });
 
@@ -325,7 +447,7 @@ export class TerminalApp {
       }
 
       if (target.closest('#terminal-dock')) {
-        this.restoreWindow();
+        this.toggleDockWindow();
         return;
       }
 
@@ -390,6 +512,8 @@ export class TerminalApp {
     });
 
     this.setupPointerDepth();
+    this.setupShellWindowing();
+    this.updateDockState();
   }
 
   boot(): void {
@@ -419,7 +543,7 @@ export class TerminalApp {
     }
   }
 
-  private execute(rawInput: string, options: ExecuteOptions = {}): void {
+  private async execute(rawInput: string, options: ExecuteOptions = {}): Promise<void> {
     const echo = options.echo ?? true;
     const syncHash = options.syncHash ?? true;
     const focus = options.focus ?? true;
@@ -427,6 +551,15 @@ export class TerminalApp {
     const normalized = rawInput.trim();
 
     if (!normalized) {
+      return;
+    }
+
+    /* Pending sudo/su password: send raw line to the worker (handlePendingAuth); do not resolve as a shell command. */
+    if (this.sensitiveNextInput) {
+      void this.sendOsCommand(normalized);
+      if (focus) {
+        this.inputElement.focus();
+      }
       return;
     }
 
@@ -451,18 +584,59 @@ export class TerminalApp {
       this.lines.push(this.responseLine('Game session closed; running terminal command.', 'info'));
     }
 
-    const { name, args } = this.parseCommand(normalized);
-      const command = this.resolveCommand(name);
-
+    const bootTok = normalized.toLowerCase();
+    if (bootTok === 'boot' || bootTok === 'reboot' || bootTok === 'init') {
       if (echo) {
         this.lines.push(this.commandLine(normalized));
       }
-
       if (recordHistory) {
         this.pushHistory(normalized);
       }
+      void this.recordCommand(normalized);
+      void this.runBootSequence(bootTok as 'boot' | 'reboot' | 'init');
+      return;
+    }
 
-      if (!command) {
+    const expandedLine = this.expandShellAliases(normalized);
+    const { name, args } = this.parseCommand(expandedLine);
+
+    /* Handle debug locally — toggles the debugMode field and skips or enables verbose logging. */
+    if (name === 'debug') {
+      if (echo) {
+        this.lines.push(this.commandLine(normalized));
+      }
+      if (recordHistory) {
+        this.pushHistory(normalized);
+      }
+      const action = args[0]?.toLowerCase();
+      this.debugMode = action === 'off' ? false : true;
+      this.lines.push(this.responseLine(`Debug logging ${this.debugMode ? 'enabled' : 'disabled'}.`, 'info'));
+      void this.recordCommand(normalized);
+      this.renderLog();
+      if (focus) {
+        this.inputElement.focus();
+      }
+      return;
+    }
+
+    const command = this.resolveCommand(name);
+
+    if (!command) {
+      if (echo) {
+        this.lines.push(this.commandLine(normalized));
+      }
+      if (recordHistory) {
+        this.pushHistory(normalized);
+      }
+      /* Pipelines and other OS-only lines still run on the worker if they use | */
+      if (normalized.includes('|')) {
+        void this.sendOsCommand(normalized);
+        if (focus) {
+          this.inputElement.focus();
+        }
+        return;
+      }
+
       void this.recordCommand(normalized);
       const suggestion = this.closestCommands(name);
       const suffix = suggestion.length ? ` Try ${suggestion.join(', ')}.` : ' Try help.';
@@ -477,6 +651,12 @@ export class TerminalApp {
     }
 
     if (name === 'ask' && !args.length) {
+      if (echo) {
+        this.lines.push(this.commandLine(normalized));
+      }
+      if (recordHistory) {
+        this.pushHistory(normalized);
+      }
       this.pendingPrompt = 'ask';
       this.promptLabel.textContent = 'ask?>';
       this.lines.push(this.responseLine('Question:', 'info'));
@@ -489,11 +669,31 @@ export class TerminalApp {
       return;
     }
 
-    const outcome = command.execute(this.commandContext(), args, normalized);
+    const outcome = await Promise.resolve(command.execute(this.commandContext(), args, normalized));
+    bumpCommandFrequency(name);
     if (outcome.kind === 'os') {
+      if (echo) {
+        this.lines.push(this.commandLine(normalized));
+      }
+      if (recordHistory) {
+        this.pushHistory(normalized);
+      }
       this.copyIfClipboardCommand(outcome.command);
       void this.sendOsCommand(outcome.command);
       return;
+    }
+
+    const fullPage =
+      (outcome.kind === 'view' && command.fullPageView) || outcome.kind === 'markdown-view';
+    if (fullPage) {
+      this.clearTerminal();
+    }
+
+    if (echo) {
+      this.lines.push(this.commandLine(normalized));
+    }
+    if (recordHistory) {
+      this.pushHistory(normalized);
     }
 
     void this.recordCommand(normalized);
@@ -506,6 +706,22 @@ export class TerminalApp {
   }
 
   private applyOutcome(outcome: CommandOutcome, command: CommandDefinition, syncHash: boolean): void {
+    if (outcome.kind === 'markdown-view') {
+      this.chatMode = false;
+      this.gameMode = null;
+      this.promptLabel.textContent = 'chris@pecunies:~$';
+      this.lines.push(this.responseLine(`Loaded: ${outcome.title}`, outcome.tone ?? 'success'));
+      this.lines.push({
+        id: this.makeId(),
+        kind: 'pretty-response',
+        html: outcome.html,
+        text: outcome.text,
+      });
+      this.routeIndicator.textContent = 'post';
+      this.highlightNavLink(null);
+      return;
+    }
+
     if (outcome.kind === 'clear') {
       this.clearTerminal();
       this.renderLog();
@@ -518,10 +734,11 @@ export class TerminalApp {
       this.chatMode = true;
       this.gameMode = null;
       this.promptLabel.textContent = 'chat>';
-      this.routeIndicator.textContent = '~/chat';
+      this.routeIndicator.textContent = 'chat';
       this.themeIndicator.textContent = 'workers-ai';
+      this.highlightNavLink(null);
       this.lines.push(this.responseLine(outcome.text, outcome.tone ?? 'success'));
-      this.applyTheme(this.manualTheme ?? 'red');
+      this.applyTheme(this.manualTheme ?? 'green');
 
       if (syncHash) {
         this.writeRoute(command.route ?? 'chat');
@@ -542,11 +759,32 @@ export class TerminalApp {
       this.chatMode = false;
       this.startGame(outcome.game);
       this.promptLabel.textContent = `${outcome.game}>`;
-      this.routeIndicator.textContent = `~/${outcome.game}`;
+      this.routeIndicator.textContent = outcome.game;
       this.themeIndicator.textContent = 'tui';
+      this.highlightNavLink(null);
       this.lines.push(this.responseLine(outcome.text, outcome.tone ?? 'success'));
       this.lines.push(this.responseLine(this.renderGame(), 'info'));
       void this.sendOsCommand(`leaderboard ${outcome.game}`);
+      return;
+    }
+
+    if (outcome.kind === 'url') {
+      window.open(outcome.url, '_blank', 'noopener');
+      this.lines.push(this.responseLine(outcome.text, outcome.tone ?? 'info'));
+      return;
+    }
+
+    if (outcome.kind === 'editor') {
+      this.chatMode = false;
+      this.gameMode = null;
+      this.pendingPrompt = null;
+      this.editorFile = outcome.file;
+      this.promptLabel.textContent = 'edit:' + outcome.file + '>';
+      this.routeIndicator.textContent = 'edit ' + outcome.file;
+      this.themeIndicator.textContent = 'editor';
+      this.highlightNavLink(null);
+      this.lines.push(this.responseLine('Editing ' + outcome.file + '. Ctrl+S to save, Esc to close.', outcome.tone ?? 'info'));
+      void this.loadEditorContent(outcome.file);
       return;
     }
 
@@ -584,20 +822,19 @@ export class TerminalApp {
     this.promptLabel.textContent = 'chris@pecunies:~$';
     this.lines.push(this.responseLine(outcome.view.logline, outcome.tone ?? 'success'));
     const viewHtml = renderView(outcome.view);
-    this.viewElement.innerHTML = '';
     this.lines.push({
       id: this.makeId(),
       kind: 'view',
       html: viewHtml,
       text: this.viewText(outcome.view),
     });
-    this.routeIndicator.textContent = `~/${outcome.view.route}`;
+    this.routeIndicator.textContent = outcome.view.route;
+    this.highlightNavLink(outcome.view.route);
     this.scrambleText(this.promptScramble, outcome.view.prompt);
     this.scrambleText(this.statusScramble, outcome.view.description);
     this.applyTheme(this.effectiveTheme(outcome.view));
     void this.recordMetric(outcome.view.route);
     this.pulseView();
-
     if (outcome.view.id === 'posts') {
       void this.loadPosts();
     }
@@ -632,6 +869,152 @@ export class TerminalApp {
     return this.manualTheme ?? view.theme;
   }
 
+  private initCrtFromStorage(): void {
+    try {
+      const v = localStorage.getItem('pecunies.crt');
+      this.applyCrtMode(v !== 'off');
+    } catch {
+      this.applyCrtMode(true);
+    }
+  }
+
+  private applyOsConfig(config: Record<string, unknown>): void {
+    if (!('crt' in config)) return;
+    const raw = config.crt;
+    let on = true;
+    if (raw === false || raw === 'false' || raw === 'off') {
+      on = false;
+    } else if (raw === true || raw === 'true' || raw === 'on') {
+      on = true;
+    } else if (typeof raw === 'string') {
+      on = raw.toLowerCase() !== 'off' && raw.toLowerCase() !== 'false';
+    }
+    this.applyCrtMode(on);
+  }
+
+  private applyCrtMode(on: boolean): void {
+    document.documentElement.classList.toggle('crt-on', on);
+    document.documentElement.classList.toggle('crt-off', !on);
+    try {
+      localStorage.setItem('pecunies.crt', on ? 'on' : 'off');
+    } catch {
+      /* ignore */
+    }
+  }
+
+  private loadShellProfile(): void {
+    try {
+      const raw = localStorage.getItem(SHELL_PROFILE_STORAGE);
+      if (!raw) {
+        this.shellAliases = { ls: 'timeline' };
+        this.persistShellProfile();
+        return;
+      }
+      const p = JSON.parse(raw) as { aliases?: Record<string, string>; env?: Record<string, string> };
+      this.shellAliases = { ...(p.aliases ?? {}) };
+      const t = p.env?.THEME?.toLowerCase();
+      if (t && t in terminalThemes) {
+        this.manualTheme = t as ThemeName;
+        if (this.activeView) {
+          this.applyTheme(this.effectiveTheme(this.activeView));
+        }
+      }
+    } catch {
+      this.shellAliases = { ls: 'timeline' };
+    }
+  }
+
+  private persistShellProfile(): void {
+    try {
+      localStorage.setItem(
+        SHELL_PROFILE_STORAGE,
+        JSON.stringify({
+          aliases: this.shellAliases,
+          env: { THEME: this.manualTheme ?? 'auto' },
+        }),
+      );
+    } catch {
+      /* ignore */
+    }
+  }
+
+  private expandShellAliases(line: string): string {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      return line;
+    }
+    const [first, ...rest] = trimmed.split(/\s+/);
+    const mapped = this.shellAliases[first.toLowerCase()];
+    if (!mapped) {
+      return line;
+    }
+    return [mapped, ...rest].join(' ').trim();
+  }
+
+  private async runBootSequence(kind: 'boot' | 'reboot' | 'init'): Promise<void> {
+    const delay = kind === 'init' ? 34 : 52;
+    const lines = [
+      'Phoenix-UEFI 04.03 — Pecunies portable firmware',
+      'POST: memory training … OK | NVMe … OK',
+      '',
+      '[    0.000000] PecuKernel 6.12.0-portfolio #1 SMP PREEMPT',
+      kind === 'reboot'
+        ? '[    0.004102] soft reboot — draining worker queues'
+        : '[    0.004102] boot: quiet loglevel=portfolio',
+      '[    0.018881] Mounting root at / (overlayfs + KV)',
+      '[    0.034204] modprobe virtio-terminal … ok',
+      '[    0.051112] modprobe workers-ai-bridge … ok',
+      '[    0.066430] pecunies-fs: mounting /home/chris/{projects,skills}',
+      '[    0.081902] systemd[1]: graphical-session.target — active',
+      '[    0.095441] pecunies-ui: launching glass terminal',
+      '',
+      'login: chris    session ok',
+      '— UI ready —',
+    ];
+    for (const text of lines) {
+      this.lines.push(this.responseLine(text, 'info'));
+      this.renderLog();
+      await new Promise((r) => window.setTimeout(r, text === '' ? Math.floor(delay / 2) : delay));
+    }
+    this.execute('resume', { echo: false, syncHash: true, focus: true });
+  }
+
+  private startParallaxLoop(): void {
+    if (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      return;
+    }
+    const step = (t: number): void => {
+      const px = Math.sin(t * 0.00004) * 5 + Math.sin(t * 0.000017) * 2;
+      const py = Math.cos(t * 0.000035) * 3;
+      const gx = Math.sin(t * 0.000012) * 3;
+      const gy = Math.cos(t * 0.00001) * 2;
+      document.documentElement.style.setProperty('--parallax-canvas-x', `${px}px`);
+      document.documentElement.style.setProperty('--parallax-canvas-y', `${py}px`);
+      document.documentElement.style.setProperty('--parallax-grid-x', `${gx}px`);
+      document.documentElement.style.setProperty('--parallax-grid-y', `${gy}px`);
+      window.requestAnimationFrame(step);
+    };
+    window.requestAnimationFrame(step);
+  }
+
+  private setupInputCaretClasses(): void {
+    const onType = (): void => {
+      this.formElement.classList.add('is-typing');
+      if (this.typingIdleTimer !== null) {
+        window.clearTimeout(this.typingIdleTimer);
+      }
+      this.typingIdleTimer = window.setTimeout(() => {
+        this.formElement.classList.remove('is-typing');
+        this.typingIdleTimer = null;
+      }, 420);
+    };
+    this.inputElement.addEventListener('keydown', onType);
+    this.inputElement.addEventListener('input', onType);
+    this.inputElement.addEventListener('blur', () => {
+      this.formElement.classList.remove('is-typing');
+    });
+  }
+
   private renderLog(): void {
     const pinTop = this.outputElement.dataset.pinTop === 'true';
     this.logElement.innerHTML = renderLog(this.lines);
@@ -653,6 +1036,7 @@ export class TerminalApp {
       getTheme: () => this.manualTheme,
       setTheme: (theme) => {
         this.manualTheme = theme;
+        this.persistShellProfile();
 
         if (this.activeView) {
           this.applyTheme(this.effectiveTheme(this.activeView));
@@ -661,8 +1045,113 @@ export class TerminalApp {
     };
   }
 
+  private highlightNavLink(route: string | null): void {
+    this.root.querySelectorAll('.nav-link').forEach((el) => {
+      el.classList.remove('is-active');
+    });
+    if (!route) return;
+    const navLink = this.root.querySelector(`.nav-link[data-nav="${route}"]`);
+    if (navLink) {
+      navLink.classList.add('is-active');
+    }
+  }
+
+  private async loadEditorContent(file: string): Promise<void> {
+    try {
+      const response = await fetch('/api/os', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: this.sessionId, command: 'cat ' + file }),
+      });
+      const payload = (await response.json()) as OsResponse;
+      this.editorContent = payload.output ?? '';
+    } catch {
+      this.editorContent = '';
+    }
+    await this.renderEditor();
+  }
+
+  private async renderEditor(): Promise<void> {
+    if (this.editorMount) {
+      this.editorMount.destroy();
+      this.editorMount = null;
+    }
+    this.editorTextarea = null;
+    this.viewElement.innerHTML = renderEditor({
+      file: this.editorFile ?? '',
+      content: this.editorContent,
+    });
+    const host = this.viewElement.querySelector<HTMLElement>('.editor-codemirror-root');
+    if (!host || !this.editorFile) {
+      return;
+    }
+    const { mountVimEditor, getEditorText } = await import('./editor-codemirror');
+    const statusEl = this.viewElement.querySelector('.editor-status');
+    this.editorMount = mountVimEditor(host, this.editorFile, this.editorContent, () => {
+      if (statusEl && this.editorMount) {
+        statusEl.textContent = `${getEditorText(this.editorMount).split('\n').length} lines`;
+      }
+    });
+    this.editorMount.view.focus();
+    host.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key === 's') {
+        e.preventDefault();
+        void this.saveEditor();
+      }
+      if (e.key === 'Escape') {
+        this.closeEditor();
+      }
+    });
+  }
+
+  private async saveEditor(): Promise<void> {
+    if (!this.editorFile) return;
+    const { getEditorText } = await import('./editor-codemirror');
+    const content = this.editorMount ? getEditorText(this.editorMount) : (this.editorTextarea?.value ?? '');
+    try {
+      await fetch('/api/os', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: this.sessionId,
+          command: 'touch ' + this.editorFile + ' ' + encodeURIComponent(content),
+        }),
+      });
+      this.editorContent = content;
+      this.lines.push(this.responseLine('Saved ' + this.editorFile + '.', 'success'));
+    } catch {
+      this.lines.push(this.responseLine('Failed to save ' + this.editorFile + '.', 'warn'));
+    }
+    this.renderLog();
+    const status = this.viewElement.querySelector('.editor-status');
+    if (status) {
+      const src = this.editorMount ? getEditorText(this.editorMount) : (this.editorTextarea?.value ?? '');
+      status.textContent = `${src.split('\n').length} lines`;
+    }
+    this.editorMount?.view.focus();
+  }
+
+  private closeEditor(): void {
+    if (this.editorMount) {
+      this.editorMount.destroy();
+      this.editorMount = null;
+    }
+    this.editorFile = null;
+    this.editorContent = '';
+    this.editorTextarea = null;
+    this.promptLabel.textContent = 'chris@pecunies:~$';
+    this.viewElement.innerHTML = '';
+    this.routeIndicator.textContent = '';
+    this.themeIndicator.textContent = 'palette:auto';
+    this.lines.push(this.responseLine('Editor closed.', 'info'));
+    this.renderLog();
+    this.inputElement.focus();
+  }
+
   private parseCommand(rawInput: string): { name: string; args: string[] } {
-    const normalized = rawInput.replace(/^\//, '').replace(/^\.\//, '').trim();
+    // Expand ~ to /home in paths (avoid lookbehind for compat)
+    const tildeExpanded = rawInput.replace(/(^|\s)~(?=\/|\s|$)/g, '$1/home');
+    const normalized = tildeExpanded.replace(/^\//, '').replace(/^\.\//, '').trim();
     const [name = '', ...args] = normalized.split(/\s+/);
     return { name: name.toLowerCase(), args };
   }
@@ -704,18 +1193,25 @@ export class TerminalApp {
     }
 
     if (!normalized) {
-      return this.featuredCommands.slice(0, 6).map((command) => ({
-        completion: this.completionForCommand(command.name),
-        usage: command.usage,
-        description: command.description,
-        commandName: command.name,
+      const freq = readCommandFrequency();
+      const ranked = rankByFuzzyAndFrequency(
+        '',
+        this.featuredCommands.map((command) => ({ key: command.name, command })),
+        MAX_AUTOCOMPLETE_RESULTS,
+        freq,
+      );
+      return ranked.map((x) => ({
+        completion: this.completionForCommand(x.command.name),
+        usage: x.command.usage,
+        description: x.command.description,
+        commandName: x.command.name,
       }));
     }
 
     const argSuggestions = this.argumentSuggestions(activeCommand, argTokens, trailingSpace);
 
     if (argSuggestions.length) {
-      return argSuggestions;
+      return argSuggestions.slice(0, MAX_AUTOCOMPLETE_RESULTS);
     }
 
     if (normalized === 'ask') {
@@ -741,13 +1237,15 @@ export class TerminalApp {
     }
 
     if (normalized.startsWith('explain ')) {
-      const fragment = normalized.replace(/^explain\s+/, '');
       const explainTargets = [
-        { completion: 'explain project ', usage: 'explain project <market|pi|wasm>', description: 'Explain a project with Workers AI.' },
+        { completion: 'explain project ', usage: 'explain project <market|pi|wasm|down>', description: 'Explain a project with Workers AI.' },
+        { completion: 'explain command ', usage: 'explain command <command>', description: 'Explain a terminal command.' },
         { completion: 'explain skill ', usage: 'explain skill <skill>', description: 'Explain a skill from the resume.' },
         { completion: 'explain work ', usage: 'explain work <role>', description: 'Explain a work-history entry.' },
         { completion: 'explain education', usage: 'explain education', description: 'Explain the education entry.' },
-        { completion: 'explain command ', usage: 'explain command <command>', description: 'Explain a terminal command.' },
+        { completion: 'explain post ', usage: 'explain post <slug>', description: 'Explain a blog post.' },
+        { completion: 'explain link ', usage: 'explain link <name>', description: 'Explain a contact link.' },
+        { completion: 'explain last', usage: 'explain last', description: 'Explain the previous command and output.' },
         ...resumeData.projects.map((project) => ({
           completion: `explain project ${project.slug}`,
           usage: `explain project ${project.slug}`,
@@ -756,79 +1254,88 @@ export class TerminalApp {
         { completion: 'explain project market', usage: 'explain project market', description: 'Explain Moe marketplace aggregation.' },
         { completion: 'explain project pi', usage: 'explain project pi', description: 'Explain the Raspberry Pi infrastructure cluster.' },
         { completion: 'explain project wasm', usage: 'explain project wasm', description: 'Explain the Zig WebAssembly runtime.' },
+        { completion: 'explain project down', usage: 'explain project down', description: 'Explain the down.nvim Neovim plugin.' },
       ];
 
-      return explainTargets
-        .filter((entry) => entry.completion.startsWith(`explain ${fragment}`))
-        .map((project) => ({
-          ...project,
-          commandName: 'explain',
-        }));
+      const freq = readCommandFrequency();
+      const items = explainTargets.map((entry) => ({ key: entry.completion, entry }));
+      const ranked = rankByFuzzyAndFrequency(normalized, items, MAX_AUTOCOMPLETE_RESULTS, freq);
+      return ranked.map((x) => ({
+        ...x.entry,
+        commandName: 'explain' as const,
+      }));
     }
 
     if (normalized.startsWith('man ')) {
       const fragment = normalized.replace(/^man\s+/, '');
-      return this.commands
-        .filter((command) => command.name.startsWith(fragment))
-        .slice(0, 8)
-        .map((command) => ({
-          completion: `man ${command.name}`,
-          usage: `man ${command.name}`,
-          description: command.description,
-          commandName: command.name,
-        }));
-    }
-
-    if (normalized.startsWith('cat ')) {
-      const fragment = normalized.replace(/^cat\s+/, '');
-      return FILE_PATHS.filter((path) => path.startsWith(fragment)).map((path) => ({
-        completion: `cat ${path}`,
-        usage: `cat ${path}`,
-        description: 'Read this file from the portfolio OS.',
-        commandName: 'cat',
-      }));
-    }
-
-    if (normalized.startsWith('ls ')) {
-      const fragment = normalized.replace(/^ls\s+/, '');
-      return DIRECTORY_PATHS.filter((path) => path.startsWith(fragment)).map((path) => ({
-        completion: `ls ${path}`,
-        usage: `ls ${path}`,
-        description: 'List this directory in the portfolio OS.',
-        commandName: 'ls',
+      const freq = readCommandFrequency();
+      const items = this.commands.map((command) => ({ key: command.name, command }));
+      const ranked = rankByFuzzyAndFrequency(fragment, items, 8, freq);
+      return ranked.map((x) => ({
+        completion: `man ${x.command.name}`,
+        usage: `man ${x.command.name}`,
+        description: x.command.description,
+        commandName: x.command.name,
       }));
     }
 
     if (normalized.startsWith('theme')) {
-      return ['theme red', 'theme amber', 'theme frost', 'theme ivory', 'theme auto']
-        .filter((entry) => entry.startsWith(normalized))
-        .map((entry) => ({
+      const paletteSuggestions = (Object.keys(terminalThemes) as ThemeName[]).map((name) => `theme ${name}`);
+      const entries = [...paletteSuggestions, 'theme auto', 'theme list', 'theme random'];
+      const freq = readCommandFrequency();
+      const items = entries.map((entry) => ({ key: entry }));
+      const ranked = rankByFuzzyAndFrequency(normalized, items, MAX_AUTOCOMPLETE_RESULTS, freq);
+      return ranked.map((x) => {
+        const entry = x.key;
+        return {
           completion: entry,
           usage: entry,
           description:
             entry === 'theme auto'
               ? 'Return palette control to the active view.'
-              : `Pin the ${entry.replace('theme ', '')} palette.`,
+              : entry === 'theme list' || entry === 'theme random'
+                ? entry.replace('theme ', '')
+                : `Pin the ${entry.replace('theme ', '')} palette.`,
           commandName: 'theme',
-        }));
+        };
+      });
     }
 
     if (normalized.includes(' ')) {
       return [];
     }
 
-    return this.commands
-      .filter(
-        (command) =>
-          command.name.startsWith(normalized) || command.aliases.some((alias) => alias.startsWith(normalized)),
-      )
-      .slice(0, 6)
-      .map((command) => ({
-        completion: this.completionForCommand(command.name),
-        usage: command.usage,
-        description: command.description,
-        commandName: command.name,
-      }));
+    const freq = readCommandFrequency();
+    const pool = this.commands.flatMap((command) => [
+      { key: command.name, command },
+      ...command.aliases.map((alias) => ({ key: alias, command })),
+    ]);
+    const ranked = rankByFuzzyAndFrequency(normalized, pool, MAX_AUTOCOMPLETE_RESULTS, freq);
+    const seen = new Set<string>();
+    const out: Suggestion[] = [];
+    for (const x of ranked) {
+      const name = x.command.name;
+      if (seen.has(name)) {
+        continue;
+      }
+      seen.add(name);
+      out.push({
+        completion: this.completionForCommand(name),
+        usage: x.command.usage,
+        description: x.command.description,
+        commandName: name,
+      });
+    }
+    return out;
+  }
+
+  private rankPathSuggestions(fragment: string, paths: readonly string[], build: (path: string) => Suggestion): Suggestion[] {
+    const f = fragment.trim().toLowerCase();
+    const scored = paths
+      .map((path) => ({ path, s: fuzzyScore(f, path), item: build(path) }))
+      .filter((x) => !f || x.s > 0)
+      .sort((a, b) => b.s - a.s || a.path.localeCompare(b.path));
+    return scored.slice(0, MAX_AUTOCOMPLETE_RESULTS).map((x) => x.item);
   }
 
   private renderAutocomplete(): void {
@@ -837,6 +1344,7 @@ export class TerminalApp {
       return;
     }
 
+    this.inputElement.setAttribute('aria-expanded', 'true');
     this.autocompletePanel.hidden = false;
     this.autocompleteList.innerHTML = this.suggestions
       .map((suggestion, index) => {
@@ -866,30 +1374,95 @@ export class TerminalApp {
 
   private argumentSuggestions(commandName: string, args: string[], trailingSpace: boolean): Suggestion[] {
     if (commandName === 'cat') {
-      const fragment = trailingSpace ? '' : args.at(-1) ?? '';
-      return FILE_PATHS.filter((path) => path.startsWith(fragment)).map((path) => ({
-        completion: `cat ${path}`,
-        usage: `cat ${path}`,
+      const pathArgs = args.filter((a) => a !== '--pretty');
+      const fragment = trailingSpace ? '' : pathArgs.at(-1) ?? '';
+      const ranked = this.rankPathSuggestions(fragment, FILE_PATHS, (path) => ({
+        completion: args.includes('--pretty') ? `cat --pretty ${path}` : `cat ${path}`,
+        usage: `cat ${args.includes('--pretty') ? '--pretty ' : ''}${path}`,
         description: 'Read this file from the portfolio OS.',
         commandName: 'cat',
+      }));
+      if (!args.includes('--pretty') && (args.length === 0 || fragment === '')) {
+        return [
+          {
+            completion: 'cat --pretty ',
+            usage: 'cat --pretty <path>',
+            description: 'Render markdown with syntax and typography.',
+            commandName: 'cat',
+          },
+          ...ranked,
+        ];
+      }
+      return ranked;
+    }
+
+    if (commandName === 'post') {
+      const sub = (args[0] || '').toLowerCase();
+      if (!args.length || (sub !== 'open' && sub !== 'view')) {
+        return [
+          {
+            completion: 'post open ',
+            usage: 'post open <slug>',
+            description: 'Open a full post from the /api/posts index.',
+            commandName: 'post',
+          },
+        ];
+      }
+      const slugFrag =
+        sub === 'open' || sub === 'view'
+          ? trailingSpace
+            ? ''
+            : args.slice(1).join(' ').trim()
+          : '';
+      const slugPool = FILE_PATHS.filter((p) => p.startsWith('/posts/') && p.endsWith('.md')).map((p) =>
+        p.replace(/^.*\//, '').replace(/\.md$/i, ''),
+      );
+      return this.rankPathSuggestions(slugFrag, slugPool, (slug) => ({
+        completion: `post open ${slug}`,
+        usage: `post open ${slug}`,
+        description: 'Open this post.',
+        commandName: 'post',
+      }));
+    }
+
+    if (commandName === 'new') {
+      if (!args.length || args[0].toLowerCase() !== 'post') {
+        return [
+          {
+            completion: 'new post ',
+            usage: 'new post --title=… --tags=…',
+            description: 'Publish under /posts/YYYY/MM/DD/ (requires sudo).',
+            commandName: 'new',
+          },
+        ];
+      }
+      const flagCompletions = [
+        'new post --title="',
+        'new post --tags=',
+        'new post --description="',
+      ];
+      return flagCompletions.map((c) => ({
+        completion: c,
+        usage: c,
+        description: 'Flag or quoted value for new post.',
+        commandName: 'new',
       }));
     }
 
     if (commandName === 'touch' || commandName === 'rm') {
       const fragment = trailingSpace ? '' : args.at(-1) ?? '';
-      return [...FILE_PATHS, '/guest/', '/home/']
-        .filter((path) => path.startsWith(fragment))
-        .map((path) => ({
-          completion: `${commandName} ${path}`,
-          usage: `${commandName} <path>`,
-          description: commandName === 'touch' ? 'Create this file path.' : 'Remove this writable file path.',
-          commandName,
-        }));
+      const pool = [...new Set([...FILE_PATHS, '/guest/', '/home/'])];
+      return this.rankPathSuggestions(fragment, pool, (path) => ({
+        completion: `${commandName} ${path}`,
+        usage: `${commandName} <path>`,
+        description: commandName === 'touch' ? 'Create this file path.' : 'Remove this writable file path.',
+        commandName,
+      }));
     }
 
     if (commandName === 'ls') {
       const fragment = trailingSpace ? '' : args.at(-1) ?? '';
-      return DIRECTORY_PATHS.filter((path) => path.startsWith(fragment)).map((path) => ({
+      return this.rankPathSuggestions(fragment, DIRECTORY_PATHS, (path) => ({
         completion: `ls ${path}`,
         usage: `ls ${path}`,
         description: 'List this directory in the portfolio OS.',
@@ -897,46 +1470,82 @@ export class TerminalApp {
       }));
     }
 
+    if (commandName === 'tail' || commandName === 'less') {
+      const fragment = trailingSpace ? '' : args.at(-1) ?? '';
+      return this.rankPathSuggestions(fragment, FILE_PATHS, (path) => ({
+        completion: `${commandName} ${path}`,
+        usage: `${commandName} ${path}`,
+        description: commandName === 'tail' ? 'Print last lines of this file.' : 'View this file with scrollback.',
+        commandName,
+      }));
+    }
+
+    if (commandName === 'mkdir') {
+      const fragment = trailingSpace ? '' : args.at(-1) ?? '';
+      const pool = [...new Set([...DIRECTORY_PATHS, '/home/', '/guest/', '/tmp/'])];
+      return this.rankPathSuggestions(fragment, pool, (path) => ({
+        completion: `mkdir ${path}`,
+        usage: `mkdir ${path}`,
+        description: 'Create a directory at this path.',
+        commandName: 'mkdir',
+      }));
+    }
+
+    if (commandName === 'grep' || commandName === 'find') {
+      const fragment = trailingSpace ? '' : args.at(-1) ?? '';
+      return this.rankPathSuggestions(fragment, FILE_PATHS, (path) => ({
+        completion: `${commandName} ${path}`,
+        usage: `${commandName} ${path}`,
+        description: commandName === 'grep' ? 'Search this file for matching text.' : 'Find this path in the portfolio OS.',
+        commandName,
+      }));
+    }
+
     if (commandName === 'skills') {
-      return ['skills --category', 'skills --applications']
-        .filter((entry) => entry.startsWith(`skills ${args.join(' ')}`.trim()))
-        .map((entry) => ({
-          completion: entry,
-          usage: entry,
-          description: entry.endsWith('--applications')
-            ? 'Show skills by applied system category.'
-            : 'Show skills grouped by resume categories.',
-          commandName: 'skills',
-        }));
+      const opts = ['skills --category', 'skills --applications'];
+      const prefix = `skills ${args.join(' ')}`.trim();
+      const freq = readCommandFrequency();
+      const items = opts.map((entry) => ({ key: entry }));
+      const ranked = rankByFuzzyAndFrequency(prefix, items, MAX_AUTOCOMPLETE_RESULTS, freq);
+      return ranked.map((x) => ({
+        completion: x.key,
+        usage: x.key,
+        description: x.key.endsWith('--applications')
+          ? 'Show skills by applied system category.'
+          : 'Show skills grouped by resume categories.',
+        commandName: 'skills',
+      }));
     }
 
     if (commandName === 'explain' && args[0] === 'command') {
       const fragment = trailingSpace ? '' : args.at(-1) ?? '';
-      return this.commands
-        .filter((command) => command.name.startsWith(fragment))
-        .map((command) => ({
-          completion: `explain command ${command.name}`,
-          usage: `explain command ${command.name}`,
-          description: command.description,
-          commandName: 'explain',
-        }));
+      const freq = readCommandFrequency();
+      const items = this.commands.map((command) => ({ key: command.name, command }));
+      const ranked = rankByFuzzyAndFrequency(fragment, items, MAX_AUTOCOMPLETE_RESULTS, freq);
+      return ranked.map((x) => ({
+        completion: `explain command ${x.command.name}`,
+        usage: `explain command ${x.command.name}`,
+        description: x.command.description,
+        commandName: 'explain',
+      }));
     }
 
     if (commandName === 'explain' && args[0] === 'project') {
       const fragment = trailingSpace ? '' : args.at(-1) ?? '';
-      return [
+      const projects = [
         { key: 'market', description: 'Marketplace Aggregator on AWS at moe.pecunies.com.' },
         { key: 'pi', description: 'Raspberry Pi infrastructure cluster.' },
         { key: 'wasm', description: 'WebAssembly Runtime in Zig.' },
         { key: 'down', description: 'down.nvim markdown note-taking plugin.' },
-      ]
-        .filter((entry) => entry.key.startsWith(fragment))
-        .map((entry) => ({
-          completion: `explain project ${entry.key}`,
-          usage: `explain project ${entry.key}`,
-          description: entry.description,
-          commandName: 'explain',
-        }));
+      ];
+      const freq = readCommandFrequency();
+      const ranked = rankByFuzzyAndFrequency(fragment, projects, MAX_AUTOCOMPLETE_RESULTS, freq);
+      return ranked.map((x) => ({
+        completion: `explain project ${x.key}`,
+        usage: `explain project ${x.key}`,
+        description: x.description,
+        commandName: 'explain',
+      }));
     }
 
     const hints = ARG_HINTS[commandName];
@@ -969,6 +1578,7 @@ export class TerminalApp {
 
   private hideAutocomplete(): void {
     this.suggestions = [];
+    this.inputElement.setAttribute('aria-expanded', 'false');
     this.autocompletePanel.hidden = true;
     this.autocompleteList.innerHTML = '';
   }
@@ -995,8 +1605,17 @@ export class TerminalApp {
       return true;
     }
 
+    if (normalized.includes('|')) {
+      return true;
+    }
+
     const { name } = this.parseCommand(normalized);
-    return name === 'exit' || name === 'clear';
+
+    if (name === 'exit' || name === 'clear') {
+      return true;
+    }
+
+    return Boolean(this.resolveCommand(name));
   }
 
   private shouldHandleAsGameInput(input: string): boolean {
@@ -1039,9 +1658,10 @@ export class TerminalApp {
     this.viewElement.innerHTML = '';
     this.promptScramble.textContent = '';
     this.statusScramble.textContent = '';
-    this.routeIndicator.textContent = '~';
+    this.routeIndicator.textContent = '';
     this.themeIndicator.textContent = 'palette:auto';
     this.promptLabel.textContent = 'chris@pecunies:~$';
+    this.highlightNavLink(null);
     this.restoreWindow();
   }
 
@@ -1049,26 +1669,79 @@ export class TerminalApp {
     if (action === 'shutdown') {
       this.shellElement.classList.add('is-shutdown');
       this.shellElement.classList.remove('is-minimized');
-      this.dockElement.hidden = false;
+      this.updateDockState();
       return;
     }
 
     if (action === 'minimize') {
       this.shellElement.classList.add('is-minimized');
       this.shellElement.classList.remove('is-shutdown');
-      this.dockElement.hidden = false;
+      this.updateDockState();
       return;
     }
 
-    this.shellElement.classList.toggle('is-maximized');
-    this.shellElement.classList.remove('is-minimized', 'is-shutdown');
-    this.dockElement.hidden = true;
+    const shell = this.shellElement;
+    const wasMaximized = shell.classList.contains('is-maximized');
+
+    if (wasMaximized) {
+      shell.classList.remove('is-maximized');
+      if (this.isShellFrameMode()) {
+        if (this.preMaximizeFrame) {
+          this.applyShellFrame(this.preMaximizeFrame);
+        } else {
+          this.centerShell();
+        }
+        this.preMaximizeFrame = null;
+      }
+      shell.classList.remove('is-minimized', 'is-shutdown');
+      this.updateDockState();
+      return;
+    }
+
+    if (this.isShellFrameMode() && this.shellWindowingActive) {
+      this.preMaximizeFrame = this.readFrameFromDom();
+    } else {
+      this.preMaximizeFrame = null;
+    }
+
+    shell.classList.add('is-maximized');
+    shell.classList.remove('is-minimized', 'is-shutdown');
+    this.clearShellInlineLayout();
+    this.updateDockState();
   }
 
   private restoreWindow(): void {
     this.shellElement.classList.remove('is-minimized', 'is-shutdown');
-    this.dockElement.hidden = true;
+    this.updateDockState();
     this.inputElement.focus();
+  }
+
+  private toggleDockWindow(): void {
+    const isHiddenState =
+      this.shellElement.classList.contains('is-minimized') ||
+      this.shellElement.classList.contains('is-shutdown');
+
+    if (isHiddenState) {
+      this.restoreWindow();
+      return;
+    }
+
+    this.applyWindowAction('minimize');
+  }
+
+  private updateDockState(): void {
+    const isHiddenState =
+      this.shellElement.classList.contains('is-minimized') ||
+      this.shellElement.classList.contains('is-shutdown');
+    const isMaximized = this.shellElement.classList.contains('is-maximized');
+    this.dockElement.hidden = false;
+    this.dockElement.classList.toggle('is-active', !isHiddenState);
+    this.dockElement.classList.toggle('is-hidden-state', isHiddenState);
+    this.dockElement.classList.toggle('is-maximized', isMaximized && !isHiddenState);
+    this.dockElement.setAttribute(
+      'aria-label',
+      isHiddenState ? 'Restore terminal window' : 'Minimize terminal window',
+    );
   }
 
   private downloadResume(format: 'pdf' | 'markdown'): void {
@@ -1118,6 +1791,9 @@ export class TerminalApp {
           slug: string;
           path: string;
           markdown: string;
+          published?: string;
+          description?: string;
+          tags?: string[];
           comments?: Array<{ name: string; message: string; at: string }>;
         }>;
       };
@@ -1144,28 +1820,52 @@ export class TerminalApp {
       slug: string;
       path: string;
       markdown: string;
+      published?: string;
+      description?: string;
+      tags?: string[];
       comments?: Array<{ name: string; message: string; at: string }>;
     }>,
   ): string {
     return `
-      <div class="terminal-view is-live">
+      <div class="terminal-view is-live post-index-view">
         <section class="output-block">
-          <h2 class="output-heading">Published markdown</h2>
-          <div class="output-records">
+          <div class="post-feed-head">
+            <h2 class="output-heading">Published posts</h2>
+            <p class="post-feed-rss">
+              <a href="/api/rss" target="_blank" rel="noopener noreferrer" class="rss-subscribe-link">RSS feed (/api/rss)</a>
+              <span aria-hidden="true"> · </span>
+              <span>Add this URL in your feed reader to subscribe.</span>
+            </p>
+          </div>
+          <div class="output-records post-feed">
             ${posts
               .map(
                 (post) => `
-                  <article class="output-record">
+                  <article
+                    class="output-record post-card is-clickable"
+                    role="button"
+                    tabindex="0"
+                    data-command="post open ${this.escapeAttribute(post.slug)}"
+                  >
                     <div class="record-topline">
-                      <p>
+                      <p class="post-card-titleline">
                         <strong>${this.escapeHtml(post.title)}</strong>
-                        <span>${this.escapeHtml(post.path)}</span>
                       </p>
-                      <div class="record-meta">
-                        <span>comment ${this.escapeHtml(post.slug)} &lt;name&gt; &lt;message&gt;</span>
-                      </div>
+                      <time class="post-date" datetime="${this.escapeAttribute(post.published ?? '')}">${this.escapeHtml(post.published ?? '—')}</time>
                     </div>
-                    <p class="record-summary">${this.escapeHtml(this.markdownPreview(post.markdown))}</p>
+                    <p class="post-path-line"><code>${this.escapeHtml(post.path)}</code></p>
+                    <div class="post-tag-row" aria-label="Post tags">
+                      ${(post.tags ?? [])
+                        .map(
+                          (tag) =>
+                            `<button type="button" class="content-tag post-tag-chip" data-command="tags ${this.escapeAttribute(tag)}">#${this.escapeHtml(tag)}</button>`,
+                        )
+                        .join('')}
+                    </div>
+                    <p class="record-summary post-excerpt">${this.escapeHtml(post.description ?? this.markdownPreview(post.markdown))}</p>
+                    <div class="record-meta post-card-actions">
+                      <span>comment <code>${this.escapeHtml(post.slug)}</code> &lt;name&gt; &lt;message&gt;</span>
+                    </div>
                     ${
                       post.comments?.length
                         ? `<div class="output-copy">${post.comments
@@ -1174,7 +1874,7 @@ export class TerminalApp {
                                 `<p><strong>${this.escapeHtml(comment.name)}</strong>: ${this.escapeHtml(comment.message)}</p>`,
                             )
                             .join('')}</div>`
-                        : '<p class="record-summary">No comments yet.</p>'
+                        : ''
                     }
                   </article>
                 `,
@@ -1203,6 +1903,10 @@ export class TerminalApp {
       .replaceAll("'", '&#39;');
   }
 
+  private escapeAttribute(value: string): string {
+    return this.escapeHtml(value).replaceAll('\n', ' ').replaceAll('\r', '');
+  }
+
   private async sendChat(message: string): Promise<void> {
     if (this.chatPending) {
       this.lines.push(this.responseLine('A chat response is already running.', 'warn'));
@@ -1215,9 +1919,9 @@ export class TerminalApp {
     const pendingId = this.makeId();
     this.lines.push({
       id: pendingId,
-      kind: 'response',
-      text: 'thinking...',
-      tone: 'info',
+      kind: 'pretty-response',
+      html: renderMarkdownToHtml('_Thinking…_'),
+      text: '',
     });
     this.renderLog();
 
@@ -1245,7 +1949,11 @@ export class TerminalApp {
         ? payload?.answer ?? 'No answer returned.'
         : payload?.error ?? `Chat request failed with status ${response.status}.`;
 
-      this.replaceLine(pendingId, text, response.ok ? 'success' : 'warn');
+      if (response.ok) {
+        await this.streamMarkdownToLine(pendingId, text);
+      } else {
+        this.replaceLine(pendingId, text, 'warn');
+      }
     } catch {
       this.replaceLine(pendingId, 'Chat request failed before reaching the Cloudflare AI worker.', 'warn');
     } finally {
@@ -1260,7 +1968,7 @@ export class TerminalApp {
     this.lines.push({
       id: pendingId,
       kind: 'response',
-      text: '...',
+      text: '…',
       tone: 'info',
     });
     this.renderLog();
@@ -1282,19 +1990,42 @@ export class TerminalApp {
         ? payload?.output ?? 'OK'
         : payload?.error ?? `OS command failed with status ${response.status}.`;
 
+      if (payload?.config && typeof payload.config === 'object') {
+        this.applyOsConfig(payload.config as Record<string, unknown>);
+      }
+
       if (payload?.mode === 'chat') {
         this.chatMode = true;
         this.promptLabel.textContent = 'chat>';
-        this.routeIndicator.textContent = '~/chat';
+        this.routeIndicator.textContent = 'chat';
         this.themeIndicator.textContent = 'workers-ai';
-        this.applyTheme(this.manualTheme ?? 'red');
+        this.applyTheme(this.manualTheme ?? 'green');
       }
 
       if (output.startsWith('[sudo]') || output.startsWith('Password:')) {
         this.sensitiveNextInput = true;
       }
 
-      this.replaceLine(pendingId, output, response.ok ? 'success' : 'warn');
+      const cmdTrim = command.trim();
+      const isPrettyCat = /\bcat\b/.test(command) && /--pretty\b/.test(command);
+      const catPrettyPath = this.extractCatPrettyPath(cmdTrim);
+      const mdFromCat = Boolean(
+        isPrettyCat && catPrettyPath && catPrettyPath.toLowerCase().match(/\.(md|markdown)$/),
+      );
+      const isLessMd = /^\s*less\s+\S+\.(md|markdown)\b/i.test(cmdTrim);
+      const isAiMarkdown = /^\s*(ask|explain)\b/i.test(cmdTrim);
+
+      if (!response.ok) {
+        this.replaceLine(pendingId, output, 'warn');
+      } else if (mdFromCat || isLessMd || isAiMarkdown) {
+        this.morphLineToPretty(pendingId);
+        await this.streamMarkdownToLine(pendingId, output);
+      } else if (isPrettyCat) {
+        this.morphLineToPretty(pendingId);
+        this.replaceLinePreBlock(pendingId, output);
+      } else {
+        this.replaceLine(pendingId, output, 'success');
+      }
     } catch {
       this.replaceLine(pendingId, 'OS command failed before reaching the Cloudflare worker.', 'warn');
     } finally {
@@ -1381,6 +2112,10 @@ export class TerminalApp {
           return `${section.heading}\n${section.summary}`;
         }
 
+        if (section.type === 'tag-index') {
+          return `${section.heading}\n${section.items.map((i) => `${i.type}: ${i.label} (${i.command})`).join('\n')}`;
+        }
+
         return '';
       })
       .join('\n\n');
@@ -1398,6 +2133,52 @@ export class TerminalApp {
             tone,
           }
         : line,
+    );
+  }
+
+  private extractCatPrettyPath(cmd: string): string | null {
+    const t = cmd.trim();
+    const a = t.match(/^cat\s+--pretty\s+(\S+)/i);
+    if (a) {
+      return a[1];
+    }
+    const b = t.match(/^cat\s+(\S+)\s+--pretty\b/i);
+    return b ? b[1] : null;
+  }
+
+  private morphLineToPretty(id: string): void {
+    this.lines = this.lines.map((line) =>
+      line.id === id ? { id, kind: 'pretty-response', html: renderMarkdownToHtml(''), text: '' } : line,
+    );
+  }
+
+  private async streamMarkdownToLine(id: string, text: string): Promise<void> {
+    if (!text) {
+      this.replaceLineMarkdown(id, '');
+      return;
+    }
+    const step = 5;
+    for (let end = step; end <= text.length + step; end += step) {
+      const acc = text.slice(0, Math.min(end, text.length));
+      this.replaceLineMarkdown(id, acc);
+      this.renderLog();
+      this.outputElement.scrollTop = this.outputElement.scrollHeight;
+      await new Promise((r) => window.setTimeout(r, 6));
+    }
+  }
+
+  private replaceLineMarkdown(id: string, raw: string): void {
+    const html = renderMarkdownToHtml(raw);
+    this.lines = this.lines.map((line) =>
+      line.id === id ? { id, kind: 'pretty-response', html, text: raw } : line,
+    );
+  }
+
+  private replaceLinePreBlock(id: string, text: string): void {
+    const escaped = this.escapeHtml(text);
+    const html = `<pre class="terminal-pre-block">${escaped}</pre>`;
+    this.lines = this.lines.map((line) =>
+      line.id === id ? { id, kind: 'pretty-response', html, text } : line,
     );
   }
 
@@ -1936,6 +2717,267 @@ export class TerminalApp {
     }
 
     return element;
+  }
+
+  private isShellFrameMode(): boolean {
+    return window.innerWidth > 820 && !window.matchMedia('(pointer: coarse)').matches;
+  }
+
+  private setupShellWindowing(): void {
+    window.addEventListener('resize', this.handleShellViewportResize);
+    this.initializeShellLayout();
+  }
+
+  private readonly handleShellViewportResize = (): void => {
+    this.syncShellLayoutWithViewport();
+  };
+
+  private initializeShellLayout(): void {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        this.syncShellLayoutWithViewport();
+      });
+    });
+  }
+
+  private syncShellLayoutWithViewport(): void {
+    const frameMode = this.isShellFrameMode();
+    const shell = this.shellElement;
+
+    if (!frameMode) {
+      this.shellWindowingActive = false;
+      shell.classList.remove('shell-frame-mode');
+      if (!shell.classList.contains('is-maximized')) {
+        this.clearShellInlineLayout();
+      }
+      return;
+    }
+
+    if (shell.classList.contains('is-maximized')) {
+      return;
+    }
+
+    if (!this.shellWindowingActive) {
+      this.shellWindowingActive = true;
+      shell.classList.add('shell-frame-mode');
+      if (!this.tryRestoreShellFrame()) {
+        this.centerShell();
+      }
+      if (!this.shellBindingsDone) {
+        this.bindShellDrag();
+        this.bindShellResize();
+        this.shellBindingsDone = true;
+      }
+    } else {
+      this.clampShellToParent();
+      try {
+        localStorage.setItem(SHELL_FRAME_STORAGE, JSON.stringify(this.readFrameFromDom()));
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  private tryRestoreShellFrame(): boolean {
+    try {
+      const raw = localStorage.getItem(SHELL_FRAME_STORAGE);
+      if (!raw) {
+        return false;
+      }
+      const f = JSON.parse(raw) as ShellFrame;
+      if (![f.left, f.top, f.width, f.height].every((n) => typeof n === 'number' && Number.isFinite(n))) {
+        return false;
+      }
+      const p = this.siteShellElement;
+      const w = Math.min(Math.max(f.width, MIN_SHELL_W), p.clientWidth);
+      const h = Math.min(Math.max(f.height, MIN_SHELL_H), p.clientHeight);
+      const left = Math.min(Math.max(0, f.left), Math.max(0, p.clientWidth - w));
+      const top = Math.min(Math.max(0, f.top), Math.max(0, p.clientHeight - h));
+      this.applyShellFrame({ left, top, width: w, height: h });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private centerShell(): void {
+    const shell = this.shellElement;
+    const parent = this.siteShellElement;
+    const w = shell.offsetWidth;
+    const h = shell.offsetHeight;
+    const left = Math.max(0, (parent.clientWidth - w) / 2);
+    const top = Math.max(0, (parent.clientHeight - h) / 2);
+    this.applyShellFrame({ left, top, width: w, height: h });
+  }
+
+  private readFrameFromDom(): ShellFrame {
+    const shell = this.shellElement;
+    return {
+      left: shell.offsetLeft,
+      top: shell.offsetTop,
+      width: shell.offsetWidth,
+      height: shell.offsetHeight,
+    };
+  }
+
+  private applyShellFrame(f: ShellFrame): void {
+    const shell = this.shellElement;
+    shell.style.position = 'absolute';
+    shell.style.left = `${f.left}px`;
+    shell.style.top = `${f.top}px`;
+    shell.style.width = `${f.width}px`;
+    shell.style.height = `${f.height}px`;
+  }
+
+  private clearShellInlineLayout(): void {
+    const s = this.shellElement;
+    s.style.position = '';
+    s.style.left = '';
+    s.style.top = '';
+    s.style.width = '';
+    s.style.height = '';
+  }
+
+  private clampShellToParent(): void {
+    const p = this.siteShellElement;
+    let { left, top, width, height } = this.readFrameFromDom();
+    width = Math.min(Math.max(width, MIN_SHELL_W), p.clientWidth);
+    height = Math.min(Math.max(height, MIN_SHELL_H), p.clientHeight);
+    left = Math.min(Math.max(0, left), Math.max(0, p.clientWidth - width));
+    top = Math.min(Math.max(0, top), Math.max(0, p.clientHeight - height));
+    this.applyShellFrame({ left, top, width, height });
+  }
+
+  private bindShellDrag(): void {
+    const header = this.shellElement.querySelector<HTMLElement>('.terminal-header');
+    if (!header) {
+      return;
+    }
+
+    header.addEventListener('pointerdown', (event: Event) => {
+      const ev = event as PointerEvent;
+      if (!this.shellWindowingActive) {
+        return;
+      }
+      if (this.shellElement.classList.contains('is-maximized')) {
+        return;
+      }
+      if (ev.button !== 0) {
+        return;
+      }
+      const t = ev.target;
+      if (t instanceof Element && t.closest('button, a, input, [data-command]')) {
+        return;
+      }
+
+      ev.preventDefault();
+      const shell = this.shellElement;
+      const startX = ev.clientX;
+      const startY = ev.clientY;
+      const orig = this.readFrameFromDom();
+
+      const onMove = (moveEvent: Event) => {
+        const e = moveEvent as PointerEvent;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        let left = orig.left + dx;
+        let top = orig.top + dy;
+        const parent = this.siteShellElement;
+        const maxL = Math.max(0, parent.clientWidth - shell.offsetWidth);
+        const maxT = Math.max(0, parent.clientHeight - shell.offsetHeight);
+        left = Math.min(Math.max(0, left), maxL);
+        top = Math.min(Math.max(0, top), maxT);
+        this.applyShellFrame({ left, top, width: orig.width, height: orig.height });
+      };
+
+      const onUp = () => {
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        document.removeEventListener('pointercancel', onUp);
+        try {
+          localStorage.setItem(SHELL_FRAME_STORAGE, JSON.stringify(this.readFrameFromDom()));
+        } catch {
+          /* ignore */
+        }
+      };
+
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+      document.addEventListener('pointercancel', onUp);
+    });
+  }
+
+  private bindShellResize(): void {
+    this.shellElement.querySelectorAll<HTMLElement>('[data-resize]').forEach((handle) => {
+      handle.addEventListener('pointerdown', (event: Event) => {
+        const ev = event as PointerEvent;
+        if (!this.shellWindowingActive) {
+          return;
+        }
+        if (this.shellElement.classList.contains('is-maximized')) {
+          return;
+        }
+        if (ev.button !== 0) {
+          return;
+        }
+        ev.preventDefault();
+        ev.stopPropagation();
+
+        const edge = handle.dataset.resize ?? '';
+        const startX = ev.clientX;
+        const startY = ev.clientY;
+        const startFrame = this.readFrameFromDom();
+
+        const onMove = (moveEvent: Event) => {
+          const e = moveEvent as PointerEvent;
+          const dx = e.clientX - startX;
+          const dy = e.clientY - startY;
+          let { left, top, width, height } = startFrame;
+
+          if (edge.includes('e')) {
+            width = Math.max(MIN_SHELL_W, startFrame.width + dx);
+          }
+          if (edge.includes('s')) {
+            height = Math.max(MIN_SHELL_H, startFrame.height + dy);
+          }
+          if (edge.includes('w')) {
+            const nw = Math.max(MIN_SHELL_W, startFrame.width - dx);
+            left = startFrame.left + (startFrame.width - nw);
+            width = nw;
+          }
+          if (edge.includes('n')) {
+            const nh = Math.max(MIN_SHELL_H, startFrame.height - dy);
+            top = startFrame.top + (startFrame.height - nh);
+            height = nh;
+          }
+
+          const p = this.siteShellElement;
+          width = Math.min(width, p.clientWidth - left);
+          height = Math.min(height, p.clientHeight - top);
+          left = Math.max(0, Math.min(left, p.clientWidth - width));
+          top = Math.max(0, Math.min(top, p.clientHeight - height));
+          width = Math.max(MIN_SHELL_W, Math.min(width, p.clientWidth - left));
+          height = Math.max(MIN_SHELL_H, Math.min(height, p.clientHeight - top));
+
+          this.applyShellFrame({ left, top, width, height });
+        };
+
+        const onUp = () => {
+          document.removeEventListener('pointermove', onMove);
+          document.removeEventListener('pointerup', onUp);
+          document.removeEventListener('pointercancel', onUp);
+          try {
+            localStorage.setItem(SHELL_FRAME_STORAGE, JSON.stringify(this.readFrameFromDom()));
+          } catch {
+            /* ignore */
+          }
+        };
+
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp);
+        document.addEventListener('pointercancel', onUp);
+      });
+    });
   }
 
   private setupPointerDepth(): void {
