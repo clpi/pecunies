@@ -142,7 +142,7 @@ function highlightCode(source: string, language: string): string {
   // Preserve comments/strings first so later passes don't recolor internals.
   let raw = cleanSource
     .replace(/\/\*[\s\S]*?\*\//g, (m) => stash(m, 'tok-comment'))
-    .replace(/(^|[^\\:])(\/\/.*)$/gm, (_m, prefix: string, comment: string) => `${prefix}${stash(comment, 'tok-comment')}`)
+    .replace(/(?<!:)\/\/.*$/gm, (m) => stash(m, 'tok-comment'))
     .replace(/(^|\s)(#.*)$/gm, (_m, prefix: string, comment: string) => `${prefix}${stash(comment, 'tok-comment')}`)
     .replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\[\s\S])*`)/g, (m) =>
       stash(m, 'tok-string'),

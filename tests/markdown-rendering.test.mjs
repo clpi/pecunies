@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import ts from 'typescript';
 
-const repoRoot = '/home/runner/work/pecunies/pecunies';
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 async function loadMarkdownRenderer() {
   const sourcePath = path.join(repoRoot, 'src/terminal/markdown.ts');
@@ -14,8 +15,8 @@ async function loadMarkdownRenderer() {
 
   const source = await readFile(sourcePath, 'utf8');
   const patchedSource = source.replace(
-    "import DOMPurify from 'dompurify';",
-    "const DOMPurify = { sanitize: (html) => html };",
+    /import\s+DOMPurify\s+from\s+['"]dompurify['"];\s*/,
+    "const DOMPurify = { sanitize: (html) => html };\n",
   );
   const compiled = ts.transpileModule(patchedSource, {
     compilerOptions: {
