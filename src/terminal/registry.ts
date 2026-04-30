@@ -185,7 +185,7 @@ export function createCommandRegistry(): {
     note: resumeData.availability,
     theme: 'orange',
     tags: ['resume', 'career', 'portfolio'],
-    logline: 'Loaded overview, resume signals, and current availability.',
+    logline: 'Loaded full resume view with summary, experience, skills, projects, and education.',
     stats: buildSignalStats(),
     actions: [
       { label: 'Experience', command: 'experience' },
@@ -208,13 +208,41 @@ export function createCommandRegistry(): {
         items: buildSignalStats(),
       },
       {
-        type: 'note',
-        heading: 'Current track',
-        lines: [
-          'Cloud work: AWS, Azure, GCP, OCI, CI/CD, Infrastructure as Code, workflow automation, and orchestration tooling.',
-          'Production systems: blockchain infrastructure, GCP provisioning, observability tuning, GitOps hardening, and distributed transaction systems.',
-          'Projects: a Zig WebAssembly runtime and a serverless AWS marketplace aggregator at moe.pecunies.com.',
-        ],
+        type: 'timeline',
+        heading: 'Experience',
+        items: resumeData.experience.map((item) => ({
+          role: item.role,
+          company: item.company,
+          location: item.location,
+          period: item.period,
+          summary: item.summary,
+          bullets: item.bullets,
+        })),
+      },
+      {
+        type: 'tag-groups',
+        heading: 'Skills',
+        groups: resumeData.skills.map((group) => ({
+          title: group.title,
+          items: [...group.items],
+          note: group.note,
+        })),
+      },
+      {
+        type: 'projects',
+        heading: 'Projects',
+        items: resumeData.projects.map((project) => ({
+          name: project.name,
+          period: project.period,
+          summary: project.summary,
+          details: project.details,
+          link: project.link,
+        })),
+      },
+      {
+        type: 'education',
+        heading: 'Education',
+        item: { ...resumeData.education },
       },
     ],
   };
@@ -484,6 +512,7 @@ export function createCommandRegistry(): {
       { label: 'GitLab', href: 'https://gitlab.com/clpi', external: true },
       { label: 'SourceHut', href: 'https://sr.ht/~clp/', external: true },
       { label: 'Codeberg', href: 'https://codeberg.org/clp', external: true },
+      { label: '/contact', command: 'contact' },
       { label: 'Moe', href: 'https://moe.pecunies.com', external: true },
       { label: 'download', command: 'download' },
       { label: 'download --markdown', command: 'download --markdown' },
@@ -526,6 +555,7 @@ export function createCommandRegistry(): {
         type: 'contact',
         heading: 'Contact',
         items: [
+          { label: 'Terminal Contact View', value: '/contact', href: '#/contact' },
           { label: 'Email', value: 'chris@pecunies.com', href: 'mailto:chris@pecunies.com' },
           { label: 'Cal.com', value: 'cal.com/chrisp', href: 'https://cal.com/chrisp' },
           { label: 'Calendly', value: 'calendly.com/pecunies', href: 'https://calendly.com/pecunies' },
@@ -556,7 +586,7 @@ export function createCommandRegistry(): {
     tags: ['writing', 'content'],
     logline: 'Loaded post index and RSS location.',
     actions: [
-      { label: '◔', href: '/api/rss', external: true },
+      { label: 'RSS', href: '/api/rss', external: true },
       { label: 'About', command: 'about' },
       { label: 'Projects', command: 'projects' },
     ],
@@ -636,6 +666,102 @@ export function createCommandRegistry(): {
   } as const;
 
   const commands: CommandDefinition[] = [];
+
+  const resolveCommandRef = (raw: string | undefined): CommandDefinition | null => {
+    const query = raw?.trim().toLowerCase();
+    if (!query) return null;
+    const normalized = query.replace(/^\//, '');
+    return (
+      commands.find(
+        (command) =>
+          command.name.toLowerCase() === normalized ||
+          command.aliases.some((alias) => alias.toLowerCase() === normalized),
+      ) ?? null
+    );
+  };
+
+  const buildManView = (command: CommandDefinition): ViewDefinition => {
+    const tags = command.tags ?? COMMAND_TAGS[command.name] ?? ['terminal'];
+    const aliases = command.aliases.length ? command.aliases.map((alias) => `/${alias}`).join(', ') : 'none';
+    const usageTokens = command.usage.split(/\s+/).slice(1);
+    const optionLines = usageTokens.filter((token) => token.startsWith('-') || token.startsWith('['));
+    const related = commands
+      .filter(
+        (candidate) =>
+          candidate.name !== command.name &&
+          (candidate.group === command.group ||
+            (candidate.tags ?? COMMAND_TAGS[candidate.name] ?? []).some((tag) => tags.includes(tag))),
+      )
+      .slice(0, 6)
+      .map((candidate) => ({ label: `/${candidate.name}`, command: candidate.name }));
+
+    return {
+      id: `man-${command.name}`,
+      route: 'help',
+      prompt: `man ${command.name}`,
+      eyebrow: 'Manual',
+      title: `man ${command.name}`,
+      description: command.description,
+      note: 'Use /help <command> or /commands <command> as shortcuts to this same manual page.',
+      theme: 'amber',
+      tags,
+      logline: `Opened manual page for ${command.name}.`,
+      actions: [
+        { label: 'Run command', command: command.name },
+        { label: 'All commands', command: 'commands' },
+        { label: 'Help index', command: 'help' },
+      ],
+      sections: [
+        {
+          type: 'paragraphs',
+          heading: 'NAME',
+          body: [`${command.name} - ${command.description}`],
+        },
+        {
+          type: 'paragraphs',
+          heading: 'SYNOPSIS',
+          body: [`/${command.usage}`],
+        },
+        {
+          type: 'paragraphs',
+          heading: 'DESCRIPTION',
+          body: [
+            command.description,
+            `Command group: ${command.group}.`,
+            `Aliases: ${aliases}.`,
+          ],
+        },
+        {
+          type: 'paragraphs',
+          heading: 'OPTIONS',
+          body:
+            optionLines.length > 0
+              ? optionLines.map((line) => line)
+              : ['No explicit options declared. Run without flags or check usage examples.'],
+        },
+        {
+          type: 'paragraphs',
+          heading: 'EXAMPLES',
+          body: [`/${command.usage}`, `/help ${command.name}`, `/commands ${command.name}`],
+        },
+        {
+          type: 'note',
+          heading: 'TAGS',
+          lines: ['Tags are clickable chips above this page and in command listings.'],
+        },
+        {
+          type: 'metrics',
+          heading: 'RELATED',
+          items: related.map((item) => ({
+            label: item.label,
+            value: 'related command',
+            detail: 'same group or overlapping tags',
+            command: item.command,
+          })),
+        },
+      ],
+    };
+  };
 
   const buildHelpView = (): ViewDefinition => ({
     id: 'help',
@@ -950,7 +1076,18 @@ export function createCommandRegistry(): {
     route: 'help',
     fullPageView: true,
     description: 'Inspect the command registry and extension pattern.',
-    execute() {
+    execute(_context, args) {
+      const ref = resolveCommandRef(args[0]);
+      if (args[0] && ref) {
+        return { kind: 'view', view: buildManView(ref) };
+      }
+      if (args[0] && !ref) {
+        return {
+          kind: 'system',
+          text: `No manual entry for "${args[0]}". Try commands for the full index.`,
+          tone: 'warn',
+        };
+      }
       return { kind: 'view', view: buildHelpView() };
     },
   });
@@ -964,7 +1101,18 @@ export function createCommandRegistry(): {
     featured: true,
     fullPageView: true,
     description: 'Open the full command list with descriptions and man-page shortcuts.',
-    execute() {
+    execute(_context, args) {
+      const ref = resolveCommandRef(args[0]);
+      if (args[0] && ref) {
+        return { kind: 'view', view: buildManView(ref) };
+      }
+      if (args[0] && !ref) {
+        return {
+          kind: 'system',
+          text: `No manual entry for "${args[0]}". Try commands for the full index.`,
+          tone: 'warn',
+        };
+      }
       return { kind: 'view', view: buildHelpView() };
     },
   });
@@ -1258,11 +1406,27 @@ export function createCommandRegistry(): {
     description: 'Read a file from the portfolio OS. Use --pretty for formatted output.',
   });
 
-  addOsCommand('man', {
-    usage: 'man <command>',
+  commands.push({
+    name: 'man',
+    aliases: [],
+    usage: 'man [command]',
     group: 'OS',
     featured: false,
-    description: 'Show command documentation.',
+    description: 'Open command manual pages with sections, tags, and related commands.',
+    execute(_context, args) {
+      const ref = resolveCommandRef(args[0]);
+      if (args[0] && ref) {
+        return { kind: 'view', view: buildManView(ref) };
+      }
+      if (args[0] && !ref) {
+        return {
+          kind: 'system',
+          text: `No manual entry for "${args[0]}". Try commands for the full index.`,
+          tone: 'warn',
+        };
+      }
+      return { kind: 'view', view: buildHelpView() };
+    },
   });
 
   addOsCommand('whoami', {
@@ -1943,6 +2107,21 @@ export function createCommandRegistry(): {
     fullPageView: true,
     description: 'Show a minimal terminal landing page.',
     execute() {
+      const pecuosAscii = `
+<pre class="home-pecuos-ascii" aria-label="pecuOS banner">
+<span class="home-pecuos-c0">      ___   ___  ___ _   _  ___  ___</span>
+<span class="home-pecuos-c1">     / _ \\ / _ \\/ __| | | |/ _ \\/ __|</span>
+<span class="home-pecuos-c2">    | |_) |  __/ (__| |_| | (_) \\__ \\</span>
+<span class="home-pecuos-c3">    | .__/ \\___|\\___|\\__,_|\\___/|___/</span>
+<span class="home-pecuos-c4">    |_|        cloud kernel / terminal lattice</span>
+
+<span class="home-pecuos-c5">      .-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-.</span>
+<span class="home-pecuos-c6">      |  [ai-core] [fs] [net] [kv] [runtime] |</span>
+<span class="home-pecuos-c7">      |  > help   > resume   > projects      |</span>
+<span class="home-pecuos-c8">      |  > posts  > links    > chat          |</span>
+<span class="home-pecuos-c5">      '-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-'</span>
+</pre>`;
+
       return {
         kind: 'view',
         view: {
@@ -1959,11 +2138,9 @@ export function createCommandRegistry(): {
           sections: [
             {
               type: 'note',
-              heading: 'Ready',
-              lines: [
-                'guest@pecunies shell initialized.',
-                'Run help to inspect commands.',
-              ],
+              heading: 'Welcome',
+              lines: [],
+              html: pecuosAscii,
             },
           ],
         },

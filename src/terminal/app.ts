@@ -576,11 +576,20 @@ export class TerminalApp {
         return;
       }
 
-      const copyPrettyId = target.closest<HTMLElement>('[data-copy-pretty-id]')?.dataset.copyPrettyId;
+      const copyButton = target.closest<HTMLButtonElement>('[data-copy-pretty-id]');
+      const copyPrettyId = copyButton?.dataset.copyPrettyId;
       if (copyPrettyId) {
         const line = this.lines.find((entry) => entry.id === copyPrettyId && entry.kind === 'pretty-response');
         if (line?.text) {
           void navigator.clipboard?.writeText(line.text).catch(() => undefined);
+        }
+        if (copyButton) {
+          copyButton.classList.add('is-copied');
+          copyButton.textContent = 'copied';
+          window.setTimeout(() => {
+            copyButton.classList.remove('is-copied');
+            copyButton.textContent = 'copy';
+          }, 1400);
         }
         return;
       }
@@ -893,6 +902,7 @@ export class TerminalApp {
       (outcome.kind === 'view' && command.fullPageView) || outcome.kind === 'markdown-view';
     if (fullPage) {
       this.clearTerminal();
+      this.outputElement.dataset.pinTop = 'true';
     }
 
     if (echo) {
@@ -922,7 +932,7 @@ export class TerminalApp {
         html: outcome.html,
         text: outcome.text,
       });
-      this.routeIndicator.textContent = 'post';
+      this.triggerViewSwitchFeedback('post');
       this.highlightNavLink(null);
       return;
     }
@@ -939,7 +949,7 @@ export class TerminalApp {
       this.chatMode = true;
       this.gameMode = null;
       this.promptLabel.textContent = 'chat>';
-      this.routeIndicator.textContent = 'chat';
+      this.triggerViewSwitchFeedback('chat');
       this.themeIndicator.textContent = 'workers-ai';
       this.highlightNavLink('chat');
       this.lines.push(this.responseLine(outcome.text, outcome.tone ?? 'success'));
@@ -1018,7 +1028,7 @@ export class TerminalApp {
       html: viewHtml,
       text: this.viewText(outcome.view),
     });
-    this.routeIndicator.textContent = outcome.view.route;
+    this.triggerViewSwitchFeedback(outcome.view.route);
     this.highlightNavLink(outcome.view.id);
     this.scrambleText(this.promptScramble, outcome.view.prompt);
     this.scrambleText(this.statusScramble, outcome.view.description);
@@ -1118,6 +1128,16 @@ export class TerminalApp {
   private normalizeIdentityPart(value: unknown, fallback: string): string {
     const next = String(value ?? '').trim().replace(/\s+/g, '-').replace(/[^a-zA-Z0-9._-]/g, '');
     return next.slice(0, 24) || fallback;
+  }
+
+  /** Simulated OS home directory; must stay aligned with `sanitizeUsername` in `functions/api/os.js`. */
+  private osUserHomeDir(): string {
+    return `/home/${this.normalizeIdentityPart(this.identityDisplayName, 'guest')}`;
+  }
+
+  private osHomePathSuggestions(): string[] {
+    const h = this.osUserHomeDir();
+    return [h, `${h}/.clpshrc`, `${h}/.clpsh_history`, `${h}/projects`, `${h}/skills`];
   }
 
   private currentIdentityPrompt(): string {
@@ -1509,7 +1529,7 @@ export class TerminalApp {
       '[    0.018881] Mounting root at / (overlayfs + KV)',
       '[    0.034204] modprobe virtio-terminal … ok',
       '[    0.051112] modprobe workers-ai-bridge … ok',
-      '[    0.066430] pecunies-fs: mounting /home/guest/{projects,skills}',
+      `[    0.066430] pecunies-fs: mounting ${this.osUserHomeDir()}/{projects,skills}`,
       '[    0.081902] systemd[1]: graphical-session.target — active',
       '[    0.095441] pecunies-ui: launching glass terminal',
       '',
@@ -1572,6 +1592,17 @@ export class TerminalApp {
     window.requestAnimationFrame(() => {
       this.viewElement.classList.add('is-live');
     });
+  }
+
+  private triggerViewSwitchFeedback(routeLabel: string): void {
+    this.shellElement.classList.add('terminal-submit-pulse');
+    window.setTimeout(() => this.shellElement.classList.remove('terminal-submit-pulse'), 420);
+    this.siteShellElement.classList.add('site-shell-nudge');
+    window.setTimeout(() => this.siteShellElement.classList.remove('site-shell-nudge'), 300);
+    document.body.classList.add('view-switching');
+    window.setTimeout(() => document.body.classList.remove('view-switching'), 360);
+    this.scrambleText(this.routeIndicator, routeLabel);
+    this.fieldHandle?.burst();
   }
 
   private commandContext(): CommandContext {
@@ -1882,7 +1913,8 @@ export class TerminalApp {
     if (commandName === 'cat') {
       const pathArgs = args.filter((a) => a !== '--pretty');
       const fragment = trailingSpace ? '' : pathArgs.at(-1) ?? '';
-      const ranked = this.rankPathSuggestions(fragment, FILE_PATHS, (path) => ({
+      const pathPool = [...new Set([...FILE_PATHS, ...this.osHomePathSuggestions()])];
+      const ranked = this.rankPathSuggestions(fragment, pathPool, (path) => ({
         completion: args.includes('--pretty') ? `cat --pretty ${path}` : `cat ${path}`,
         usage: `cat ${args.includes('--pretty') ? '--pretty ' : ''}${path}`,
         description: 'Read this file from the portfolio OS.',
@@ -1957,7 +1989,7 @@ export class TerminalApp {
 
     if (commandName === 'touch' || commandName === 'rm') {
       const fragment = trailingSpace ? '' : args.at(-1) ?? '';
-      const pool = [...new Set([...FILE_PATHS, '/guest/', '/home/'])];
+      const pool = [...new Set([...FILE_PATHS, ...this.osHomePathSuggestions(), '/guest/', '/home/'])];
       return this.rankPathSuggestions(fragment, pool, (path) => ({
         completion: `${commandName} ${path}`,
         usage: `${commandName} <path>`,
@@ -1968,7 +2000,8 @@ export class TerminalApp {
 
     if (commandName === 'ls') {
       const fragment = trailingSpace ? '' : args.at(-1) ?? '';
-      return this.rankPathSuggestions(fragment, DIRECTORY_PATHS, (path) => ({
+      const dirPool = [...new Set([...DIRECTORY_PATHS, ...this.osHomePathSuggestions()])];
+      return this.rankPathSuggestions(fragment, dirPool, (path) => ({
         completion: `ls ${path}`,
         usage: `ls ${path}`,
         description: 'List this directory in the portfolio OS.',
@@ -1978,7 +2011,8 @@ export class TerminalApp {
 
     if (commandName === 'tail' || commandName === 'less' || commandName === 'source') {
       const fragment = trailingSpace ? '' : args.at(-1) ?? '';
-      return this.rankPathSuggestions(fragment, FILE_PATHS, (path) => ({
+      const tailPool = [...new Set([...FILE_PATHS, ...this.osHomePathSuggestions()])];
+      return this.rankPathSuggestions(fragment, tailPool, (path) => ({
         completion: `${commandName} ${path}`,
         usage: `${commandName} ${path}`,
         description:
@@ -1993,7 +2027,7 @@ export class TerminalApp {
 
     if (commandName === 'mkdir') {
       const fragment = trailingSpace ? '' : args.at(-1) ?? '';
-      const pool = [...new Set([...DIRECTORY_PATHS, '/home/', '/guest/', '/tmp/'])];
+      const pool = [...new Set([...DIRECTORY_PATHS, ...this.osHomePathSuggestions(), '/home/', '/guest/', '/tmp/'])];
       return this.rankPathSuggestions(fragment, pool, (path) => ({
         completion: `mkdir ${path}`,
         usage: `mkdir ${path}`,
@@ -2004,7 +2038,8 @@ export class TerminalApp {
 
     if (commandName === 'grep' || commandName === 'find') {
       const fragment = trailingSpace ? '' : args.at(-1) ?? '';
-      return this.rankPathSuggestions(fragment, FILE_PATHS, (path) => ({
+      const grepPool = [...new Set([...FILE_PATHS, ...this.osHomePathSuggestions()])];
+      return this.rankPathSuggestions(fragment, grepPool, (path) => ({
         completion: `${commandName} ${path}`,
         usage: `${commandName} ${path}`,
         description: commandName === 'grep' ? 'Search this file for matching text.' : 'Find this path in the portfolio OS.',
@@ -2529,7 +2564,7 @@ export class TerminalApp {
       if (payload?.mode === 'chat') {
         this.chatMode = true;
         this.promptLabel.textContent = 'chat>';
-        this.routeIndicator.textContent = 'chat';
+        this.triggerViewSwitchFeedback('chat');
         this.themeIndicator.textContent = 'workers-ai';
         this.highlightNavLink('chat');
         this.applyTheme(this.manualTheme ?? 'red');
@@ -2544,7 +2579,10 @@ export class TerminalApp {
       const lessPath = cmdTrim.match(/^less\s+(\S+)/i)?.[1] ?? null;
       const targetPath = ((catPath ?? lessPath) ? `/${(catPath ?? lessPath)!.replace(/^\/+/, '')}` : '').toLowerCase();
       const isMarkdownPath = /\.(md|markdown)$/i.test(targetPath);
-      const isCodePath = /\.(ts|tsx|js|jsx|json|css|html|py|go|rs|zig|sh|bash|yml|yaml|toml)$/i.test(targetPath);
+      const isCodePath =
+        /\.(ts|tsx|js|jsx|mjs|cjs|json|jsonc|css|scss|sass|less|html|xml|svg|py|pyi|go|rs|java|kt|kts|scala|cs|c|h|cpp|cc|cxx|hpp|php|rb|swift|zig|sh|bash|zsh|fish|ps1|sql|yml|yaml|toml|ini|env|dockerfile)$/i.test(
+          targetPath,
+        );
       const isAiMarkdown = /^\s*(ask|explain)\b/i.test(cmdTrim);
 
       if (!response.ok) {
@@ -3567,8 +3605,16 @@ export class TerminalApp {
     window.addEventListener('pointermove', (event) => {
       const driftX = (event.clientX / window.innerWidth - 0.5) * 84;
       const driftY = (event.clientY / window.innerHeight - 0.5) * 64;
+      const xNorm = event.clientX / window.innerWidth;
+      const yNorm = event.clientY / window.innerHeight;
+      const depth = 0.86 + (1 - Math.abs(xNorm - 0.5) * 2) * 0.32;
+      const hueShift = (xNorm - 0.5) * 26;
+      const actionLift = (1 - yNorm) * 0.14;
       document.documentElement.style.setProperty('--pointer-drift-x', `${driftX}px`);
       document.documentElement.style.setProperty('--pointer-drift-y', `${driftY}px`);
+      document.documentElement.style.setProperty('--pointer-depth', depth.toFixed(3));
+      document.documentElement.style.setProperty('--pointer-hue-shift', `${hueShift.toFixed(2)}deg`);
+      document.documentElement.style.setProperty('--pointer-action-lift', actionLift.toFixed(3));
     });
 
     const resetShell = () => {

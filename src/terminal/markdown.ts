@@ -83,16 +83,88 @@ function renderPostHeader(meta: FrontmatterMeta): string {
   return `<header class="post-frontmatter">${title}${date}${description}${tags}</header>`;
 }
 
+const MAJOR_LANGS = new Set([
+  'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs',
+  'py', 'pyi',
+  'go',
+  'rs',
+  'java', 'kt', 'kts', 'scala',
+  'cs',
+  'c', 'h', 'cpp', 'cc', 'cxx', 'hpp',
+  'php', 'rb',
+  'swift',
+  'zig',
+  'sh', 'bash', 'zsh', 'fish', 'ps1',
+  'sql',
+  'html', 'xml', 'svg',
+  'css', 'scss', 'sass', 'less',
+  'json', 'jsonc', 'yaml', 'yml', 'toml', 'ini', 'env',
+  'dockerfile',
+  'md', 'markdown',
+]);
+
+const LANG_ALIASES: Record<string, string> = {
+  typescript: 'ts',
+  javascript: 'js',
+  python: 'py',
+  golang: 'go',
+  rust: 'rs',
+  shell: 'sh',
+  console: 'sh',
+  powershell: 'ps1',
+  csharp: 'cs',
+  plaintext: 'text',
+};
+
 function highlightCode(source: string, language: string): string {
-  let html = escapeHtml(source);
-  if (['ts', 'tsx', 'js', 'jsx', 'json', 'css', 'sh', 'bash', 'zig', 'go', 'rs', 'py', 'md'].includes(language)) {
-    html = html
-      .replace(/(\/\/.*$)/gm, '<span class="tok-comment">$1</span>')
-      .replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g, '<span class="tok-string">$1</span>')
-      .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="tok-number">$1</span>')
-      .replace(/\b(const|let|var|function|return|if|else|for|while|switch|case|break|continue|class|new|import|from|export|default|async|await|try|catch|throw|type|interface|public|private|protected|extends|implements|struct|enum|match|fn)\b/g, '<span class="tok-keyword">$1</span>');
+  const normalized = LANG_ALIASES[language] ?? language;
+  if (!MAJOR_LANGS.has(normalized)) {
+    return escapeHtml(source);
   }
-  return html;
+
+  const placeholders: string[] = [];
+  const stash = (raw: string, cls: string): string => {
+    const idx = placeholders.push(`<span class="${cls}">${escapeHtml(raw)}</span>`) - 1;
+    return `\u0000${idx}\u0000`;
+  };
+
+  // Preserve comments/strings first so later passes don't recolor internals.
+  let raw = source
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => stash(m, 'tok-comment'))
+    .replace(/(^|[^\\:])\/\/.*$/gm, (m) => stash(m, 'tok-comment'))
+    .replace(/(^|\s)#.*$/gm, (m) => stash(m, 'tok-comment'))
+    .replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\[\s\S])*`)/g, (m) =>
+      stash(m, 'tok-string'),
+    );
+
+  raw = escapeHtml(raw);
+
+  // Numbers and booleans.
+  raw = raw
+    .replace(/\b(0x[a-fA-F0-9]+|0b[01]+|0o[0-7]+|\d+(?:\.\d+)?(?:e[+-]?\d+)?)\b/g, '<span class="tok-number">$1</span>')
+    .replace(/\b(true|false|null|undefined|None|nil)\b/g, '<span class="tok-constant">$1</span>');
+
+  // Keywords shared by major languages.
+  raw = raw.replace(
+    /\b(abstract|as|asm|async|await|auto|break|case|catch|class|const|continue|crate|default|def|defer|del|do|elif|else|enum|except|export|extends|fallthrough|finally|fn|for|foreach|from|func|function|go|goto|if|implements|import|in|inline|interface|internal|is|lambda|let|loop|macro|match|module|mut|namespace|new|operator|out|override|package|pass|private|protected|pub|public|raise|readonly|ref|return|sealed|self|static|struct|super|switch|this|throw|trait|try|type|typeof|union|unsafe|use|using|var|virtual|void|volatile|where|while|with|yield)\b/g,
+    '<span class="tok-keyword">$1</span>',
+  );
+
+  // Builtins and types.
+  raw = raw
+    .replace(/\b(Array|Boolean|Date|Error|Map|Math|Number|Object|Promise|RegExp|Set|String|Symbol|BigInt|JSON|console|process|window|document|printf|fmt|len|cap|make|append|panic|println|Vec|String|Result|Option|HashMap|HashSet|i8|i16|i32|i64|isize|u8|u16|u32|u64|usize|f32|f64|int|float|bool|char|str)\b/g, '<span class="tok-builtin">$1</span>')
+    .replace(/\b([A-Z][A-Za-z0-9_]+)\b/g, '<span class="tok-type">$1</span>');
+
+  // Functions, decorators, operators, punctuation.
+  raw = raw
+    .replace(/\b([a-zA-Z_][a-zA-Z0-9_]*)\s*(?=\()/g, '<span class="tok-function">$1</span>')
+    .replace(/(^|\s)(@[a-zA-Z_][a-zA-Z0-9_.-]*)/gm, '$1<span class="tok-decorator">$2</span>')
+    .replace(/([+\-*/%!=<>|&^~?:]+)/g, '<span class="tok-operator">$1</span>')
+    .replace(/([()[\]{}.,;])/g, '<span class="tok-punctuation">$1</span>');
+
+  // Restore preserved comments/strings.
+  raw = raw.replace(/\u0000(\d+)\u0000/g, (_m, i) => placeholders[Number(i)] ?? '');
+  return raw;
 }
 
 function escapeHtml(value: string): string {

@@ -28,7 +28,6 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
     ['skills', 'Skills'],
     ['posts', 'Posts'],
     ['links', 'Links'],
-    ['contact', 'Contact'],
     ['pdf', 'PDF'],
     ['chat', 'Chat'],
   ]);
@@ -54,9 +53,7 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
     )
     .join('');
   const rssNavButton = `
-    <a class="nav-link nav-link-icon" href="/api/rss" target="_blank" rel="noopener noreferrer" aria-label="RSS feed">
-      <span>RSS</span>
-    </a>
+    <a class="nav-link" href="/api/rss" target="_blank" rel="noopener noreferrer" aria-label="RSS feed">RSS</a>
   `;
 
   return `
@@ -243,22 +240,25 @@ export function renderLog(lines: SessionLine[]): string {
       }
 
       if (line.kind === 'pretty-response') {
-        const modelHeader = line.model
-          ? `<div class="pretty-output-meta"><span class="pretty-output-model">${escapeHtml(line.model)}</span></div>
-             <details class="pretty-thinking">
-               <summary>thinking / context</summary>
-               <p>Using portfolio profile, app command registry, visible terminal buffer, session history, RAG notes, metrics, leaderboard state, and files read in this session.</p>
-             </details>`
-          : '';
         const copyButton = line.copyable
-          ? `<button class="pretty-copy-button" type="button" data-copy-pretty-id="${escapeAttribute(line.id)}" aria-label="Copy response">copy</button>`
+          ? `<button class="pretty-copy-button" type="button" data-copy-pretty-id="${escapeAttribute(line.id)}" aria-label="Copy response"></button>`
           : '';
+        const modelHeader =
+          line.model || copyButton
+            ? `<div class="pretty-output-meta">
+                 <span class="pretty-output-model">${line.model ? escapeHtml(line.model) : ''}</span>
+                 ${copyButton}
+               </div>
+               <details class="pretty-thinking">
+                 <summary><span class="pretty-thinking-chevron">&gt;</span> <span class="pretty-thinking-label">Thinking...</span></summary>
+                 <p>Using portfolio profile, app command registry, visible terminal buffer, session history, RAG notes, metrics, leaderboard state, and files read in this session.</p>
+               </details>`
+            : '';
         return `
           <li class="log-line log-line-pretty">
             <div class="pretty-output-shell">
               ${modelHeader}
               <div class="pretty-output markdown-body">${line.html}</div>
-              ${copyButton ? `<div class="pretty-output-actions">${copyButton}</div>` : ''}
             </div>
           </li>
         `;
@@ -437,7 +437,7 @@ function renderSection(section: TerminalSection): string {
         <section class="output-block note-panel">
           <h2 class="output-heading">${escapeHtml(section.heading)}</h2>
           <div class="output-copy">
-            ${section.lines.map((line) => `<p>${escapeHtml(line)}</p>`).join('')}
+            ${section.html ? section.html : section.lines.map((line) => `<p>${escapeHtml(line)}</p>`).join('')}
           </div>
         </section>
       `;
@@ -610,7 +610,7 @@ function renderCommandHelpItem(item: CommandHelpItem): string {
   return `
     <article class="command-card">
       <div class="command-copy">
-        <p class="command-name">/${escapeHtml(item.name)}</p>
+        <button class="command-name" type="button" data-command="man ${escapeAttribute(item.name)}" data-prepopulate-command="${escapeAttribute(item.name)}">/${escapeHtml(item.name)}</button>
         <p class="command-desc">${escapeHtml(item.description)}</p>
         ${tagRow}
       </div>

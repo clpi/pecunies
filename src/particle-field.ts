@@ -19,29 +19,31 @@ export type ParticleFieldOptions = {
 // ─── Tunables ─────────────────────────────────────────────────────────────
 const CONFIG = {
   /** Base multipliers per preset for particle counts */
-  density: { minimal: 1.05, standard: 2.42, enhanced: 3.08 } as const,
+  density: { minimal: 1.36, standard: 3.56, enhanced: 4.68 } as const,
   /** Global flow rotation speed (rad / ms) */
-  flowRotate: 0.00000008,
+  flowRotate: 0.00000016,
   /** Pointer repulsion: max extra velocity (px/frame at ~60fps scale) */
-  repelMax: 0.82,
-  repelRadius: 188,
+  repelMax: 1.04,
+  repelRadius: 224,
   /** Noise strength scales per layer (0 = back … 2 = fore) */
-  noiseLayer: [0.18, 0.28, 0.42] as const,
+  noiseLayer: [0.22, 0.34, 0.52] as const,
   /** Velocity smoothing toward flow + noise */
-  steer: 0.024,
+  steer: 0.031,
   /** Extra vignette strength in enhanced */
   vignetteEnhanced: 0.08,
   /** Rare drift “current” pulses */
   clusterIntervalMs: 5200,
-  clusterStrength: 0.011,
+  clusterStrength: 0.017,
+  /** Additional gentle gravity for dust fall by layer */
+  fallBias: [0.0036, 0.0052, 0.0073] as const,
 } as const;
 
 // ─── Palette: dim terminal dust + theme accent (modes match terminalThemes.mode 0–3) ─
 const MODE_DUST = [
-  { dim: [38, 52, 44], mid: [58, 92, 74], hi: [112, 188, 148], signal: [180, 255, 210] },
-  { dim: [48, 40, 32], mid: [88, 72, 48], hi: [200, 160, 88], signal: [255, 210, 140] },
-  { dim: [32, 44, 52], mid: [48, 88, 102], hi: [96, 180, 210], signal: [160, 230, 255] },
-  { dim: [44, 48, 50], mid: [72, 80, 82], hi: [160, 170, 175], signal: [230, 240, 242] },
+  { dim: [52, 55, 58], mid: [82, 86, 90], hi: [136, 162, 148], signal: [198, 246, 220] },
+  { dim: [54, 54, 52], mid: [86, 84, 78], hi: [188, 158, 94], signal: [255, 214, 148] },
+  { dim: [50, 54, 58], mid: [80, 88, 94], hi: [114, 166, 202], signal: [176, 234, 255] },
+  { dim: [56, 58, 60], mid: [88, 92, 96], hi: [156, 164, 172], signal: [228, 236, 242] },
 ] as const;
 
 type LayerId = 0 | 1 | 2;
@@ -163,9 +165,9 @@ function layerCounts(
   const d = CONFIG.density[preset] * (reducedMotion ? 0.12 : 1);
   const cap = (n: number, m: number) => Math.min(m, Math.max(0, Math.floor(n * d)));
 
-  const back = cap(area / 1320, preset === 'enhanced' ? 980 : preset === 'minimal' ? 360 : 760);
-  const mid = cap(area / 3000, preset === 'enhanced' ? 540 : preset === 'minimal' ? 190 : 390);
-  const fore = cap(area / 8200, preset === 'enhanced' ? 240 : preset === 'minimal' ? 90 : 170);
+  const back = cap(area / 1080, preset === 'enhanced' ? 1260 : preset === 'minimal' ? 460 : 980);
+  const mid = cap(area / 2450, preset === 'enhanced' ? 720 : preset === 'minimal' ? 250 : 520);
+  const fore = cap(area / 6900, preset === 'enhanced' ? 330 : preset === 'minimal' ? 120 : 240);
   return [back, mid, fore];
 }
 
@@ -182,8 +184,8 @@ function seedParticles(
   const pushLayer = (count: number, layer: LayerId) => {
     for (let i = 0; i < count; i++) {
       const roll = Math.random();
-      const isSignal = layer === 2 && roll > 0.82;
-      const isMidSignal = layer === 1 && roll > 0.96;
+      const isSignal = layer === 2 && roll > 0.9;
+      const isMidSignal = layer === 1 && roll > 0.985;
 
       let size: number;
       let baseAlpha: number;
@@ -215,7 +217,7 @@ function seedParticles(
         flickerRate: 0.00035 + Math.random() * 0.00085,
         isSignal: Boolean(isSignal || isMidSignal),
         colorJitter: Math.random(),
-        hueShift: (Math.random() - 0.5) * 0.38,
+        hueShift: (Math.random() - 0.5) * 0.22,
         blur:
           layer === 0
             ? Math.random() * 0.6
@@ -262,8 +264,8 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
 
   const pool: DustParticle[] = [];
 
-  const layerSpeed = [0.026, 0.052, 0.09] as const;
-  const layerParallax = [0.32, 0.64, 1.05] as const;
+  const layerSpeed = [0.032, 0.068, 0.118] as const;
+  const layerParallax = [0.44, 0.86, 1.38] as const;
 
   const resize = (): void => {
     const rect = canvas.getBoundingClientRect();
@@ -342,8 +344,8 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
       const ny = fbm2(p.x * nScale * 1.3 - t * 0.3, p.y * nScale + t * 0.5 + 13.7);
       const hueNoise = fbm2(p.x * nScale * 0.58 + t * 0.42, p.y * nScale * 0.62 - t * 0.27);
 
-      let tx = flowX * ls + nx * CONFIG.noiseLayer[p.layer] * ls * 2.4;
-      let ty = flowY * ls + ny * CONFIG.noiseLayer[p.layer] * ls * 2.4;
+      let tx = flowX * ls + nx * CONFIG.noiseLayer[p.layer] * ls * 2.9;
+      let ty = flowY * ls + ny * CONFIG.noiseLayer[p.layer] * ls * 2.9;
 
       tx += Math.cos(clusterAngle) * clusterStrength * ls * 24;
       ty += Math.sin(clusterAngle) * clusterStrength * ls * 24;
@@ -364,11 +366,12 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
         p.vy += (dy / dist) * f;
       }
 
-      p.x += p.vx * dt * 0.022;
-      p.y += p.vy * dt * 0.022 + (0.002 + p.layer * 0.003) * dt;
+      const sway = Math.sin(ts * (0.00058 + p.layer * 0.00012) + p.flickerPhase * 1.7) * (0.006 + p.layer * 0.003);
+      p.x += (p.vx + sway) * dt * 0.028;
+      p.y += p.vy * dt * 0.028 + (CONFIG.fallBias[p.layer] + p.layer * 0.0019) * dt;
 
-      p.x -= px * par * 1.7;
-      p.y -= py * par * 1.35;
+      p.x -= px * par * 2.4;
+      p.y -= py * par * 2.05;
 
       if (p.x < 0) {
         p.x += width;
@@ -397,7 +400,7 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
       const g = lerp(dust.dim[1], dust.mid[1], mix) + (p.isSignal ? dust.hi[1] - dust.mid[1] : 0) * 0.35;
       const b = lerp(dust.dim[2], dust.mid[2], mix) + (p.isSignal ? dust.hi[2] - dust.mid[2] : 0) * 0.35;
 
-      const hue = p.hueShift + hueNoise * 0.18;
+      const hue = p.hueShift + hueNoise * 0.12;
       const fr = Math.min(
         255,
         Math.max(0, r + (p.isSignal ? dust.signal[0] - dust.hi[0] : 0) * 0.25 + hue * 22),

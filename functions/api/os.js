@@ -351,7 +351,7 @@ const MANUALS = {
   tags: 'tags [fragment]\nList all tags used in the portfolio OS, or show content for tags whose names match <fragment> (substring).',
   post: 'post open <slug>\nFrontend command: load a full post from /api/posts. Use posts to browse the index.',
   config:
-    'config <set|get|list|reset> [key] [value]\nSession preferences: crt on|off (CRT scanline effect), theme, font_size, font, dark, name, environment, email.',
+    'config <set|get|list|reset> [key] [value]\nSession preferences: crt on|off (CRT scanline effect), theme, font_size, font, dark, name, environment, email, system_prompt.\nChanging name moves the simulated home to /home/<name>, creates it if needed, migrates .clpshrc and .clpsh_history from the previous home when present, and resets cwd to the new home.',
 };
 
 /** Command → taxonomy tags (shown on man pages); keep in sync with src/data/content-tags.ts COMMAND_TAGS */
@@ -423,6 +423,7 @@ export async function onRequestPost({ request, env }) {
   }
 
   const state = await readState(env, sessionId);
+  ensureHomeDirectory(state);
   const pendingAuth = await handlePendingAuth(command, state, env, visibleContext, request);
 
   if (pendingAuth) {
@@ -1998,7 +1999,7 @@ async function tagsOutput(tagFilter, env) {
 
 function changeDir(path, state) {
   if (!path || path === '~') {
-    state.cwd = '/home/guest';
+    state.cwd = userHomePath(state);
     return { output: '' };
   }
   if (path === '/') {
@@ -2096,8 +2097,8 @@ function expandEnvVars(text, state) {
   return text.replace(/\$\{?(\w+)\}?/g, (match, name) => {
     if (name === '?') return String(typeof process !== 'undefined' ? process.exitCode ?? 0 : 0);
     if (name === 'PWD') return state.cwd || '/';
-    if (name === 'HOME') return '/home';
-    if (name === 'USER') return 'guest';
+    if (name === 'HOME') return userHomePath(state);
+    if (name === 'USER') return sanitizeUsername(mergeConfigDefaults(state.config).name);
     return envVars[name] ?? '';
   });
 }
@@ -2236,8 +2237,8 @@ function envValue(name, state) {
   const envVars = state.envVars || {};
   if (name === '?') return String(typeof process !== 'undefined' ? process.exitCode ?? 0 : 0);
   if (name === 'PWD') return state.cwd || '/';
-  if (name === 'HOME') return '/home';
-  if (name === 'USER') return 'guest';
+  if (name === 'HOME') return userHomePath(state);
+  if (name === 'USER') return sanitizeUsername(mergeConfigDefaults(state.config).name);
   return envVars[name] ?? '';
 }
 
@@ -2418,7 +2419,23 @@ function renderTerminalFileContent(content, path) {
   if (ext === 'md' || ext === 'markdown') {
     return content;
   }
-  if (['ts', 'tsx', 'js', 'jsx', 'json', 'css', 'html', 'py', 'go', 'rs', 'zig', 'sh', 'bash', 'yml', 'yaml', 'toml'].includes(ext)) {
+  if (
+    [
+      'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs',
+      'json', 'jsonc',
+      'css', 'scss', 'sass', 'less',
+      'html', 'xml', 'svg',
+      'py', 'pyi',
+      'go', 'rs',
+      'java', 'kt', 'kts', 'scala',
+      'cs',
+      'c', 'h', 'cpp', 'cc', 'cxx', 'hpp',
+      'php', 'rb', 'swift', 'zig',
+      'sh', 'bash', 'zsh', 'fish', 'ps1',
+      'sql',
+      'yml', 'yaml', 'toml', 'ini', 'env',
+    ].includes(ext)
+  ) {
     return `\`\`\`${ext}
 ${content}
 \`\`\``;
@@ -2437,7 +2454,19 @@ function prettyPrint(content, path) {
       .replace(/`(.+?)`/g, '⟨$1⟩')
       .replace(/^[-*] /gm, '  • ');
   }
-  if (['ts', 'js', 'py', 'go', 'rs', 'zig', 'sh', 'json', 'css'].includes(ext)) {
+  if (
+    [
+      'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs',
+      'py', 'pyi', 'go', 'rs',
+      'java', 'kt', 'kts', 'scala', 'cs',
+      'c', 'h', 'cpp', 'cc', 'cxx', 'hpp',
+      'php', 'rb', 'swift', 'zig',
+      'sh', 'bash', 'zsh', 'fish', 'ps1',
+      'sql',
+      'json', 'jsonc', 'yaml', 'yml', 'toml', 'ini', 'env',
+      'css', 'scss', 'sass', 'less', 'html', 'xml', 'svg',
+    ].includes(ext)
+  ) {
     const lines = content.split('\n');
     const width = String(lines.length).length;
     return lines.map((line, i) => `${String(i + 1).padStart(width)} │ ${line}`).join('\n');
@@ -2474,8 +2503,74 @@ function mergeConfigDefaults(raw) {
   };
 }
 
+/** Filesystem-safe username segment for /home/<username> (aligned with frontend identity rules). */
+function sanitizeUsername(raw) {
+  const s = String(raw ?? '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-zA-Z0-9._-]/g, '');
+  return s.slice(0, 24) || 'guest';
+}
+
+function userHomePath(cfgSource) {
+  const cfg = mergeConfigDefaults(cfgSource?.config ?? cfgSource);
+  return `/home/${sanitizeUsername(cfg.name)}`;
+}
+
+function ensureHomeDirectory(cfgSource) {
+  const home = userHomePath(cfgSource);
+  if (!DIRECTORIES[home]) {
+    DIRECTORIES[home] = [];
+  }
+}
+
+async function migrateHomeDotfiles(env, fromUserRaw, toUserRaw) {
+  const from = sanitizeUsername(fromUserRaw);
+  const to = sanitizeUsername(toUserRaw);
+  if (from === to || !env.PORTFOLIO_OS) {
+    return '';
+  }
+
+  ensureHomeDirectory({ config: { name: to } });
+  const oldHome = `/home/${from}`;
+  const newHome = `/home/${to}`;
+  const copied = [];
+
+  for (const fname of ['.clpshrc', '.clpsh_history']) {
+    const oldPath = `${oldHome}/${fname}`;
+    const newPath = `${newHome}/${fname}`;
+    const oldContent = await readUserFile(env, oldPath);
+    if (oldContent === null || oldContent === undefined || oldContent === '') {
+      continue;
+    }
+    const newContent = await readUserFile(env, newPath);
+    if (newContent === null || newContent === undefined || newContent === '') {
+      await env.PORTFOLIO_OS.put(userFileKey(newPath), oldContent);
+      copied.push(fname);
+    }
+  }
+
+  return copied.length ? `migrated: ${copied.join(', ')}` : '';
+}
+
+async function persistClpshHistoryFile(env, state) {
+  if (!env.PORTFOLIO_OS) {
+    return;
+  }
+
+  ensureHomeDirectory(state);
+  const home = userHomePath(state);
+  const lines = state.history.map((entry, index) => {
+    const idx = String(index + 1).padStart(3, ' ');
+    return `${idx}  ${entry.command}`;
+  });
+  await env.PORTFOLIO_OS.put(userFileKey(`${home}/.clpsh_history`), lines.join('\n'));
+}
+
 function normalizeState(state) {
   const s = state && typeof state === 'object' ? state : {};
+  const cfg = mergeConfigDefaults(s.config);
+  const defaultCwd = userHomePath({ config: cfg });
   return {
     history: Array.isArray(s.history) ? s.history : [],
     reads: Array.isArray(s.reads) ? s.reads : [],
@@ -2483,11 +2578,11 @@ function normalizeState(state) {
     rootUntil: Number(s.rootUntil ?? 0),
     logEntries: Array.isArray(s.logEntries) ? s.logEntries : [],
     publicLogEntries: Array.isArray(s.publicLogEntries) ? s.publicLogEntries : [],
-    cwd: typeof s.cwd === 'string' ? s.cwd : '/home/guest',
+    cwd: typeof s.cwd === 'string' ? s.cwd : defaultCwd,
     previousCwd: typeof s.previousCwd === 'string' ? s.previousCwd : null,
     envVars: s.envVars && typeof s.envVars === 'object' ? s.envVars : {},
     ragContext: Array.isArray(s.ragContext) ? s.ragContext : [],
-    config: mergeConfigDefaults(s.config),
+    config: cfg,
   };
 }
 
@@ -2660,6 +2755,7 @@ async function writeState(env, sessionId, state) {
     return;
   }
 
+  await persistClpshHistoryFile(env, state);
   await env.PORTFOLIO_OS.put(`session:${sessionId}`, JSON.stringify(state), { expirationTtl: 60 * 60 * 24 * 30 });
 }
 
@@ -2852,8 +2948,9 @@ async function updateGuestShellRc(env, config) {
     return;
   }
   const c = mergeConfigDefaults(config);
-  const username = String(c.name || 'guest').replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 24) || 'guest';
-  await env.PORTFOLIO_OS.put(userFileKey(`/home/${username}/.clpshrc`), renderGuestShellRc(c));
+  ensureHomeDirectory({ config: c });
+  const home = userHomePath({ config: c });
+  await env.PORTFOLIO_OS.put(userFileKey(`${home}/.clpshrc`), renderGuestShellRc(c));
 }
 
 // ── config ──
@@ -2868,21 +2965,36 @@ async function configHandler(args, state, env) {
   if (sub === 'set' && args[1]) {
     const key = args[1];
     let val = args.slice(2).join(' ');
+    const prevNameSan = sanitizeUsername(String(mergeConfigDefaults(state.config).name));
     if (key === 'crt') {
       const s = String(val).toLowerCase();
       if (s === 'on' || s === 'true') val = true;
       else if (s === 'off' || s === 'false') val = false;
     } else {
-      if (val === 'true') val = true;
+      if (key === 'name') {
+        val = sanitizeUsername(String(val));
+      } else if (val === 'true') val = true;
       else if (val === 'false') val = false;
-      else if (/^\d+$/.test(val)) val = Number(val);
+      else if (key !== 'email' && key !== 'environment' && key !== 'system_prompt' && /^\d+$/.test(val)) {
+        val = Number(val);
+      }
     }
     state.config[key] = val;
+    let extra = '';
+    if (key === 'name') {
+      const nextNameSan = sanitizeUsername(String(state.config.name));
+      if (prevNameSan !== nextNameSan) {
+        extra = await migrateHomeDotfiles(env, prevNameSan, nextNameSan);
+        state.cwd = userHomePath(state);
+      }
+    }
     await updateGuestShellRc(env, state.config);
-    return { output: `config: ${key} = ${JSON.stringify(val)}` };
+    const suffix = extra ? `\n${extra}` : '';
+    return { output: `config: ${key} = ${JSON.stringify(val)}${suffix}` };
   }
   if (sub === 'reset') {
     state.config = mergeConfigDefaults();
+    state.cwd = userHomePath(state);
     await updateGuestShellRc(env, state.config);
     return { output: 'Config reset to defaults.' };
   }

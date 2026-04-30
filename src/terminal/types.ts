@@ -140,6 +140,8 @@ export type NoteSection = {
   type: 'note';
   heading: string;
   lines: string[];
+  /** Optional trusted markup for decorative terminal banners. */
+  html?: string;
 };
 
 export type TagIndexSection = {
