@@ -558,8 +558,10 @@ function renderTagGroup(group: TagGroup): string {
 }
 
 function renderProjectCard(project: ProjectCard): string {
+  const clickableClass = project.command ? ' project-card is-clickable' : '';
+  const commandAttr = project.command ? ` data-command="${escapeAttribute(project.command)}"` : '';
   return `
-    <article class="output-record">
+    <article class="output-record${clickableClass}"${commandAttr}>
       <div class="record-topline">
         <p>
           <strong>${escapeHtml(project.name)}</strong>

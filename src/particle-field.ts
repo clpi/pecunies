@@ -452,7 +452,7 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
       mode = Math.abs(nextMode) % MODE_DUST.length;
     },
     burst() {
-      burst = Math.min(1, burst + 0.22);
+      burst = Math.min(1, burst + 0.1);
     },
   };
 }

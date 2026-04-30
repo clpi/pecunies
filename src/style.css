@@ -68,12 +68,13 @@ body {
 body {
   overflow: hidden;
   background:
-    radial-gradient(170% calc(122% * var(--pointer-depth, 1)) at calc(50% + var(--pointer-drift-x, 0px) * 0.24) calc(43% + var(--pointer-drift-y, 0px) * 0.16), color-mix(in srgb, var(--accent) calc(11% + var(--pointer-action-lift, 0) * 20%), transparent), transparent 64%),
-    radial-gradient(142% 106% at calc(12% + var(--pointer-drift-x, 0px) * -0.2) calc(16% + var(--pointer-drift-y, 0px) * -0.14), color-mix(in srgb, var(--bg-accent-a) 96%, transparent), transparent 68%),
-    radial-gradient(138% 104% at calc(86% + var(--pointer-drift-x, 0px) * 0.18) calc(82% + var(--pointer-drift-y, 0px) * 0.14), color-mix(in srgb, var(--bg-accent-b) 94%, transparent), transparent 70%),
-    radial-gradient(122% 92% at calc(74% + var(--pointer-drift-x, 0px) * 0.1) calc(18% + var(--pointer-drift-y, 0px) * 0.08), rgba(118, 205, 255, 0.04), transparent 72%),
-    radial-gradient(120% 90% at calc(26% + var(--pointer-drift-x, 0px) * -0.12) calc(84% + var(--pointer-drift-y, 0px) * 0.1), rgba(197, 141, 255, 0.036), transparent 72%),
-    radial-gradient(116% 82% at calc(62% + var(--pointer-drift-x, 0px) * -0.08) calc(24% + var(--pointer-drift-y, 0px) * 0.1), color-mix(in srgb, var(--accent-strong) 12%, transparent), transparent 74%),
+    radial-gradient(184% calc(130% * var(--pointer-depth, 1)) at calc(50% + var(--pointer-drift-x, 0px) * 0.28) calc(42% + var(--pointer-drift-y, 0px) * 0.18), color-mix(in srgb, var(--accent) calc(13% + var(--pointer-action-lift, 0) * 24%), transparent), transparent 66%),
+    radial-gradient(164% 122% at calc(10% + var(--pointer-drift-x, 0px) * -0.24) calc(14% + var(--pointer-drift-y, 0px) * -0.18), color-mix(in srgb, var(--bg-accent-a) 98%, transparent), transparent 70%),
+    radial-gradient(158% 118% at calc(88% + var(--pointer-drift-x, 0px) * 0.22) calc(84% + var(--pointer-drift-y, 0px) * 0.17), color-mix(in srgb, var(--bg-accent-b) 97%, transparent), transparent 72%),
+    radial-gradient(146% 104% at calc(78% + var(--pointer-drift-x, 0px) * 0.14) calc(16% + var(--pointer-drift-y, 0px) * 0.12), rgba(118, 205, 255, 0.052), transparent 74%),
+    radial-gradient(142% 102% at calc(22% + var(--pointer-drift-x, 0px) * -0.16) calc(86% + var(--pointer-drift-y, 0px) * 0.12), rgba(197, 141, 255, 0.044), transparent 74%),
+    radial-gradient(132% 96% at calc(64% + var(--pointer-drift-x, 0px) * -0.1) calc(24% + var(--pointer-drift-y, 0px) * 0.12), color-mix(in srgb, var(--accent-strong) 15%, transparent), transparent 76%),
+    radial-gradient(128% 92% at calc(42% + var(--pointer-drift-x, 0px) * 0.08) calc(74% + var(--pointer-drift-y, 0px) * -0.08), rgba(132, 246, 214, 0.032), transparent 78%),
     linear-gradient(180deg, #050709 0%, #020304 100%);
   animation: bg-gradient-flow 18s ease-in-out infinite alternate;
   filter: hue-rotate(var(--pointer-hue-shift, 0deg));
@@ -90,12 +91,13 @@ body::after {
 body::before {
   z-index: 1;
   background:
-    radial-gradient(154% 112% at 10% 16%, color-mix(in srgb, var(--bg-accent-a) 95%, transparent), transparent 74%),
-    radial-gradient(142% 108% at 84% 74%, color-mix(in srgb, var(--bg-accent-b) 96%, transparent), transparent 76%),
-    radial-gradient(130% 96% at 46% 84%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 74%),
-    radial-gradient(120% 90% at 68% 28%, rgba(114, 198, 255, 0.03), transparent 78%),
-    radial-gradient(122% 92% at 36% 70%, rgba(203, 150, 255, 0.03), transparent 78%);
-  opacity: 0.8;
+    radial-gradient(164% 118% at 8% 14%, color-mix(in srgb, var(--bg-accent-a) 96%, transparent), transparent 76%),
+    radial-gradient(156% 114% at 86% 76%, color-mix(in srgb, var(--bg-accent-b) 97%, transparent), transparent 78%),
+    radial-gradient(142% 102% at 48% 84%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 76%),
+    radial-gradient(132% 96% at 70% 24%, rgba(114, 198, 255, 0.038), transparent 80%),
+    radial-gradient(128% 94% at 34% 72%, rgba(203, 150, 255, 0.036), transparent 80%),
+    radial-gradient(122% 88% at 56% 46%, rgba(146, 255, 210, 0.022), transparent 82%);
+  opacity: 0.86;
   transform: translate3d(calc(var(--pointer-drift-x, 0px) * -0.03), calc(var(--pointer-drift-y, 0px) * -0.03), 0);
   animation: bg-gradient-shift 16s ease-in-out infinite;
 }
@@ -388,24 +390,24 @@ html.crt-on .autocomplete-meta {
 }
 
 body.view-switching .field-canvas {
-  filter: saturate(1.12) brightness(1.04);
+  filter: saturate(1.04) brightness(1.015);
 }
 
 body.view-switching .parallax-grid {
-  opacity: 0.4;
+  opacity: 0.2;
 }
 
 body.view-switching .ambient-noise {
-  opacity: 0.22;
+  opacity: 0.14;
 }
 
 body.view-switching .terminal-shell {
-  border-color: color-mix(in srgb, var(--accent) 34%, rgba(255, 255, 255, 0.18));
+  border-color: color-mix(in srgb, var(--accent) 20%, rgba(255, 255, 255, 0.18));
   box-shadow:
     0 45px 130px rgba(0, 0, 0, 0.58),
-    0 0 0 1px color-mix(in srgb, var(--accent) 18%, rgba(255, 255, 255, 0.05)) inset,
-    0 0 72px color-mix(in srgb, var(--accent) 24%, transparent),
-    0 0 92px color-mix(in srgb, var(--glow) 62%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--accent) 10%, rgba(255, 255, 255, 0.05)) inset,
+    0 0 38px color-mix(in srgb, var(--accent) 12%, transparent),
+    0 0 52px color-mix(in srgb, var(--glow) 34%, transparent);
 }
 
 @keyframes site-shell-nudge {
@@ -915,13 +917,14 @@ html.light-mode .field-canvas {
   z-index: 0;
   border-radius: inherit;
   background:
-    radial-gradient(90% 72% at 12% 16%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 70%),
-    radial-gradient(84% 66% at 86% 20%, rgba(109, 199, 255, 0.085), transparent 72%),
-    radial-gradient(90% 74% at 46% 84%, rgba(221, 155, 255, 0.06), transparent 75%),
+    radial-gradient(96% 76% at 12% 16%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 72%),
+    radial-gradient(88% 70% at 86% 20%, rgba(109, 199, 255, 0.098), transparent 74%),
+    radial-gradient(92% 76% at 46% 84%, rgba(221, 155, 255, 0.072), transparent 77%),
+    radial-gradient(86% 68% at 70% 62%, rgba(120, 243, 200, 0.036), transparent 80%),
     linear-gradient(118deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent 26%, transparent 72%, rgba(255, 255, 255, 0.028)),
     linear-gradient(120deg, rgba(255, 255, 255, 0.065), transparent 14%, transparent 78%, rgba(255, 255, 255, 0.034)),
     linear-gradient(210deg, transparent 40%, rgba(255, 255, 255, 0.045) 50%, transparent 60%);
-  opacity: 0.29;
+  opacity: 0.34;
   animation: terminal-aura-drift 14s cubic-bezier(0.44, 0.06, 0.31, 0.97) infinite;
 }
 
@@ -1623,9 +1626,21 @@ a.output-record:hover {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.project-card.is-clickable {
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.project-card.is-clickable:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+}
+
 .post-feed-head {
-  display: grid;
-  gap: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   margin-bottom: 4px;
 }
 
@@ -1664,6 +1679,10 @@ a.output-record:hover {
 }
 
 .post-path-line {
+  margin: 0;
+}
+
+.post-date-line {
   margin: 0;
 }
 
@@ -1954,7 +1973,7 @@ a.output-record:hover {
   margin: 0;
   border-left: 2px solid var(--accent, #ff6b6b);
   border-radius: 3px;
-  background: rgba(0, 0, 0, 0.25);
+  background: transparent;
 }
 
 .pretty-output-meta {
@@ -2366,6 +2385,8 @@ a.output-record:hover {
   background: rgba(0, 0, 0, 0.35);
   color: rgba(255, 255, 255, 0.94);
   font: inherit;
+  font-size: 0.76rem;
+  line-height: 1.58;
 }
 
 .identity-popover-textarea {

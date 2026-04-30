@@ -156,7 +156,7 @@ export function createCommandRegistry(): {
     route: '',
     prompt: './neofetch --compact',
     eyebrow: 'pecunies.com',
-    title: 'Chris Pecunies',
+    title: 'Home',
     description:
       'A compact terminal portfolio. Type help, run a command, or use the small navigation bar above the shell.',
     theme: 'orange',
@@ -166,6 +166,12 @@ export function createCommandRegistry(): {
       { label: 'help', command: 'help' },
       { label: 'resume', command: 'resume' },
       { label: 'projects', command: 'projects' },
+      { label: 'experience', command: 'experience' },
+      { label: 'skills', command: 'skills' },
+      { label: 'about', command: 'about' },
+      { label: 'posts', command: 'posts' },
+      { label: 'links', command: 'links' },
+      { label: 'contact', command: 'contact' },
       { label: 'neofetch', command: 'neofetch' },
     ],
     sections: [
@@ -178,6 +184,18 @@ export function createCommandRegistry(): {
           'shell: clpsh',
           'focus: cloud systems, DevOps automation, distributed systems, runtime engineering',
           'try: help, resume, projects, timeline, cat /README.md, ask <question>',
+        ],
+      },
+      {
+        type: 'contact',
+        heading: 'Important links',
+        items: [
+          { label: 'GitHub', value: 'github.com/clpi', href: 'https://github.com/clpi' },
+          { label: 'LinkedIn', value: 'linkedin.com/in/chrispecunies', href: 'https://linkedin.com/in/chrispecunies' },
+          { label: 'Moe Marketplace', value: 'moe.pecunies.com', href: 'https://moe.pecunies.com' },
+          { label: 'Email', value: 'chris@pecunies.com', href: 'mailto:chris@pecunies.com' },
+          { label: 'Cal.com', value: 'cal.com/chrisp', href: 'https://cal.com/chrisp' },
+          { label: 'Resume PDF', value: resumeData.pdf.href, href: resumeData.pdf.href },
         ],
       },
     ],
@@ -245,6 +263,7 @@ export function createCommandRegistry(): {
           period: project.period,
           summary: project.summary,
           details: project.details,
+          command: `project ${project.slug}`,
           link: project.link,
         })),
       },
@@ -350,11 +369,62 @@ export function createCommandRegistry(): {
           period: project.period,
           summary: project.summary,
           details: project.details,
+          command: `project ${project.slug}`,
           link: project.link,
         })),
       },
     ],
   };
+
+  const projectDetailViews = Object.fromEntries(
+    resumeData.projects.map((project) => [
+      project.slug,
+      {
+        id: `project-${project.slug}`,
+        route: `project/${project.slug}`,
+        prompt: `./project --open ${project.slug}`,
+        eyebrow: 'Project',
+        title: project.name,
+        description: project.summary,
+        theme: 'amber',
+        tags: ['projects', 'engineering', 'deep-dive'],
+        logline: `Loaded project page: ${project.name}.`,
+        actions: [
+          { label: 'Back to projects', command: 'projects' },
+          { label: 'Resume', command: 'resume' },
+          ...(project.link ? [{ label: project.link.label, href: project.link.href, external: true }] : []),
+        ],
+        sections: [
+          {
+            type: 'note',
+            heading: 'Overview',
+            lines: [project.summary, `Period: ${project.period}`],
+          },
+          {
+            type: 'projects',
+            heading: 'Details',
+            items: [
+              {
+                name: project.name,
+                period: project.period,
+                summary: project.summary,
+                details: project.details,
+                link: project.link,
+              },
+            ],
+          },
+          {
+            type: 'note',
+            heading: 'Next',
+            lines: [
+              `Use explain project ${project.slug} for an AI summary.`,
+              'Return with projects to compare all portfolio projects.',
+            ],
+          },
+        ],
+      } satisfies ViewDefinition,
+    ]),
+  ) as Record<string, ViewDefinition>;
 
   const educationView: ViewDefinition = {
     id: 'education',
@@ -1233,6 +1303,25 @@ export function createCommandRegistry(): {
   });
 
   commands.push({
+    name: 'project',
+    aliases: [],
+    usage: 'project <slug>',
+    group: 'Core',
+    description: 'Open a dedicated project page by slug.',
+    execute(_context, args): CommandOutcome {
+      const slug = String(args[0] ?? '').trim().toLowerCase();
+      if (!slug) {
+        return { kind: 'system', text: 'Usage: project <slug>. Try projects for the list.', tone: 'warn' };
+      }
+      const view = projectDetailViews[slug];
+      if (!view) {
+        return { kind: 'system', text: `Unknown project "${slug}". Try projects for available slugs.`, tone: 'warn' };
+      }
+      return { kind: 'view', view };
+    },
+  });
+
+  commands.push({
     name: 'download',
     aliases: ['dl'],
     usage: 'download [--markdown]',
@@ -1707,6 +1796,7 @@ export function createCommandRegistry(): {
   });
 
   addOsCommand('logs', {
+    aliases: ['log'],
     usage: 'logs [--full]',
     group: 'System',
     description: 'Show system log entries. Use sudo logs --full for the complete log.',

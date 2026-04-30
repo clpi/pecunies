@@ -45,6 +45,7 @@ export type ProjectCard = {
   period: string;
   summary: string;
   details: string[];
+  command?: string;
   link?: {
     label: string;
     href: string;

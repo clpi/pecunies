@@ -440,14 +440,14 @@ export class TerminalApp {
       const nextTheme =
         nextThemeRaw === 'auto'
           ? null
-          : (Object.hasOwn(terminalThemes, nextThemeRaw) ? (nextThemeRaw as ThemeName) : this.manualTheme);
+          : (nextThemeRaw in terminalThemes ? (nextThemeRaw as ThemeName) : this.manualTheme);
       this.manualTheme = nextTheme;
       this.persistShellProfile();
       void this.setConfigQuiet('theme', nextTheme ?? 'auto');
       if (this.activeView) {
         this.applyTheme(this.effectiveTheme(this.activeView));
       } else {
-        this.applyTheme(this.manualTheme ?? 'red');
+        this.applyTheme(this.manualTheme ?? 'orange');
       }
     });
     document.addEventListener('click', (event) => {
@@ -1048,7 +1048,7 @@ export class TerminalApp {
       html: viewHtml,
       text: this.viewText(outcome.view),
     });
-    this.triggerViewSwitchFeedback(outcome.view.route);
+    this.triggerViewSwitchFeedback(outcome.view.route || 'Home');
     this.highlightNavLink(outcome.view.id);
     this.scrambleText(this.promptScramble, outcome.view.prompt);
     this.scrambleText(this.statusScramble, outcome.view.description);
@@ -2436,16 +2436,17 @@ export class TerminalApp {
                     <div class="record-topline">
                       <p class="post-card-titleline">
                         <strong>${this.escapeHtml(post.title)}</strong>
-                        <span class="post-open-hint">click to open post</span>
                       </p>
                       <div class="post-card-status">
-                        <time class="post-date" datetime="${this.escapeAttribute(post.published ?? '')}">${this.escapeHtml(post.published ?? '—')}</time>
+                        <span class="post-path-line"><code>${this.escapeHtml(post.path)}</code></span>
                         <span class="post-comment-count" aria-label="${this.escapeAttribute(commentCountLabel(comments))}">
                           ${this.escapeHtml(commentCountLabel(comments))}
                         </span>
                       </div>
                     </div>
-                    <p class="post-path-line"><code>${this.escapeHtml(post.path)}</code></p>
+                    <p class="post-date-line">
+                      <time class="post-date" datetime="${this.escapeAttribute(post.published ?? '')}">${this.escapeHtml(post.published ?? '—')}</time>
+                    </p>
                     <div class="post-tag-row" aria-label="Post tags">
                       ${(post.tags ?? [])
                         .map(

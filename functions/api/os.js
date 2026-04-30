@@ -437,6 +437,11 @@ export async function onRequestPost({ request, env }) {
   const pendingAuth = await handlePendingAuth(command, state, env, visibleContext, request);
 
   if (pendingAuth) {
+    logSystemEvent(
+      state,
+      `auth pending: type=${String(state.pendingAuth?.type || 'unknown')} session=${sessionId}`,
+      true,
+    );
     await writeState(env, sessionId, state);
     return Response.json(
       {
@@ -454,6 +459,7 @@ export async function onRequestPost({ request, env }) {
   await incrementCommandMetrics(env, parsed.name, request);
 
   if (body?.recordOnly) {
+    logSystemEvent(state, `record-only persisted: session=${sessionId} history=${state.history.length}`, true);
     await writeState(env, sessionId, state);
     return Response.json(
       { output: 'recorded', config: mergeConfigDefaults(state.config) },
@@ -477,6 +483,11 @@ export async function onRequestPost({ request, env }) {
     };
   }
 
+  logSystemEvent(
+    state,
+    `state persisted: session=${sessionId} history=${state.history.length} reads=${state.reads.length} rag=${Array.isArray(state.ragContext) ? state.ragContext.length : 0}`,
+    true,
+  );
   await writeState(env, sessionId, state);
   return Response.json(
     {
@@ -797,8 +808,12 @@ async function runCommand(parsed, state, env, visibleContext, request, options =
 function parseCommand(command) {
   const normalized = command.replace(/^\//, '').replace(/^\.\//, '').trim();
   const [name = '', ...args] = normalized.split(/\s+/);
+  const aliases = {
+    log: 'logs',
+  };
+  const canonicalName = aliases[name.toLowerCase()] || name.toLowerCase();
   return {
-    name: name.toLowerCase(),
+    name: canonicalName,
     args,
     rest: normalized.slice(name.length).trim(),
   };
@@ -1102,6 +1117,11 @@ async function runAi(env, question, state, visibleContext, meta = {}) {
   const source = meta.source ?? 'os';
   const activeModel = isValidAiModel(meta.model) ? meta.model : MODEL;
   const systemInjection = String(meta.system || '').trim().slice(0, 1200);
+  logSystemEvent(
+    state,
+    `ai invoke: source=${source} model=${activeModel} session=${sessionId} promptChars=${String(question || '').length}`,
+    true,
+  );
   const readContext = state.reads.map((path) => `${path}\n${FILES[path]}`).join('\n\n') || '(no files read yet)';
   const commandContext = state.history
     .slice(-20)
@@ -1153,6 +1173,11 @@ async function runAi(env, question, state, visibleContext, meta = {}) {
       response: out,
       model: activeModel,
     });
+    logSystemEvent(
+      state,
+      `ai success: source=${source} model=${activeModel} session=${sessionId} responseChars=${out.length}`,
+      true,
+    );
 
     return out;
   } catch (err) {
@@ -1164,6 +1189,11 @@ async function runAi(env, question, state, visibleContext, meta = {}) {
       error: err instanceof Error ? err.message : String(err),
       model: activeModel,
     });
+    logSystemEvent(
+      state,
+      `ai error: source=${source} model=${activeModel} session=${sessionId} message=${String(err instanceof Error ? err.message : err).slice(0, 140)}`,
+      true,
+    );
     throw err;
   }
 }
@@ -3078,6 +3108,9 @@ async function configHandler(args, state, env) {
       }
     }
     state.config[key] = val;
+    const shouldRedact = key === 'system_prompt' || key === 'email';
+    const renderedValue = shouldRedact ? '[redacted]' : JSON.stringify(val);
+    logSystemEvent(state, `config set: ${key}=${renderedValue}`, true);
     let extra = '';
     if (key === 'name') {
       const nextNameSan = sanitizeUsername(String(state.config.name));
@@ -3093,6 +3126,7 @@ async function configHandler(args, state, env) {
   if (sub === 'reset') {
     state.config = mergeConfigDefaults();
     state.cwd = userHomePath(state);
+    logSystemEvent(state, 'config reset: defaults restored', true);
     await updateGuestShellRc(env, state.config);
     return { output: 'Config reset to defaults.' };
   }
