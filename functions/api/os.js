@@ -358,7 +358,10 @@ const MANUALS = {
   head: 'head [-n N] <path>\nShow the first N lines of a file. Defaults to 10 lines.',
   less: 'less <path>\nView a file content in the terminal.',
   source: 'source <path>\nRead shell commands from a file and run them in order. Comments and blank lines are skipped.',
-  rag: 'rag <add|list|clear> [context]\nStore per-session context notes that are injected into ask, explain, chat, and related AI calls.',
+  env:
+    'env [list|view|get <KEY>|set <KEY=VALUE>]\nView, list, get, or set environment variables. Includes exports from /etc/clpsh/clpshrc and /home/<user>/.clpshrc, then overlays session exports.',
+  rag:
+    'rag <add|list|search|clear> [context]\nStore and retrieve RAG memory notes for AI commands. Notes are kept in session, persisted to KV when available, and semantically queried via Vectorize when configured.',
   dark: 'dark\nEnable dark mode and persist it to session config.',
   light: 'light\nEnable light mode and persist it to session config.',
   dir: 'dir [path]\nAlias for ls. List directories in the portfolio OS.',
@@ -405,6 +408,7 @@ const COMMAND_TAGS = {
   neofetch: ['system', 'terminal'],
   new: ['writing', 'content', 'terminal'],
   post: ['writing', 'content'],
+  env: ['system', 'tooling', 'terminal'],
 };
 
 const jsonHeaders = {
@@ -755,6 +759,8 @@ async function runCommand(parsed, state, env, visibleContext, request, options =
       return lessFile(parsed.args, state, env);
     case 'source':
       return sourceFile(parsed.args[0], state, env, visibleContext, request, options);
+    case 'env':
+      return await envHandler(parsed.args, state, env, options);
     case 'logs':
       return logsOutput(parsed.args, state, options);
     case 'clpsh':
@@ -853,7 +859,7 @@ async function runCommand(parsed, state, env, visibleContext, request, options =
     case 'note':
       return noteHandler(parsed.args, state);
     case 'rag':
-      return ragHandler(parsed.args, state);
+      return await ragHandler(parsed.args, state, env, options.sessionId);
     case 'config':
       return await configHandler(parsed.args, state, env);
     case 'alias':
@@ -1196,6 +1202,7 @@ async function runAi(env, question, state, visibleContext, meta = {}) {
     : '';
   const metrics = await readMetrics(env);
   const leaderboard = await readLeaderboard(env);
+  const ragKnowledge = await gatherRagKnowledge(question, state, env, sessionId, metrics);
   const appContext = Object.entries(MANUALS)
     .map(([name, manual]) => `${name}: ${manual}`)
     .join('\n\n');
@@ -1207,7 +1214,7 @@ async function runAi(env, question, state, visibleContext, meta = {}) {
     reads: state.reads,
   }).slice(0, 2500);
 
-  const userContent = `Profile:\n${PROFILE_CONTEXT}\n\nFull terminal app command context:\n${appContext}\n\nPersistent session/app state:\n${persistentContext}\n\nPersistent RAG/session context notes:\n${ragContext || '(none)'}\n\nMetrics state:\n${JSON.stringify(metrics).slice(0, 3000)}\n\nLeaderboard state:\n${JSON.stringify(leaderboard).slice(0, 2000)}\n\nFiles read by user:\n${readContext}\n\nRecent commands:\n${commandContext}\n\nVisible terminal context:\n${visibleContext}\n\nQuestion:\n${question}`;
+  const userContent = `Profile:\n${PROFILE_CONTEXT}\n\nFull terminal app command context:\n${appContext}\n\nPersistent session/app state:\n${persistentContext}\n\nPersistent RAG/session context notes:\n${ragContext || '(none)'}\n\nRetrieved RAG memory (session + state + metrics + AI search + Vectorize):\n${ragKnowledge || '(none)'}\n\nMetrics state:\n${JSON.stringify(metrics).slice(0, 3000)}\n\nLeaderboard state:\n${JSON.stringify(leaderboard).slice(0, 2000)}\n\nFiles read by user:\n${readContext}\n\nRecent commands:\n${commandContext}\n\nVisible terminal context:\n${visibleContext}\n\nQuestion:\n${question}`;
 
   try {
     const result = await env.AI.run(activeModel, {
@@ -1242,6 +1249,16 @@ async function runAi(env, question, state, visibleContext, meta = {}) {
       `ai success: source=${source} model=${activeModel} session=${sessionId} responseChars=${out.length}`,
       true,
     );
+    await persistRagMemory(env, sessionId, `Q: ${String(question || '').slice(0, 1200)}\nA: ${String(out || '').slice(0, 2400)}`, {
+      source: 'ai-chat',
+      model: activeModel,
+    });
+    await upsertVectorMemory(env, `Q: ${String(question || '').slice(0, 900)}\nA: ${String(out || '').slice(0, 1500)}`, {
+      sessionId,
+      source: 'ai-chat',
+      model: activeModel,
+      at: new Date().toISOString(),
+    });
 
     return out;
   } catch (err) {
@@ -2630,6 +2647,74 @@ async function sourceFile(path, state, env, visibleContext, request, options = {
   return { output: output.join('\n') };
 }
 
+async function envHandler(args, state, env, options = {}) {
+  const action = String(args[0] || 'list').toLowerCase();
+  const envVars = await collectEffectiveEnvVars(state, env, options);
+
+  if (action === 'list' || action === 'view') {
+    const lines = Object.keys(envVars)
+      .sort((a, b) => a.localeCompare(b))
+      .map((key) => `${key}=${envVars[key]}`);
+    return { output: lines.join('\n') || '(no environment variables set)' };
+  }
+
+  if (action === 'get') {
+    const key = String(args[1] || '').trim();
+    if (!key) return { output: 'Usage: env get <KEY>', status: 400 };
+    if (!(key in envVars)) return { output: `env: ${key} is not set`, status: 404 };
+    return { output: `${key}=${envVars[key]}` };
+  }
+
+  if (action === 'set') {
+    const assignment = args.slice(1).join(' ').trim();
+    const eq = assignment.indexOf('=');
+    if (eq < 1) return { output: 'Usage: env set <KEY=VALUE>', status: 400 };
+    const key = assignment.slice(0, eq).trim();
+    const value = assignment.slice(eq + 1).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+      return { output: 'env set: invalid key. Use shell-style names like MY_VAR.', status: 400 };
+    }
+    if (!state.envVars || typeof state.envVars !== 'object') state.envVars = {};
+    state.envVars[key] = value;
+    return { output: `set ${key}=${value}` };
+  }
+
+  return { output: 'Usage: env [list|view|get <KEY>|set <KEY=VALUE>]', status: 400 };
+}
+
+async function collectEffectiveEnvVars(state, env, options = {}) {
+  const result = {};
+  for (const path of ['/etc/clpsh/clpshrc', `${userHomePath(state)}/.clpshrc`]) {
+    const content = await readFile(path, env, options);
+    if (content === null || content === undefined) continue;
+    const parsed = parseExportLines(String(content));
+    Object.assign(result, parsed);
+  }
+  Object.assign(result, state.envVars && typeof state.envVars === 'object' ? state.envVars : {});
+  return result;
+}
+
+function parseExportLines(content) {
+  const out = {};
+  const lines = String(content || '').split('\n');
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const match = line.match(/^export\s+([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!match) continue;
+    const key = match[1];
+    let value = String(match[2] || '').trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
 function mkdirPath(args, options) {
   const path = args[0];
   if (!path) return { output: 'Usage: mkdir <path>', status: 400 };
@@ -3130,15 +3215,25 @@ function noteHandler(args, state) {
   return { output: 'Usage: note <add|list|clear>', status: 400 };
 }
 
-function ragHandler(args, state) {
+async function ragHandler(args, state, env, sessionId = 'anonymous') {
   if (!Array.isArray(state.ragContext)) state.ragContext = [];
   const sub = args[0]?.toLowerCase();
   if (sub === 'add' || sub === 'remember') {
     const text = args.slice(1).join(' ').trim();
     if (!text) return { output: 'Usage: rag add <context>', status: 400 };
-    state.ragContext.push({ text: text.slice(0, 1200), at: new Date().toISOString() });
+    const clipped = text.slice(0, 1200);
+    const at = new Date().toISOString();
+    state.ragContext.push({ text: clipped, at });
     state.ragContext = state.ragContext.slice(-40);
+    await persistRagMemory(env, sessionId, clipped, { source: 'rag-add', at });
+    await upsertVectorMemory(env, clipped, { sessionId, source: 'rag-add', at });
     return { output: `rag: stored context note ${state.ragContext.length}` };
+  }
+  if (sub === 'search') {
+    const query = args.slice(1).join(' ').trim();
+    if (!query) return { output: 'Usage: rag search <query>', status: 400 };
+    const knowledge = await gatherRagKnowledge(query, state, env, sessionId);
+    return { output: knowledge || 'rag: no memory matches for query' };
   }
   if (sub === 'list' || !sub) {
     if (!state.ragContext.length) return { output: 'rag: no session context notes stored' };
@@ -3152,7 +3247,161 @@ function ragHandler(args, state) {
     state.ragContext = [];
     return { output: 'rag: session context notes cleared' };
   }
-  return { output: 'Usage: rag <add|list|clear> [context]', status: 400 };
+  return { output: 'Usage: rag <add|list|search|clear> [context]', status: 400 };
+}
+
+function tokenizeForSearch(text) {
+  return new Set(
+    String(text || '')
+      .toLowerCase()
+      .split(/[^a-z0-9_]+/)
+      .filter((token) => token.length > 2),
+  );
+}
+
+function overlapScore(query, candidate) {
+  const q = tokenizeForSearch(query);
+  if (!q.size) return 0;
+  const c = tokenizeForSearch(candidate);
+  let score = 0;
+  for (const token of q) {
+    if (c.has(token)) score += 1;
+  }
+  return score;
+}
+
+async function gatherRagKnowledge(question, state, env, sessionId = 'anonymous', metricsInput = null) {
+  const candidates = [];
+  const metrics = metricsInput ?? await readMetrics(env);
+  const cfg = mergeConfigDefaults(state.config);
+  const stateSnapshot = [
+    `user=${sanitizeUsername(cfg.name)}`,
+    `environment=${cfg.environment}`,
+    `cwd=${state.cwd || '/'}`,
+    `rootActive=${hasRoot(state)}`,
+    `historyCount=${Array.isArray(state.history) ? state.history.length : 0}`,
+    `readsCount=${Array.isArray(state.reads) ? state.reads.length : 0}`,
+  ].join(' ');
+  const metricsSnapshot = `visits=${Number(metrics?.visits || 0)} topPages=${Object.entries(metrics?.pages || {}).slice(0, 5).map(([k, v]) => `${k}:${v}`).join(', ')}`;
+  candidates.push({ source: 'stateful-data', text: stateSnapshot });
+  candidates.push({ source: 'metrics', text: metricsSnapshot });
+
+  if (Array.isArray(state.ragContext)) {
+    for (const entry of state.ragContext.slice(-80)) {
+      candidates.push({ source: 'session-rag', text: `${entry.at || ''} ${entry.text || ''}`.trim() });
+    }
+  }
+
+  const persisted = await readPersistedRagMemories(env, sessionId, 80);
+  for (const item of persisted) {
+    candidates.push({ source: 'kv-rag', text: `${item.at || ''} ${item.text || ''}`.trim() });
+  }
+
+  const vectorHits = await queryVectorMemory(env, question, sessionId);
+  for (const item of vectorHits) {
+    candidates.push({ source: 'vectorize', text: item });
+  }
+
+  const scored = candidates
+    .map((item) => ({ ...item, score: overlapScore(question, item.text) }))
+    .filter((item) => item.score > 0 || item.source === 'stateful-data' || item.source === 'metrics')
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10);
+
+  return scored
+    .map((item, idx) => `${idx + 1}. [${item.source}] ${String(item.text || '').slice(0, 900)}`)
+    .join('\n');
+}
+
+async function persistRagMemory(env, sessionId, text, meta = {}) {
+  if (!env?.PORTFOLIO_OS) return;
+  const key = `rag:memory:${sessionId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+  const payload = {
+    sessionId,
+    text: String(text || '').slice(0, 4000),
+    at: meta.at || new Date().toISOString(),
+    source: meta.source || 'rag',
+    model: meta.model || null,
+  };
+  await env.PORTFOLIO_OS.put(key, JSON.stringify(payload), { expirationTtl: 60 * 60 * 24 * 45 });
+}
+
+async function readPersistedRagMemories(env, sessionId, limit = 60) {
+  if (!env?.PORTFOLIO_OS?.list) return [];
+  const out = [];
+  let cursor = undefined;
+  do {
+    const page = await env.PORTFOLIO_OS.list({ prefix: `rag:memory:${sessionId}:`, cursor, limit: 1000 });
+    for (const key of page.keys || []) {
+      const value = await env.PORTFOLIO_OS.get(key.name, { type: 'json' });
+      if (value && typeof value.text === 'string') out.push(value);
+      if (out.length >= limit) break;
+    }
+    if (out.length >= limit) break;
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  return out.slice(-limit);
+}
+
+async function getEmbeddingVector(env, text) {
+  if (!env?.AI || !text) return null;
+  try {
+    const res = await env.AI.run('@cf/baai/bge-base-en-v1.5', { text: [String(text).slice(0, 2000)] });
+    const vector =
+      res?.data?.[0] ||
+      res?.result?.data?.[0] ||
+      res?.embedding ||
+      res?.embeddings?.[0] ||
+      null;
+    return Array.isArray(vector) ? vector : null;
+  } catch {
+    return null;
+  }
+}
+
+function getVectorIndex(env) {
+  return env?.RAG_VECTORIZE || env?.VECTORIZE || env?.VECTORIZE_INDEX || null;
+}
+
+async function upsertVectorMemory(env, text, metadata = {}) {
+  const index = getVectorIndex(env);
+  if (!index?.upsert) return;
+  const values = await getEmbeddingVector(env, text);
+  if (!values) return;
+  const id = `rag-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  try {
+    await index.upsert([
+      {
+        id,
+        values,
+        metadata: {
+          text: String(text || '').slice(0, 1500),
+          ...metadata,
+        },
+      },
+    ]);
+  } catch {
+    /* best-effort: binding may exist with different API shape */
+  }
+}
+
+async function queryVectorMemory(env, query, sessionId) {
+  const index = getVectorIndex(env);
+  if (!index?.query) return [];
+  const values = await getEmbeddingVector(env, query);
+  if (!values) return [];
+  try {
+    const result = await index.query(values, { topK: 6, returnMetadata: true });
+    const matches = result?.matches || result?.result?.matches || [];
+    return matches
+      .map((entry) => entry?.metadata)
+      .filter((meta) => meta && (!meta.sessionId || meta.sessionId === sessionId))
+      .map((meta) => String(meta.text || '').trim())
+      .filter(Boolean)
+      .slice(0, 6);
+  } catch {
+    return [];
+  }
 }
 
 

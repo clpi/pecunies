@@ -86,7 +86,6 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
               <button class="window-button is-minimize" type="button" data-window-action="minimize" aria-label="Minimize terminal"></button>
               <button class="window-button is-maximize" type="button" data-window-action="maximize" aria-label="Maximize terminal"></button>
             </div>
-            <button class="ghost-button" id="terminal-back-button" type="button" data-nav-action="back" aria-label="Go back to previous view">back</button>
           </div>
           <div class="terminal-state">
             <span id="route-indicator">resume</span>
@@ -105,7 +104,7 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
               </div>
             </div>
           </div>
-          <button class="ghost-button" type="button" data-command="clear">clear</button>
+          <button class="ghost-button titlebar-ghost" id="terminal-back-button" type="button" data-nav-action="back" aria-label="Go back to previous view">back</button>
         </header>
 
         <div class="terminal-body crt-text">

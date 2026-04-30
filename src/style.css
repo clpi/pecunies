@@ -1265,15 +1265,19 @@ html.light-mode .field-canvas {
   color: #fff;
 }
 
-.terminal-header > .ghost-button[data-command='clear'],
-.terminal-header > .ghost-button[data-nav-action='back'] {
+.terminal-header .titlebar-ghost {
+  min-height: 27px;
+  padding: 0 9px;
+  border-radius: 6px;
   border: 0;
   background: transparent;
   color: var(--accent);
+  font-size: 0.68rem;
+  text-transform: lowercase;
+  line-height: 1;
 }
 
-.terminal-header > .ghost-button[data-command='clear']:hover,
-.terminal-header > .ghost-button[data-nav-action='back']:hover {
+.terminal-header .titlebar-ghost:hover {
   border: 0;
   background: color-mix(in srgb, var(--accent-soft) 38%, transparent);
   color: var(--accent);

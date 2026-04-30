@@ -1509,7 +1509,7 @@ export class TerminalApp {
       const raw = localStorage.getItem(SHELL_PROFILE_STORAGE);
       if (!raw) {
         this.shellAliases = {};
-        this.manualTheme = 'blue';
+        this.manualTheme = null;
         this.applyDarkMode(localStorage.getItem('pecunies.dark') !== 'false');
         this.persistShellProfile();
         return;
@@ -1538,7 +1538,7 @@ export class TerminalApp {
       } else if (t === 'auto') {
         this.manualTheme = null;
       } else {
-        this.manualTheme = 'blue';
+        this.manualTheme = null;
       }
       if (this.activeView) {
         this.applyTheme(this.effectiveTheme(this.activeView));
@@ -1547,7 +1547,7 @@ export class TerminalApp {
       }
     } catch {
       this.shellAliases = {};
-      this.manualTheme = 'blue';
+      this.manualTheme = null;
       this.applyDarkMode(true);
     }
   }
