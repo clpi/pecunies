@@ -39,7 +39,6 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
     'projects',
     'posts',
     'links',
-    'contact',
     'chat',
   ] as const;
   const featuredByName = new Map(featuredCommands.map((command) => [command.name, command]));
@@ -56,7 +55,7 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
     .join('');
   const rssNavButton = `
     <a class="nav-link nav-link-icon" href="/api/rss" target="_blank" rel="noopener noreferrer" aria-label="RSS feed">
-      <span aria-hidden="true">◔</span>
+      <span>RSS</span>
     </a>
   `;
 

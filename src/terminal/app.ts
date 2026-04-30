@@ -2342,19 +2342,23 @@ export class TerminalApp {
       comments?: Array<{ name: string; message: string; at: string }>;
     }>,
   ): string {
+    const commentCountLabel = (count: number): string => `${count} ${count === 1 ? 'comment' : 'comments'}`;
+
     return `
       <div class="terminal-view is-live post-index-view">
         <section class="output-block">
           <div class="post-feed-head">
             <h2 class="output-heading">Published posts</h2>
             <p class="post-feed-rss">
-              <a href="/api/rss" target="_blank" rel="noopener noreferrer" class="rss-subscribe-link" aria-label="RSS feed">◔</a>
+              <a href="/api/rss" target="_blank" rel="noopener noreferrer" class="rss-subscribe-link" aria-label="RSS feed">RSS</a>
             </p>
           </div>
           <div class="output-records post-feed">
             ${posts
-              .map(
-                (post) => `
+              .map((post) => {
+                const comments = post.comments?.length ?? 0;
+
+                return `
                   <article
                     class="output-record post-card is-clickable"
                     role="button"
@@ -2364,8 +2368,14 @@ export class TerminalApp {
                     <div class="record-topline">
                       <p class="post-card-titleline">
                         <strong>${this.escapeHtml(post.title)}</strong>
+                        <span class="post-open-hint">click to open post</span>
                       </p>
-                      <time class="post-date" datetime="${this.escapeAttribute(post.published ?? '')}">${this.escapeHtml(post.published ?? '—')}</time>
+                      <div class="post-card-status">
+                        <time class="post-date" datetime="${this.escapeAttribute(post.published ?? '')}">${this.escapeHtml(post.published ?? '—')}</time>
+                        <span class="post-comment-count" aria-label="${this.escapeAttribute(commentCountLabel(comments))}">
+                          ${this.escapeHtml(commentCountLabel(comments))}
+                        </span>
+                      </div>
                     </div>
                     <p class="post-path-line"><code>${this.escapeHtml(post.path)}</code></p>
                     <div class="post-tag-row" aria-label="Post tags">
@@ -2378,21 +2388,22 @@ export class TerminalApp {
                     </div>
                     <p class="record-summary post-excerpt">${this.escapeHtml(post.description ?? this.markdownPreview(post.markdown))}</p>
                     <div class="record-meta post-card-actions">
+                      <button type="button" class="post-open-action" data-command="post open ${this.escapeAttribute(post.slug)}">open post</button>
                       <span>comment <code>${this.escapeHtml(post.slug)}</code> &lt;name&gt; &lt;message&gt;</span>
                     </div>
                     ${
-                      post.comments?.length
-                        ? `<div class="output-copy">${post.comments
+                      comments
+                        ? `<div class="output-copy post-comments-preview">${post.comments
                             .map(
                               (comment) =>
                                 `<p><strong>${this.escapeHtml(comment.name)}</strong>: ${this.escapeHtml(comment.message)}</p>`,
                             )
                             .join('')}</div>`
-                        : ''
+                      : ''
                     }
                   </article>
-                `,
-              )
+                `;
+              })
               .join('')}
           </div>
         </section>

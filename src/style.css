@@ -17,8 +17,8 @@
 :root {
   --bg: #050709;
   /* Slightly translucent so the particle canvas tints frosted glass via backdrop-filter */
-  --glass: rgba(6, 8, 10, 0.82);
-  --glass-strong: rgba(7, 8, 10, 0.94);
+  --glass: rgba(13, 15, 18, 0.88);
+  --glass-strong: rgba(17, 19, 22, 0.96);
   --line: rgba(255, 255, 255, 0.15);
   --line-strong: rgba(255, 255, 255, 0.3);
   --ink: #edf2f4;
@@ -65,9 +65,11 @@ body {
 body {
   overflow: hidden;
   background:
-    radial-gradient(circle at calc(50% + var(--pointer-drift-x, 0px) * 0.18) calc(42% + var(--pointer-drift-y, 0px) * 0.12), rgba(255, 255, 255, 0.026), transparent 52%),
-    radial-gradient(circle at calc(22% + var(--pointer-drift-x, 0px) * -0.12) calc(18% + var(--pointer-drift-y, 0px) * -0.1), color-mix(in srgb, var(--accent) 10%, transparent), transparent 44%),
-    radial-gradient(circle at calc(78% + var(--pointer-drift-x, 0px) * 0.1) calc(72% + var(--pointer-drift-y, 0px) * 0.1), color-mix(in srgb, var(--accent-strong) 8%, transparent), transparent 48%),
+    radial-gradient(circle at calc(50% + var(--pointer-drift-x, 0px) * 0.2) calc(42% + var(--pointer-drift-y, 0px) * 0.14), rgba(255, 255, 255, 0.032), transparent 52%),
+    radial-gradient(circle at calc(18% + var(--pointer-drift-x, 0px) * -0.16) calc(18% + var(--pointer-drift-y, 0px) * -0.12), color-mix(in srgb, var(--accent) 13%, transparent), transparent 44%),
+    radial-gradient(circle at calc(78% + var(--pointer-drift-x, 0px) * 0.12) calc(72% + var(--pointer-drift-y, 0px) * 0.1), color-mix(in srgb, var(--accent-strong) 10%, transparent), transparent 48%),
+    radial-gradient(ellipse at calc(62% + var(--pointer-drift-x, 0px) * -0.08) calc(24% + var(--pointer-drift-y, 0px) * 0.1), rgba(118, 171, 255, 0.035), transparent 42%),
+    radial-gradient(ellipse at calc(34% + var(--pointer-drift-x, 0px) * 0.08) calc(86% + var(--pointer-drift-y, 0px) * -0.08), rgba(255, 116, 178, 0.028), transparent 46%),
     linear-gradient(180deg, #050709 0%, #020304 100%);
 }
 
@@ -329,6 +331,25 @@ html.crt-on .terminal-input.crt-text {
   text-shadow:
     0.13px 0 rgba(255, 50, 40, 0.08),
     -0.13px 0 rgba(40, 200, 255, 0.07);
+}
+
+html.crt-on .prompt-prefix,
+html.crt-on .log-prefix,
+html.crt-on .log-label,
+html.crt-on .output-heading,
+html.crt-on .terminal-kicker,
+html.crt-on .terminal-view-meta code,
+html.crt-on .inline-link,
+html.crt-on .content-tag,
+html.crt-on .tag-cloud-chip,
+html.crt-on .md-code-block-head,
+html.crt-on .pretty-output-model,
+html.crt-on .pretty-copy-button,
+html.crt-on .autocomplete-meta {
+  text-shadow:
+    0 0 8px color-mix(in srgb, var(--accent) 28%, transparent),
+    0.22px 0 rgba(255, 58, 46, 0.13),
+    -0.22px 0 rgba(72, 200, 255, 0.11);
 }
 
 @keyframes terminal-submit-pulse {
@@ -744,6 +765,7 @@ html.light-mode .field-canvas {
   background:
     linear-gradient(125deg, color-mix(in srgb, var(--accent-soft) 16%, transparent) 0%, transparent 44%),
     linear-gradient(135deg, rgba(255, 255, 255, 0.024), transparent 18%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.026), rgba(255, 255, 255, 0.006)),
     var(--glass);
   box-shadow:
     0 45px 130px rgba(0, 0, 0, 0.58),
@@ -758,8 +780,8 @@ html.light-mode .field-canvas {
     transform 120ms ease,
     border-color 180ms ease,
     box-shadow 180ms ease;
-  backdrop-filter: blur(38px) saturate(120%);
-  -webkit-backdrop-filter: blur(38px) saturate(120%);
+  backdrop-filter: blur(42px) saturate(128%);
+  -webkit-backdrop-filter: blur(42px) saturate(128%);
 }
 
 .terminal-shell.is-maximized {
@@ -1096,13 +1118,13 @@ html.light-mode .field-canvas {
   display: grid;
   min-height: 0;
   grid-template-rows: 1fr auto;
-  background: rgba(5, 6, 8, 0.66);
+  background: rgba(12, 14, 17, 0.76);
   box-shadow:
     inset 0 2px 4px rgba(0, 0, 0, 0.45),
     inset 0 0 0 1px rgba(255, 255, 255, 0.04),
     inset 0 22px 64px rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(28px) saturate(116%);
-  -webkit-backdrop-filter: blur(28px) saturate(116%);
+  backdrop-filter: blur(34px) saturate(124%);
+  -webkit-backdrop-filter: blur(34px) saturate(124%);
 }
 
 .terminal-output {
@@ -1908,12 +1930,16 @@ a.output-record:hover {
   bottom: 58px;
   width: min(480px, calc(100% - 24px));
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 6px;
-  background: rgba(8, 10, 12, 0.68);
-  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.2);
-  backdrop-filter: blur(18px) saturate(112%);
-  -webkit-backdrop-filter: blur(18px) saturate(112%);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
+    rgba(7, 9, 11, 0.88);
+  box-shadow:
+    0 18px 46px rgba(0, 0, 0, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(22px) saturate(124%);
+  -webkit-backdrop-filter: blur(22px) saturate(124%);
 }
 
 .autocomplete-list {
@@ -2046,10 +2072,14 @@ a.output-record:hover {
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
   padding: 10px;
-  background: rgba(8, 10, 14, 0.72);
-  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(18px) saturate(118%);
-  -webkit-backdrop-filter: blur(18px) saturate(118%);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.012)),
+    rgba(7, 9, 12, 0.9);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(22px) saturate(124%);
+  -webkit-backdrop-filter: blur(22px) saturate(124%);
 }
 
 .identity-popover-title {
@@ -2335,72 +2365,6 @@ a.output-record:hover {
     transform: none;
   }
 }
-
-/* ============================================================
-   Editor styles
-   ============================================================ */
-.editor-container {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 380px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.editor-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px 12px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--line);
-  font-size: 0.72rem;
-}
-
-.editor-file {
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.editor-hints {
-  color: var(--muted);
-  font-size: 0.65rem;
-}
-
-.editor-codemirror-root {
-  flex: 1;
-  min-height: min(58vh, 520px);
-  overflow: hidden;
-}
-
-.editor-textarea {
-  flex: 1;
-  padding: 12px;
-  background: transparent;
-  color: var(--ink);
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  line-height: 1.55;
-  border: 0;
-  outline: none;
-  resize: none;
-  tab-size: 2;
-}
-
-.editor-textarea:focus {
-  background: rgba(255, 255, 255, 0.015);
-}
-
-.editor-status {
-  padding: 4px 12px;
-  background: var(--panel);
-  border-top: 1px solid var(--line);
-  font-size: 0.65rem;
-  color: var(--muted);
-}
-
 
 /* Post frontmatter + themed markdown semantics */
 .post-frontmatter {
