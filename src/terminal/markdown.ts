@@ -80,8 +80,9 @@ function renderPostHeader(meta: FrontmatterMeta): string {
         .map((tag) => `<button type="button" class="content-tag" data-command="tags ${escapeHtml(tag)}" aria-label="Filter by tag ${escapeHtml(tag)}">#${escapeHtml(tag)}</button>`)
         .join('')}</div>`
     : '';
+  const divider = '<div class="post-frontmatter-divider" aria-hidden="true"></div>';
   if (!title && !date && !description && !tags) return '';
-  return `<header class="post-frontmatter">${title}${date}${description}${tags}</header>`;
+  return `<header class="post-frontmatter">${title}${date}${description}${tags}${divider}</header>`;
 }
 
 const MAJOR_LANGS = new Set([
@@ -180,6 +181,9 @@ function normalizeSourceForHighlight(source: string): string {
     .replaceAll('&amp;', '&')
     .replaceAll('&quot;', '"')
     .replaceAll('&#39;', "'");
+  // Remove token span tags again after entity decoding, otherwise decoded span markup
+  // can leak into rendered code as literal text on subsequent highlight passes.
+  next = next.replace(/<\/?span\b[^>]*>/gi, '');
   return next;
 }
 

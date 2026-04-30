@@ -2565,7 +2565,7 @@ export class TerminalApp {
                     </div>
                     <p class="record-summary post-excerpt">${this.escapeHtml(post.description ?? this.markdownPreview(post.markdown))}</p>
                     <div class="record-meta post-card-actions">
-                      <button type="button" class="post-open-action" data-command="post open ${this.escapeAttribute(post.slug)}">open post</button>
+                      <button type="button" class="post-comments-action" data-command="post open ${this.escapeAttribute(post.slug)}">comments</button>
                       <span>comment <code>${this.escapeHtml(post.slug)}</code> &lt;name&gt; &lt;message&gt;</span>
                     </div>
                     ${

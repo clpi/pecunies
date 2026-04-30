@@ -19,7 +19,7 @@ export type ParticleFieldOptions = {
 // ─── Tunables ─────────────────────────────────────────────────────────────
 const CONFIG = {
   /** Base multipliers per preset for particle counts */
-  density: { minimal: 0.88, standard: 1.86, enhanced: 2.74 } as const,
+  density: { minimal: 1.12, standard: 2.55, enhanced: 3.6 } as const,
   /** Global flow rotation speed (rad / ms) */
   flowRotate: 0.00000016,
   /** Pointer repulsion: max extra velocity (px/frame at ~60fps scale) */
@@ -191,17 +191,17 @@ function seedParticles(
       let baseAlpha: number;
       if (layer === 0) {
         size = Math.random() < 0.76 ? 1 : Math.random() < 0.94 ? 2 : 3;
-        baseAlpha = 0.04 + Math.random() * 0.076;
+        baseAlpha = 0.065 + Math.random() * 0.11;
       } else if (layer === 1) {
         size = Math.random() < 0.58 ? 1 : Math.random() < 0.88 ? 2 : 3;
-        baseAlpha = 0.056 + Math.random() * 0.1;
+        baseAlpha = 0.082 + Math.random() * 0.13;
       } else {
         size = Math.random() < 0.42 ? 1 : Math.random() < 0.76 ? 2 : Math.random() < 0.94 ? 3 : 4;
-        baseAlpha = 0.068 + Math.random() * 0.118;
+        baseAlpha = 0.096 + Math.random() * 0.16;
       }
 
       if (isSignal || isMidSignal) {
-        baseAlpha = Math.min(0.14, baseAlpha * 1.45);
+        baseAlpha = Math.min(0.24, baseAlpha * 1.6);
         size = Math.min(3, size + 1);
       }
 
@@ -400,7 +400,7 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
         (preset === 'enhanced' ? 0.065 * Math.sin(ts * 0.0011 + p.x * 0.01) : 0);
       let alpha = p.baseAlpha * flicker * (burst * 0.12 + 0.92);
       if (p.isSignal) {
-        alpha = Math.min(0.16, alpha * 1.55);
+        alpha = Math.min(0.28, alpha * 1.7);
       }
 
       const mix = p.colorJitter;

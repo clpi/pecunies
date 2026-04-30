@@ -1,12 +1,13 @@
 {
   "name": "pecunies-chaos-portfolio",
+  "$schema": "https://raw.githubusercontent.com/cloudflare/wrangler/main/schema.json",
   "pages_build_output_dir": "./dist",
   "compatibility_date": "2026-03-23",
   "ai": {
     "binding": "AI"
   },
   "vars": {
-    "BOOKING_EMAIL_URL": "https://pecunies-booking-email.mtrl.workers.dev"
+    "OOKING_EMAIL_URL": "https://pecunies-booking-email.mtrl.workers.dev"
   },
   "kv_namespaces": [
     {

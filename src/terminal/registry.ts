@@ -1592,8 +1592,16 @@ export function createCommandRegistry(): {
               .join('')
           : '<p class="post-comment-empty">No comments yet.</p>';
         const articleHtml = renderPostMarkdownToHtml(post.markdown);
+        const postIndex = list.findIndex((entry) => entry.path === post.path);
+        const nextPost = postIndex >= 0 ? list[postIndex + 1] : undefined;
+        const nextButton = nextPost
+          ? `<button type="button" class="inline-link post-next-link" data-command="post open ${escapeHtml(nextPost.slug)}">next -&gt;</button>`
+          : '<span aria-hidden="true"></span>';
         const html = `<article class="post-article-shell">
-          <button type="button" class="inline-link" data-command="posts">← back to posts</button>
+          <div class="post-article-nav">
+            <button type="button" class="inline-link" data-command="posts">← back to posts</button>
+            ${nextButton}
+          </div>
           <div class="post-article-divider" aria-hidden="true"></div>
           <section class="post-article-body markdown-body">${articleHtml}</section>
           <section class="post-comment-section">

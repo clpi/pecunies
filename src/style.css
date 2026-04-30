@@ -184,6 +184,7 @@ input:focus-visible {
   width: 100%;
   height: 100%;
   background: #030405;
+  opacity: 0.88;
   transform: translate3d(var(--parallax-canvas-x, 0px), var(--parallax-canvas-y, 0px), 0);
   will-change: transform;
 }
@@ -205,14 +206,14 @@ input:focus-visible {
 
 .ambient-noise {
   z-index: 2;
-  opacity: 0.092;
+  opacity: 0.26;
   mix-blend-mode: screen;
   background-image:
-    radial-gradient(circle at 12% 20%, rgba(255, 255, 255, 0.32) 0 1px, transparent 1px),
-    radial-gradient(circle at 72% 54%, color-mix(in srgb, var(--accent-soft) 90%, rgba(255, 255, 255, 0.06)) 0 1px, transparent 1px),
-    radial-gradient(circle at 38% 66%, rgba(255, 255, 255, 0.2) 0 1px, transparent 1px),
-    radial-gradient(circle at 54% 42%, rgba(255, 255, 255, 0.14) 0 1px, transparent 1px);
-  background-size: 18px 20px, 28px 32px, 44px 48px, 62px 68px;
+    radial-gradient(circle at 12% 20%, rgba(255, 255, 255, 0.48) 0 1px, transparent 1px),
+    radial-gradient(circle at 72% 54%, color-mix(in srgb, var(--accent-soft) 95%, rgba(255, 255, 255, 0.14)) 0 1px, transparent 1px),
+    radial-gradient(circle at 38% 66%, rgba(255, 255, 255, 0.32) 0 1px, transparent 1px),
+    radial-gradient(circle at 54% 42%, rgba(255, 255, 255, 0.24) 0 1px, transparent 1px);
+  background-size: 14px 16px, 22px 26px, 34px 38px, 52px 58px;
   animation: ambient-noise-drift 0.42s steps(3) infinite;
 }
 
@@ -562,7 +563,7 @@ html.light-mode body {
 }
 
 html.light-mode .field-canvas {
-  opacity: 0.38;
+  opacity: 0.62;
   mix-blend-mode: multiply;
 }
 
@@ -1809,7 +1810,7 @@ a.output-record:hover {
   justify-items: end;
 }
 
-.post-open-action {
+.post-comments-action {
   border: 1px solid color-mix(in srgb, var(--accent) 38%, rgba(255, 255, 255, 0.12));
   border-radius: 999px;
   padding: 4px 8px;
@@ -1821,7 +1822,7 @@ a.output-record:hover {
   text-transform: uppercase;
 }
 
-.post-open-action:hover {
+.post-comments-action:hover {
   border-color: color-mix(in srgb, var(--accent) 70%, rgba(255, 255, 255, 0.12));
   background: color-mix(in srgb, var(--accent-soft) 62%, rgba(0, 0, 0, 0.18));
 }
@@ -2709,10 +2710,7 @@ a.output-record:hover {
 /* Post frontmatter + themed markdown semantics */
 .post-frontmatter {
   margin: 0 0 0.85rem;
-  padding: 0.55rem 0.7rem;
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--accent-soft) 30%, transparent);
+  padding: 0;
 }
 
 .post-frontmatter-title {
@@ -2732,9 +2730,28 @@ a.output-record:hover {
   margin-top: 0.4rem;
 }
 
+.post-frontmatter-divider {
+  width: 100%;
+  height: 1px;
+  margin-top: 0.65rem;
+  background: color-mix(in srgb, var(--accent) 22%, rgba(255, 255, 255, 0.18));
+  opacity: 0.9;
+}
+
 .post-article-shell {
   display: grid;
   gap: 12px;
+}
+
+.post-article-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.post-next-link {
+  margin-left: auto;
 }
 
 .post-article-divider {
@@ -2916,46 +2933,46 @@ a.output-record:hover {
 }
 
 :root {
-  /* Theme-independent syntax palette (drawn from all UI palettes). */
-  --syntax-keyword: #c688ff;      /* magenta/purple */
-  --syntax-type: #78b7ff;         /* blue/frost */
-  --syntax-function: #66e2c3;     /* green/cyan */
-  --syntax-string: #c6eb7c;       /* green/amber blend */
-  --syntax-number: #ffb07a;       /* amber/orange */
-  --syntax-comment: #8ea2b7;      /* slate */
-  --syntax-builtin: #7fdfff;      /* frost blue */
-  --syntax-constant: #ffd27a;     /* amber */
-  --syntax-operator: #ff8899;     /* red/pink */
-  --syntax-punctuation: #a9b8c8;  /* neutral */
-  --syntax-decorator: #ffbe86;    /* orange */
+  /* Syntax palette follows the currently active shell theme variables. */
+  --syntax-keyword: color-mix(in srgb, var(--accent-strong) 70%, #b895ff 30%);
+  --syntax-type: color-mix(in srgb, var(--accent) 66%, #8bc3ff 34%);
+  --syntax-function: color-mix(in srgb, var(--accent) 64%, #66e2c3 36%);
+  --syntax-string: color-mix(in srgb, var(--accent) 58%, #c6eb7c 42%);
+  --syntax-number: color-mix(in srgb, var(--accent-strong) 62%, #ffb07a 38%);
+  --syntax-comment: color-mix(in srgb, var(--ink-dim) 78%, #93a5b9 22%);
+  --syntax-builtin: color-mix(in srgb, var(--accent) 62%, #7fdfff 38%);
+  --syntax-constant: color-mix(in srgb, var(--accent-strong) 60%, #ffd27a 40%);
+  --syntax-operator: color-mix(in srgb, var(--accent-strong) 58%, #ff8899 42%);
+  --syntax-punctuation: color-mix(in srgb, var(--ink-dim) 72%, #b4c3d4 28%);
+  --syntax-decorator: color-mix(in srgb, var(--accent) 58%, #ffbe86 42%);
 }
 
 html[data-syntax-scheme='contrast'] {
-  --syntax-keyword: #cf8fff;
-  --syntax-type: #7dc0ff;
-  --syntax-function: #4deed4;
-  --syntax-string: #c7ff78;
-  --syntax-number: #ff9f66;
-  --syntax-comment: #93a7bc;
-  --syntax-builtin: #7fe5ff;
-  --syntax-constant: #ffcf72;
-  --syntax-operator: #ff7a90;
-  --syntax-punctuation: #a7b8c9;
-  --syntax-decorator: #ffbc66;
+  --syntax-keyword: color-mix(in srgb, var(--accent-strong) 82%, #cda6ff 18%);
+  --syntax-type: color-mix(in srgb, var(--accent) 80%, #95cbff 20%);
+  --syntax-function: color-mix(in srgb, var(--accent) 78%, #76f0da 22%);
+  --syntax-string: color-mix(in srgb, var(--accent) 72%, #d2ff88 28%);
+  --syntax-number: color-mix(in srgb, var(--accent-strong) 76%, #ffaf7d 24%);
+  --syntax-comment: color-mix(in srgb, var(--ink-dim) 84%, #9aafc6 16%);
+  --syntax-builtin: color-mix(in srgb, var(--accent) 78%, #8de7ff 22%);
+  --syntax-constant: color-mix(in srgb, var(--accent-strong) 74%, #ffd889 26%);
+  --syntax-operator: color-mix(in srgb, var(--accent-strong) 72%, #ff8aa0 28%);
+  --syntax-punctuation: color-mix(in srgb, var(--ink) 50%, var(--ink-dim) 50%);
+  --syntax-decorator: color-mix(in srgb, var(--accent) 70%, #ffc593 30%);
 }
 
 html[data-syntax-scheme='pastel'] {
-  --syntax-keyword: #c8a6ff;
-  --syntax-type: #a8ccff;
-  --syntax-function: #9de8d9;
-  --syntax-string: #cdeca3;
-  --syntax-number: #ffc3a2;
-  --syntax-comment: #9aa9ba;
-  --syntax-builtin: #afe3ff;
-  --syntax-constant: #f8dc9f;
-  --syntax-operator: #f1a7af;
-  --syntax-punctuation: #b2bcc8;
-  --syntax-decorator: #f6c39f;
+  --syntax-keyword: color-mix(in srgb, var(--accent) 54%, #dbc6ff 46%);
+  --syntax-type: color-mix(in srgb, var(--accent) 50%, #c2dcff 50%);
+  --syntax-function: color-mix(in srgb, var(--accent) 48%, #b9efe3 52%);
+  --syntax-string: color-mix(in srgb, var(--accent) 42%, #d8f0b9 58%);
+  --syntax-number: color-mix(in srgb, var(--accent) 46%, #ffd1b7 54%);
+  --syntax-comment: color-mix(in srgb, var(--ink-dim) 66%, #b1becc 34%);
+  --syntax-builtin: color-mix(in srgb, var(--accent) 46%, #c2e8ff 54%);
+  --syntax-constant: color-mix(in srgb, var(--accent) 44%, #ffe0b6 56%);
+  --syntax-operator: color-mix(in srgb, var(--accent-strong) 42%, #f4bac2 58%);
+  --syntax-punctuation: color-mix(in srgb, var(--ink-dim) 62%, #c2ccd6 38%);
+  --syntax-decorator: color-mix(in srgb, var(--accent) 44%, #ffd1ad 56%);
 }
 
 .tok-keyword { color: var(--syntax-keyword); }
