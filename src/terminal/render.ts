@@ -60,6 +60,8 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
     <canvas class="field-canvas" id="field-canvas" aria-hidden="true"></canvas>
     <div class="parallax-grid" aria-hidden="true"></div>
     <div class="ambient-noise" aria-hidden="true"></div>
+    <div class="crt-chromatic-field" aria-hidden="true"></div>
+    <div class="crt-color-burn-field" aria-hidden="true"></div>
     <div class="crt-vignette" aria-hidden="true"></div>
     <div class="crt-grain" aria-hidden="true"></div>
     <div class="crt-hum" aria-hidden="true"></div>

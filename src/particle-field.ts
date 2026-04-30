@@ -207,13 +207,13 @@ function seedParticles(
       let baseAlpha: number = 0;
       if (layer === 0) {
         size = Math.random() < 0.55 ? 2 : Math.random() < 0.88 ? 3 : 4;
-        baseAlpha = 0.072 + Math.random() * 0.12;
+        baseAlpha = 0.105 + Math.random() * 0.16;
       } else if (layer === 1) {
         size = Math.random() < 0.38 ? 2 : Math.random() < 0.72 ? 3 : Math.random() < 0.94 ? 4 : 5;
-        baseAlpha = 0.095 + Math.random() * 0.155;
+        baseAlpha = 0.135 + Math.random() * 0.19;
       } else {
         size = Math.random() < 0.22 ? 2 : Math.random() < 0.55 ? 3 : Math.random() < 0.84 ? 4 : Math.random() < 0.96 ? 5 : 6;
-        baseAlpha = 0.115 + Math.random() * 0.21;
+        baseAlpha = 0.158 + Math.random() * 0.24;
       }
 
       if (isSignal || isMidSignal) {
@@ -507,7 +507,7 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
       const mix = p.colorJitter;
       const dust = DUST_HUES[p.paletteIndex] ?? DUST_HUES[0]!;
       // Blend base dust color toward accent for theme reactivity (foreground layers more tinted)
-      const accentMix = p.layer === 2 ? 0.26 : p.layer === 1 ? 0.14 : 0.085;
+      const accentMix = p.layer === 2 ? 0.34 : p.layer === 1 ? 0.2 : 0.12;
       const baseR = lerp(dust.dim[0], dust.mid[0], mix);
       const baseG = lerp(dust.dim[1], dust.mid[1], mix);
       const baseB = lerp(dust.dim[2], dust.mid[2], mix);
@@ -531,9 +531,9 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
         ctx.fillStyle = `rgba(${(ar * 0.2) | 0},${(ag * 0.6) | 0},${ab},${alpha * 0.22})`;
         ctx.fillRect(rx - chroma, ry, s, s);
       }
-      if (p.layer === 0 && p.blur > 0.48) {
-        const halo = 1 + (p.blur * 0.22) | 0;
-        ctx.fillStyle = `rgba(${fr | 0}, ${fg | 0}, ${fb | 0}, ${alpha * 0.22})`;
+      if (p.layer === 0 && p.blur > 0.35) {
+        const halo = 1 + ((p.blur * 0.28) | 0);
+        ctx.fillStyle = `rgba(${fr | 0}, ${fg | 0}, ${fb | 0}, ${alpha * 0.32})`;
         ctx.fillRect(rx - halo, ry - halo, s + halo * 2, s + halo * 2);
       }
       ctx.fillStyle = `rgba(${fr | 0}, ${fg | 0}, ${fb | 0}, ${alpha})`;

@@ -1121,6 +1121,7 @@ export class TerminalApp {
     document.documentElement.style.setProperty('--glow', theme.glow);
     document.documentElement.style.setProperty('--bg-accent-a', theme.backgroundA);
     document.documentElement.style.setProperty('--bg-accent-b', theme.backgroundB);
+    document.documentElement.style.setProperty('--bg-gradient-hue', `${theme.gradientHue}deg`);
     document.documentElement.style.setProperty('--ink', theme.text);
     document.documentElement.style.setProperty('--ink-dim', theme.textDim);
     document.documentElement.style.setProperty('--muted', theme.muted);

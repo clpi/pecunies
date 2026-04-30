@@ -17,6 +17,7 @@ export const terminalThemes = {
     backgroundA: "rgba(255, 106, 102, 0.016)",
     backgroundB: "rgba(255, 51, 71, 0.012)",
     mode: 0,
+    gradientHue: -6,
   },
   amber: {
     label: "Amber Phosphor",
@@ -36,6 +37,7 @@ export const terminalThemes = {
     backgroundA: "rgba(245, 184, 75, 0.014)",
     backgroundB: "rgba(255, 210, 122, 0.01)",
     mode: 1,
+    gradientHue: -16,
   },
   frost: {
     label: "Blue Frost",
@@ -55,6 +57,7 @@ export const terminalThemes = {
     backgroundA: "rgba(139, 202, 255, 0.014)",
     backgroundB: "rgba(93, 167, 255, 0.011)",
     mode: 2,
+    gradientHue: 14,
   },
   ivory: {
     label: "White Signal",
@@ -74,6 +77,7 @@ export const terminalThemes = {
     backgroundA: "rgba(244, 247, 248, 0.012)",
     backgroundB: "rgba(255, 255, 255, 0.008)",
     mode: 3,
+    gradientHue: 0,
   },
   magenta: {
     label: "Magenta Pulse",
@@ -93,6 +97,7 @@ export const terminalThemes = {
     backgroundA: "rgba(224, 102, 255, 0.014)",
     backgroundB: "rgba(214, 51, 255, 0.011)",
     mode: 0,
+    gradientHue: 22,
   },
   orange: {
     label: "Orange Signal",
@@ -112,6 +117,7 @@ export const terminalThemes = {
     backgroundA: "rgba(255, 153, 102, 0.014)",
     backgroundB: "rgba(255, 102, 51, 0.011)",
     mode: 3,
+    gradientHue: -10,
   },
   blue: {
     label: "Deep Blue",
@@ -131,6 +137,7 @@ export const terminalThemes = {
     backgroundA: "rgba(102, 179, 255, 0.014)",
     backgroundB: "rgba(51, 133, 255, 0.011)",
     mode: 2,
+    gradientHue: 16,
   },
   green: {
     label: "Signal Green",
@@ -150,6 +157,7 @@ export const terminalThemes = {
     backgroundA: "rgba(102, 255, 153, 0.014)",
     backgroundB: "rgba(51, 255, 119, 0.011)",
     mode: 1,
+    gradientHue: -20,
   },
   purple: {
     label: "Purple Signal",
@@ -169,6 +177,7 @@ export const terminalThemes = {
     backgroundA: "rgba(153, 102, 255, 0.014)",
     backgroundB: "rgba(102, 51, 255, 0.011)",
     mode: 3,
+    gradientHue: 18,
   },
   olive: {
     label: "Olive Signal",
@@ -188,6 +197,7 @@ export const terminalThemes = {
     backgroundA: "rgba(153, 255, 102, 0.014)",
     backgroundB: "rgba(102, 255, 51, 0.011)",
     mode: 1,
+    gradientHue: -18,
   },
   sea: {
     label: "Sea Green",
@@ -207,6 +217,7 @@ export const terminalThemes = {
     backgroundA: "rgba(102, 255, 204, 0.014)",
     backgroundB: "rgba(51, 255, 153, 0.011)",
     mode: 1,
+    gradientHue: -12,
   },
   pink: {
     label: "Pink Signal",
@@ -226,6 +237,7 @@ export const terminalThemes = {
     backgroundA: "rgba(255, 102, 179, 0.014)",
     backgroundB: "rgba(255, 51, 166, 0.011)",
     mode: 0,
+    gradientHue: 12,
   },
 } as const;
 
