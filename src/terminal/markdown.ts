@@ -19,7 +19,7 @@ const PURIFY: Parameters<typeof DOMPurify.sanitize>[1] = {
     'hr', 'i', 'img', 'li', 'ol', 'p', 'pre', 's', 'small', 'span', 'strong', 'sub', 'sup',
     'table', 'tbody', 'td', 'th', 'thead', 'time', 'tr', 'ul',
   ],
-  ALLOWED_ATTR: ['href', 'title', 'alt', 'src', 'class', 'data-command', 'data-lang', 'datetime', 'type', 'aria-label'],
+  ALLOWED_ATTR: ['href', 'title', 'alt', 'src', 'class', 'data-command', 'data-copy-code', 'data-lang', 'datetime', 'type', 'aria-label'],
   ALLOW_DATA_ATTR: false,
 };
 
@@ -118,11 +118,19 @@ const LANG_ALIASES: Record<string, string> = {
   plaintext: 'text',
 };
 
+const SHELL_LANGS = new Set(['sh', 'bash', 'zsh', 'fish']);
+
+const SHELL_COMMANDS = /\b(cat|less|ls|cd|pwd|echo|grep|sed|awk|find|tail|head|cp|mv|rm|mkdir|touch|source|sudo|su|man|curl|npm|npx|node|git)\b/g;
+
 function highlightCode(source: string, language: string): string {
   const normalized = LANG_ALIASES[language] ?? language;
   const cleanSource = normalizeSourceForHighlight(source);
   if (!MAJOR_LANGS.has(normalized)) {
     return escapeHtml(cleanSource);
+  }
+
+  if (normalized === 'md' || normalized === 'markdown') {
+    return highlightMarkdown(cleanSource);
   }
 
   const placeholders: string[] = [];
@@ -134,49 +142,61 @@ function highlightCode(source: string, language: string): string {
   // Preserve comments/strings first so later passes don't recolor internals.
   let raw = cleanSource
     .replace(/\/\*[\s\S]*?\*\//g, (m) => stash(m, 'tok-comment'))
-    .replace(/(^|[^\\:])\/\/.*$/gm, (m) => stash(m, 'tok-comment'))
-    .replace(/(^|\s)#.*$/gm, (m) => stash(m, 'tok-comment'))
+    .replace(/(?<!:)\/\/.*$/gm, (m) => stash(m, 'tok-comment'))
+    .replace(/(^|\s)(#.*)$/gm, (_m, prefix: string, comment: string) => `${prefix}${stash(comment, 'tok-comment')}`)
     .replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\[\s\S])*`)/g, (m) =>
       stash(m, 'tok-string'),
     );
 
-  raw = escapeHtml(raw);
-
-  // Protect escaped HTML entities so later token regex passes (especially
-  // punctuation/operator passes) do not split entities like &lt; into invalid markup.
-  const entityPlaceholders: string[] = [];
-  raw = raw.replace(/&(?:amp|lt|gt|quot|#39);/g, (m) => {
-    const idx = entityPlaceholders.push(m) - 1;
-    return `\u0001${idx}\u0001`;
-  });
+  const token = (pattern: RegExp, cls: string): void => {
+    raw = raw.replace(pattern, (match) => stash(match, cls));
+  };
 
   // Numbers and booleans.
-  raw = raw
-    .replace(/\b(0x[a-fA-F0-9]+|0b[01]+|0o[0-7]+|\d+(?:\.\d+)?(?:e[+-]?\d+)?)\b/g, '<span class="tok-number">$1</span>')
-    .replace(/\b(true|false|null|undefined|None|nil)\b/g, '<span class="tok-constant">$1</span>');
+  token(/\b(0x[a-fA-F0-9]+|0b[01]+|0o[0-7]+|\d+(?:\.\d+)?(?:e[+-]?\d+)?)\b/g, 'tok-number');
+  token(/\b(true|false|null|undefined|None|nil)\b/g, 'tok-constant');
 
   // Keywords shared by major languages.
-  raw = raw.replace(
+  token(
     /\b(abstract|as|asm|async|await|auto|break|case|catch|class|const|continue|crate|default|def|defer|del|do|elif|else|enum|except|export|extends|fallthrough|finally|fn|for|foreach|from|func|function|go|goto|if|implements|import|in|inline|interface|internal|is|lambda|let|loop|macro|match|module|mut|namespace|new|operator|out|override|package|pass|private|protected|pub|public|raise|readonly|ref|return|sealed|self|static|struct|super|switch|this|throw|trait|try|type|typeof|union|unsafe|use|using|var|virtual|void|volatile|where|while|with|yield)\b/g,
-    '<span class="tok-keyword">$1</span>',
+    'tok-keyword',
   );
 
-  // Builtins and types.
-  raw = raw
-    .replace(/\b(Array|Boolean|Date|Error|Map|Math|Number|Object|Promise|RegExp|Set|String|Symbol|BigInt|JSON|console|process|window|document|printf|fmt|len|cap|make|append|panic|println|Vec|String|Result|Option|HashMap|HashSet|i8|i16|i32|i64|isize|u8|u16|u32|u64|usize|f32|f64|int|float|bool|char|str)\b/g, '<span class="tok-builtin">$1</span>')
-    .replace(/\b([A-Z][A-Za-z0-9_]+)\b/g, '<span class="tok-type">$1</span>');
-
-  // Functions, decorators, operators, punctuation.
-  raw = raw
-    .replace(/\b([a-zA-Z_][a-zA-Z0-9_]*)\s*(?=\()/g, '<span class="tok-function">$1</span>')
-    .replace(/(^|\s)(@[a-zA-Z_][a-zA-Z0-9_.-]*)/gm, '$1<span class="tok-decorator">$2</span>')
-    .replace(/([+\-*/%!=<>|&^~?:]+)/g, '<span class="tok-operator">$1</span>')
-    .replace(/([()[\]{}.,;])/g, '<span class="tok-punctuation">$1</span>');
+  if (SHELL_LANGS.has(normalized)) {
+    token(SHELL_COMMANDS, 'tok-builtin');
+    token(/\b(--?[a-zA-Z0-9][\w-]*)\b/g, 'tok-decorator');
+  } else {
+    token(/\b(Array|Boolean|Date|Error|Map|Math|Number|Object|Promise|RegExp|Set|String|Symbol|BigInt|JSON|console|process|window|document|printf|fmt|len|cap|make|append|panic|println|Vec|String|Result|Option|HashMap|HashSet|i8|i16|i32|i64|isize|u8|u16|u32|u64|usize|f32|f64|int|float|bool|char|str)\b/g, 'tok-builtin');
+    token(/\b([A-Z][A-Za-z0-9_]+)\b/g, 'tok-type');
+    token(/\b([a-zA-Z_][a-zA-Z0-9_]*)\s*(?=\()/g, 'tok-function');
+    token(/(^|\s)(@[a-zA-Z_][a-zA-Z0-9_.-]*)/gm, 'tok-decorator');
+  }
+  token(/([+\-*/%!=<>|&^~?:]+)/g, 'tok-operator');
+  token(/([()[\]{}.,;])/g, 'tok-punctuation');
 
   // Restore preserved comments/strings.
-  raw = raw.replace(/\u0000(\d+)\u0000/g, (_m, i) => placeholders[Number(i)] ?? '');
-  raw = raw.replace(/\u0001(\d+)\u0001/g, (_m, i) => entityPlaceholders[Number(i)] ?? '');
-  return raw;
+  return escapeHtml(raw).replace(/\u0000(\d+)\u0000/g, (_m, i) => placeholders[Number(i)] ?? '');
+}
+
+function highlightMarkdown(source: string): string {
+  const placeholders: string[] = [];
+  const stash = (raw: string, cls: string): string => {
+    const idx = placeholders.push(`<span class="${cls}">${escapeHtml(raw)}</span>`) - 1;
+    return `\u0000${idx}\u0000`;
+  };
+
+  let raw = source;
+  raw = raw
+    .replace(/^(```.*)$/gm, (m) => stash(m, 'tok-punctuation'))
+    .replace(/^(#{1,6}\s+.*)$/gm, (m) => stash(m, 'tok-keyword'))
+    .replace(/^(\s*)([-*+]|\d+\.)\s+/gm, (_m, indent: string, marker: string) => `${indent}${stash(marker, 'tok-punctuation')} `)
+    .replace(/^(\s*)(>+)\s?/gm, (_m, indent: string, marker: string) => `${indent}${stash(marker, 'tok-operator')} `)
+    .replace(/(\*\*[^*]+?\*\*|__[^_]+?__)/g, (m) => stash(m, 'tok-builtin'))
+    .replace(/(\*[^*\n]+?\*|_[^_\n]+?_)/g, (m) => stash(m, 'tok-decorator'))
+    .replace(/(`[^`\n]+`)/g, (m) => stash(m, 'tok-string'))
+    .replace(/(\[[^\]]+\])(\([^)]+\))/g, (_m, label: string, href: string) => `${stash(label, 'tok-function')}${stash(href, 'tok-string')}`);
+
+  return escapeHtml(raw).replace(/\u0000(\d+)\u0000/g, (_m, i) => placeholders[Number(i)] ?? '');
 }
 
 function normalizeSourceForHighlight(source: string): string {

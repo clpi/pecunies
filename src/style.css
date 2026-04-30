@@ -2959,6 +2959,11 @@ a.output-record:hover {
   padding: 0.58rem 0.65rem;
   overflow-x: auto;
   max-width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
   white-space: pre;
   overflow-wrap: normal;
   word-break: normal;
