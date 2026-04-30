@@ -689,10 +689,11 @@ html.light-mode .field-canvas {
 }
 
 .nav-link-icon {
-  width: 31px;
+  width: auto;
+  min-width: 31px;
   justify-content: center;
   font-size: 0.82rem;
-  padding: 0;
+  padding: 0 8px;
 }
 
 .nav-link::after {
@@ -1479,13 +1480,17 @@ a.output-record:hover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
+  min-width: 34px;
   height: 28px;
+  padding: 0 8px;
   border: 1px solid color-mix(in srgb, var(--accent) 40%, rgba(255, 255, 255, 0.12));
   border-radius: 6px;
   color: var(--accent);
   background: color-mix(in srgb, var(--accent-soft) 30%, transparent);
   text-decoration: none;
+  font-size: 0.62rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
 
 .rss-subscribe-link:hover {
@@ -1518,6 +1523,34 @@ a.output-record:hover {
   margin: 0;
 }
 
+.post-open-hint {
+  color: color-mix(in srgb, var(--accent) 62%, rgba(226, 232, 236, 0.44));
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.post-card-status {
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+}
+
+.post-comment-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 20px;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent-tertiary) 48%, rgba(255, 255, 255, 0.1));
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--accent) 70%, white 30%);
+  background: color-mix(in srgb, var(--accent-tertiary) 54%, rgba(0, 0, 0, 0.28));
+  font-size: 0.58rem;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
 .record-topline {
   display: flex;
   align-items: flex-start;
@@ -1548,6 +1581,32 @@ a.output-record:hover {
   gap: 4px;
   min-width: 146px;
   text-align: right;
+}
+
+.post-card-actions {
+  justify-items: end;
+}
+
+.post-open-action {
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, rgba(255, 255, 255, 0.12));
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: color-mix(in srgb, var(--accent) 76%, white 24%);
+  background: color-mix(in srgb, var(--accent-soft) 36%, rgba(0, 0, 0, 0.2));
+  font: inherit;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.post-open-action:hover {
+  border-color: color-mix(in srgb, var(--accent) 70%, rgba(255, 255, 255, 0.12));
+  background: color-mix(in srgb, var(--accent-soft) 62%, rgba(0, 0, 0, 0.18));
+}
+
+.post-comments-preview {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 8px;
 }
 
 .record-title {

@@ -646,7 +646,7 @@ async function runCommand(parsed, state, env, visibleContext, request, options =
       return { output: `exported ${key}=${value}` };
     }
     case 'echo':
-      return { output: expandEnvVars(parsed.rest, state) };
+      return { output: echoOutput(parsed.rest, state) };
     case 'pwd':
       return { output: state.cwd || '/' };
     case 'tree':
@@ -790,16 +790,56 @@ function parseCommand(command) {
 }
 
 function stripRedirection(commandText) {
-  const match = /(?:^|\s)(>>|>)\s*(\S+)\s*$/.exec(commandText);
+  let quote = null;
+  let escape = false;
+  let redirectIndex = -1;
+  let append = false;
 
-  if (!match) {
+  for (let i = 0; i < commandText.length; i++) {
+    const ch = commandText[i];
+
+    if (escape) {
+      escape = false;
+      continue;
+    }
+
+    if (ch === '\\' && quote !== "'") {
+      escape = true;
+      continue;
+    }
+
+    if (quote) {
+      if (ch === quote) quote = null;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+
+    if (ch === '>') {
+      redirectIndex = i;
+      append = commandText[i + 1] === '>';
+      if (append) i += 1;
+    }
+  }
+
+  if (redirectIndex === -1) {
+    return { command: commandText.trim(), target: null, append: false };
+  }
+
+  const opLength = append ? 2 : 1;
+  const targetText = commandText.slice(redirectIndex + opLength).trim();
+
+  if (!targetText || /\s/.test(targetText)) {
     return { command: commandText.trim(), target: null, append: false };
   }
 
   return {
-    command: commandText.slice(0, match.index).trim(),
-    target: match[2],
-    append: match[1] === '>>',
+    command: commandText.slice(0, redirectIndex).trim(),
+    target: targetText,
+    append,
   };
 }
 
@@ -2054,12 +2094,184 @@ function expandEnvVars(text, state) {
   if (!text) return '';
   const envVars = state.envVars || {};
   return text.replace(/\$\{?(\w+)\}?/g, (match, name) => {
-    if (name === '?') return String(process?.exitCode ?? 0);
+    if (name === '?') return String(typeof process !== 'undefined' ? process.exitCode ?? 0 : 0);
     if (name === 'PWD') return state.cwd || '/';
     if (name === 'HOME') return '/home';
     if (name === 'USER') return 'guest';
     return envVars[name] ?? '';
   });
+}
+
+function echoOutput(rest, state) {
+  const words = parseEchoWords(rest, state);
+  let newline = true;
+  let escapes = false;
+  let index = 0;
+
+  while (index < words.length && /^-[neE]+$/.test(words[index])) {
+    for (const ch of words[index].slice(1)) {
+      if (ch === 'n') newline = false;
+      if (ch === 'e') escapes = true;
+      if (ch === 'E') escapes = false;
+    }
+    index += 1;
+  }
+
+  const output = words.slice(index).join(' ');
+  const rendered = escapes ? applyEchoEscapes(output) : output;
+
+  // Terminal responses are line records, so there is no visible trailing newline to preserve.
+  return newline ? rendered : rendered;
+}
+
+function parseEchoWords(rest, state) {
+  const words = [];
+  let current = '';
+  let quote = null;
+  let escaped = false;
+  let sawToken = false;
+
+  const push = () => {
+    if (sawToken) {
+      words.push(current);
+      current = '';
+      sawToken = false;
+    }
+  };
+
+  for (let i = 0; i < rest.length; i++) {
+    const ch = rest[i];
+
+    if (escaped) {
+      current += ch;
+      sawToken = true;
+      escaped = false;
+      continue;
+    }
+
+    if (ch === '\\' && quote !== "'") {
+      escaped = true;
+      sawToken = true;
+      continue;
+    }
+
+    if (quote === "'") {
+      if (ch === "'") {
+        quote = null;
+      } else {
+        current += ch;
+        sawToken = true;
+      }
+      continue;
+    }
+
+    if (quote === '"') {
+      if (ch === '"') {
+        quote = null;
+        sawToken = true;
+      } else if (ch === '$') {
+        const expanded = readEnvExpansion(rest, i, state);
+        current += expanded.value;
+        sawToken = true;
+        i = expanded.end;
+      } else {
+        current += ch;
+        sawToken = true;
+      }
+      continue;
+    }
+
+    if (/\s/.test(ch)) {
+      push();
+      continue;
+    }
+
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      sawToken = true;
+      continue;
+    }
+
+    if (ch === '$') {
+      const expanded = readEnvExpansion(rest, i, state);
+      current += expanded.value;
+      sawToken = true;
+      i = expanded.end;
+      continue;
+    }
+
+    current += ch;
+    sawToken = true;
+  }
+
+  if (escaped) {
+    current += '\\';
+  }
+
+  push();
+  return words;
+}
+
+function readEnvExpansion(text, start, state) {
+  if (text[start + 1] === '{') {
+    const close = text.indexOf('}', start + 2);
+    if (close !== -1) {
+      const name = text.slice(start + 2, close);
+      return { value: envValue(name, state), end: close };
+    }
+  }
+
+  const match = /^(\?|\w+)/.exec(text.slice(start + 1));
+  if (!match) {
+    return { value: '$', end: start };
+  }
+
+  return {
+    value: envValue(match[1], state),
+    end: start + match[1].length,
+  };
+}
+
+function envValue(name, state) {
+  const envVars = state.envVars || {};
+  if (name === '?') return String(typeof process !== 'undefined' ? process.exitCode ?? 0 : 0);
+  if (name === 'PWD') return state.cwd || '/';
+  if (name === 'HOME') return '/home';
+  if (name === 'USER') return 'guest';
+  return envVars[name] ?? '';
+}
+
+function applyEchoEscapes(text) {
+  let output = '';
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+
+    if (ch !== '\\') {
+      output += ch;
+      continue;
+    }
+
+    const next = text[++i];
+    if (next === undefined) {
+      output += '\\';
+      continue;
+    }
+
+    if (next === 'c') break;
+    if (next === 'a') output += '\x07';
+    else if (next === 'b') output += '\b';
+    else if (next === 'e' || next === 'E') output += '\x1b';
+    else if (next === 'f') output += '\f';
+    else if (next === 'n') output += '\n';
+    else if (next === 'r') output += '\r';
+    else if (next === 't') output += '\t';
+    else if (next === 'v') output += '\v';
+    else if (next === '\\') output += '\\';
+    else output += `\\${next}`;
+  }
+
+  return output;
 }
 
 function fuzzyScore(value, query) {
