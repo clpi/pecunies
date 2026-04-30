@@ -78,8 +78,18 @@ body {
     radial-gradient(132% 96% at calc(64% + var(--pointer-drift-x, 0px) * -0.1) calc(24% + var(--pointer-drift-y, 0px) * 0.12), color-mix(in srgb, var(--accent-strong) 15%, transparent), transparent 76%),
     radial-gradient(128% 92% at calc(42% + var(--pointer-drift-x, 0px) * 0.08) calc(74% + var(--pointer-drift-y, 0px) * -0.08), rgba(132, 246, 214, 0.032), transparent 78%),
     linear-gradient(180deg, #050709 0%, #020304 100%);
-  animation: bg-gradient-flow 18s ease-in-out infinite alternate;
+  background-size:
+    132% 128%,
+    148% 140%,
+    142% 136%,
+    136% 132%,
+    138% 130%,
+    130% 126%,
+    128% 124%,
+    100% 100%;
+  animation: bg-gradient-flow 13.5s ease-in-out infinite alternate;
   filter: hue-rotate(var(--pointer-hue-shift, 0deg));
+  transition: filter 160ms ease;
 }
 
 body::before,
@@ -101,7 +111,8 @@ body::before {
     radial-gradient(122% 88% at 56% 46%, rgba(146, 255, 210, 0.022), transparent 82%);
   opacity: 0.86;
   transform: translate3d(calc(var(--pointer-drift-x, 0px) * -0.03), calc(var(--pointer-drift-y, 0px) * -0.03), 0);
-  animation: bg-gradient-shift 16s ease-in-out infinite;
+  background-size: 140% 132%, 136% 130%, 128% 122%, 132% 124%, 126% 120%, 118% 114%;
+  animation: bg-gradient-shift 11.5s ease-in-out infinite;
 }
 
 body::after {
@@ -409,12 +420,16 @@ body.view-switching .field-canvas {
   filter: saturate(1.015) brightness(1.004);
 }
 
+body.view-switching {
+  --pointer-action-lift: 0.38;
+}
+
 body.view-switching .parallax-grid {
-  opacity: 0.008;
+  opacity: 0.011;
 }
 
 body.view-switching .ambient-noise {
-  opacity: 0.09;
+  opacity: 0.32;
 }
 
 body.view-switching .terminal-shell {
@@ -515,14 +530,27 @@ html.crt-on .terminal-crt-scan {
 }
 
 @keyframes bg-gradient-flow {
-  0% { background-position: 0% 0%, 0% 0%, 0% 0%, 0% 0%, 0% 0%, 0% 0%; }
-  100% { background-position: 12% -6%, -8% 10%, 10% -8%, -6% 12%, 7% -7%, 0% 0%; }
+  0% {
+    background-position: 0% 0%, 6% 2%, 94% 90%, 84% 12%, 18% 92%, 62% 18%, 40% 78%, 0% 0%;
+  }
+  46% {
+    background-position: 8% -5%, -4% 12%, 102% 78%, 76% 20%, 26% 82%, 70% 10%, 34% 88%, 0% 0%;
+  }
+  100% {
+    background-position: 14% -8%, -10% 16%, 110% 72%, 70% 28%, 32% 76%, 76% 6%, 28% 94%, 0% 0%;
+  }
 }
 
 @keyframes bg-gradient-shift {
-  0% { background-position: 0% 0%, 0% 0%, 0% 0%; }
-  50% { background-position: 8% -6%, -6% 8%, 4% -5%; }
-  100% { background-position: -7% 7%, 7% -7%, -5% 6%; }
+  0% {
+    background-position: 0% 0%, 100% 100%, 48% 88%, 74% 18%, 28% 72%, 54% 48%;
+  }
+  50% {
+    background-position: 9% -7%, 88% 108%, 56% 80%, 66% 26%, 36% 62%, 48% 56%;
+  }
+  100% {
+    background-position: -8% 8%, 110% 90%, 42% 96%, 82% 10%, 22% 84%, 60% 42%;
+  }
 }
 
 @keyframes ambient-noise-drift {
@@ -1215,11 +1243,6 @@ html.light-mode .field-canvas {
   text-transform: lowercase;
 }
 
-#theme-indicator,
-#theme-popover {
-  display: none !important;
-}
-
 #theme-indicator:hover {
   background: rgba(255, 255, 255, 0.06);
 }
@@ -1230,18 +1253,19 @@ html.light-mode .field-canvas {
   right: 0;
   pointer-events: auto;
   width: min(280px, 80vw);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
   padding: 10px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.016)),
-    rgba(8, 10, 14, 0.88);
+    radial-gradient(135% 110% at 18% 0%, color-mix(in srgb, var(--accent) 10%, rgba(255, 255, 255, 0.02)), transparent 64%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.018)),
+    rgba(7, 9, 12, 0.94);
   box-shadow:
     0 18px 52px rgba(0, 0, 0, 0.5),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
   z-index: 20;
-  backdrop-filter: blur(24px) saturate(136%);
-  -webkit-backdrop-filter: blur(24px) saturate(136%);
+  backdrop-filter: blur(30px) saturate(145%);
+  -webkit-backdrop-filter: blur(30px) saturate(145%);
 }
 
 .theme-popover-title {
@@ -1259,11 +1283,11 @@ html.light-mode .field-canvas {
 }
 
 .theme-choice-chip {
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 6px;
   padding: 6px 8px;
   color: rgba(255, 255, 255, 0.86);
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.045);
   text-transform: lowercase;
   font-size: 0.68rem;
 }
@@ -2861,16 +2885,16 @@ a.output-record:hover {
 }
 
 .md-code-block {
-  margin: 0.5em 0;
+  margin: 0.62em 0;
   max-width: 100%;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.095);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.018), rgba(255, 255, 255, 0.006)),
-    rgba(7, 10, 14, 0.94);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.022), rgba(255, 255, 255, 0.006)),
+    rgba(10, 12, 15, 0.88);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.025),
-    0 10px 28px rgba(0, 0, 0, 0.26);
+    inset 0 1px 0 rgba(255, 255, 255, 0.035),
+    0 12px 30px rgba(0, 0, 0, 0.22);
   overflow: hidden;
 }
 
@@ -2878,29 +2902,31 @@ a.output-record:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.28rem 0.58rem;
-  font-size: 0.63rem;
-  letter-spacing: 0.05em;
+  padding: 0.42rem 0.68rem 0.24rem;
+  font-size: 0.61rem;
+  letter-spacing: 0.08em;
   text-transform: lowercase;
-  color: color-mix(in srgb, var(--accent) 76%, #fff 24%);
+  color: rgba(222, 229, 235, 0.62);
   background: transparent;
 }
 
 .md-code-block-language {
   font-weight: 600;
+  color: color-mix(in srgb, var(--accent) 46%, rgba(238, 244, 248, 0.72));
 }
 
 .md-code-copy-button {
-  opacity: 0;
-  pointer-events: none;
-  width: 1.26rem;
-  height: 1.26rem;
+  opacity: 0.72;
+  pointer-events: auto;
+  width: auto;
+  min-width: 1.55rem;
+  height: 1.22rem;
   display: inline-grid;
   place-items: center;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--accent) 36%, transparent);
-  background: color-mix(in srgb, var(--accent-soft) 14%, transparent);
-  color: color-mix(in srgb, var(--accent) 64%, #fff 36%);
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.035);
+  color: rgba(226, 232, 236, 0.58);
   font: inherit;
   transition: opacity 120ms ease, color 120ms ease, border-color 120ms ease, background 120ms ease, transform 120ms ease;
 }
@@ -2913,9 +2939,9 @@ a.output-record:hover {
 
 .md-code-copy-button.is-copied {
   opacity: 1;
-  color: color-mix(in srgb, var(--accent) 42%, #b8f8ce 58%);
-  border-color: color-mix(in srgb, var(--accent) 30%, #8ef0ba 70%);
-  background: color-mix(in srgb, var(--accent-soft) 18%, rgba(142, 240, 186, 0.12));
+  color: #a7f3d0;
+  border-color: rgba(167, 243, 208, 0.34);
+  background: rgba(167, 243, 208, 0.08);
   transform: scale(1.02);
 }
 
@@ -2927,13 +2953,12 @@ a.output-record:hover {
 .md-code-block:hover .md-code-copy-button,
 .md-code-block:focus-within .md-code-copy-button {
   opacity: 1;
-  pointer-events: auto;
 }
 
 .md-code-copy-button:hover {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 62%, transparent);
-  background: color-mix(in srgb, var(--accent-soft) 22%, transparent);
+  color: rgba(248, 250, 252, 0.86);
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .md-code-block-body {
@@ -2941,77 +2966,81 @@ a.output-record:hover {
   grid-template-columns: auto 1fr;
   align-items: start;
   min-width: 0;
+  padding: 0.14rem 0 0.55rem;
+  background: transparent;
 }
 
 .md-code-line-numbers {
   margin: 0;
-  padding: 0.58rem 0.52rem 0.58rem 0.58rem;
-  min-width: 2.2rem;
-  color: color-mix(in srgb, var(--ink-dim) 78%, rgba(255, 255, 255, 0.24));
-  font-size: 0.67rem;
+  padding: 0.16rem 0.58rem 0 0.7rem;
+  min-width: 2.35rem;
+  color: rgba(148, 163, 184, 0.38);
+  font-size: 0.65rem;
+  line-height: 1.48;
   text-align: right;
   white-space: pre;
   user-select: none;
+  border-right: 1px solid rgba(255, 255, 255, 0.055);
 }
 
+.pretty-output.markdown-body .md-code-block code,
 .md-code-block code {
   display: block;
-  padding: 0.58rem 0.65rem;
+  padding: 0.16rem 0.75rem 0 0.72rem;
   overflow-x: auto;
   max-width: 100%;
   border: 0;
   border-radius: 0;
-  background: transparent;
-  color: inherit;
+  background: transparent !important;
+  color: rgba(226, 232, 240, 0.88);
   font-size: inherit;
   white-space: pre;
   overflow-wrap: normal;
   word-break: normal;
-  line-height: 1.45;
+  line-height: 1.48;
   tab-size: 2;
 }
 
 :root {
-  /* Syntax palette follows the currently active shell theme variables. */
-  --syntax-keyword: color-mix(in srgb, var(--accent-strong) 70%, #b895ff 30%);
-  --syntax-type: color-mix(in srgb, var(--accent) 66%, #8bc3ff 34%);
-  --syntax-function: color-mix(in srgb, var(--accent) 64%, #66e2c3 36%);
-  --syntax-string: color-mix(in srgb, var(--accent) 58%, #c6eb7c 42%);
-  --syntax-number: color-mix(in srgb, var(--accent-strong) 62%, #ffb07a 38%);
-  --syntax-comment: color-mix(in srgb, var(--ink-dim) 78%, #93a5b9 22%);
-  --syntax-builtin: color-mix(in srgb, var(--accent) 62%, #7fdfff 38%);
-  --syntax-constant: color-mix(in srgb, var(--accent-strong) 60%, #ffd27a 40%);
-  --syntax-operator: color-mix(in srgb, var(--accent-strong) 58%, #ff8899 42%);
-  --syntax-punctuation: color-mix(in srgb, var(--ink-dim) 72%, #b4c3d4 28%);
-  --syntax-decorator: color-mix(in srgb, var(--accent) 58%, #ffbe86 42%);
+  --syntax-keyword: #ff7ab6;
+  --syntax-type: #c4a7ff;
+  --syntax-function: #7dd3fc;
+  --syntax-string: #a7f3d0;
+  --syntax-number: #fbbf24;
+  --syntax-comment: #718096;
+  --syntax-builtin: #93c5fd;
+  --syntax-constant: #fda4af;
+  --syntax-operator: #f472b6;
+  --syntax-punctuation: #94a3b8;
+  --syntax-decorator: #f9a8d4;
 }
 
 html[data-syntax-scheme='contrast'] {
-  --syntax-keyword: color-mix(in srgb, var(--accent-strong) 82%, #cda6ff 18%);
-  --syntax-type: color-mix(in srgb, var(--accent) 80%, #95cbff 20%);
-  --syntax-function: color-mix(in srgb, var(--accent) 78%, #76f0da 22%);
-  --syntax-string: color-mix(in srgb, var(--accent) 72%, #d2ff88 28%);
-  --syntax-number: color-mix(in srgb, var(--accent-strong) 76%, #ffaf7d 24%);
-  --syntax-comment: color-mix(in srgb, var(--ink-dim) 84%, #9aafc6 16%);
-  --syntax-builtin: color-mix(in srgb, var(--accent) 78%, #8de7ff 22%);
-  --syntax-constant: color-mix(in srgb, var(--accent-strong) 74%, #ffd889 26%);
-  --syntax-operator: color-mix(in srgb, var(--accent-strong) 72%, #ff8aa0 28%);
-  --syntax-punctuation: color-mix(in srgb, var(--ink) 50%, var(--ink-dim) 50%);
-  --syntax-decorator: color-mix(in srgb, var(--accent) 70%, #ffc593 30%);
+  --syntax-keyword: #ff5f9e;
+  --syntax-type: #b794ff;
+  --syntax-function: #38bdf8;
+  --syntax-string: #7ee7b6;
+  --syntax-number: #f59e0b;
+  --syntax-comment: #64748b;
+  --syntax-builtin: #60a5fa;
+  --syntax-constant: #fb7185;
+  --syntax-operator: #e879f9;
+  --syntax-punctuation: #cbd5e1;
+  --syntax-decorator: #f0abfc;
 }
 
 html[data-syntax-scheme='pastel'] {
-  --syntax-keyword: color-mix(in srgb, var(--accent) 54%, #dbc6ff 46%);
-  --syntax-type: color-mix(in srgb, var(--accent) 50%, #c2dcff 50%);
-  --syntax-function: color-mix(in srgb, var(--accent) 48%, #b9efe3 52%);
-  --syntax-string: color-mix(in srgb, var(--accent) 42%, #d8f0b9 58%);
-  --syntax-number: color-mix(in srgb, var(--accent) 46%, #ffd1b7 54%);
-  --syntax-comment: color-mix(in srgb, var(--ink-dim) 66%, #b1becc 34%);
-  --syntax-builtin: color-mix(in srgb, var(--accent) 46%, #c2e8ff 54%);
-  --syntax-constant: color-mix(in srgb, var(--accent) 44%, #ffe0b6 56%);
-  --syntax-operator: color-mix(in srgb, var(--accent-strong) 42%, #f4bac2 58%);
-  --syntax-punctuation: color-mix(in srgb, var(--ink-dim) 62%, #c2ccd6 38%);
-  --syntax-decorator: color-mix(in srgb, var(--accent) 44%, #ffd1ad 56%);
+  --syntax-keyword: #f0abfc;
+  --syntax-type: #c4b5fd;
+  --syntax-function: #93c5fd;
+  --syntax-string: #bbf7d0;
+  --syntax-number: #fde68a;
+  --syntax-comment: #94a3b8;
+  --syntax-builtin: #bfdbfe;
+  --syntax-constant: #fecdd3;
+  --syntax-operator: #f9a8d4;
+  --syntax-punctuation: #cbd5e1;
+  --syntax-decorator: #fbcfe8;
 }
 
 .tok-keyword { color: var(--syntax-keyword); }

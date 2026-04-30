@@ -27,6 +27,12 @@ check('history handles arrow navigation', appSource.includes("event.key === 'Arr
 check('ls is not shadowed by timeline alias', !/ls:\s*['"]timeline['"]/.test(appSource));
 check('particles canvas mounted', renderSource.includes('id="field-canvas"') && mainSource.includes('mountParticleField'));
 check('particles cannot intercept input', cssSource.includes('pointer-events: none') && cssSource.includes('.field-canvas'));
+const navSequenceSource = renderSource.match(/const navSequence = \[[\s\S]*?\] as const;/)?.[0] ?? '';
+check('navbar excludes contact and pdf links', !navSequenceSource.includes("'contact'") && !navSequenceSource.includes("'pdf'"));
+check('navbar rss uses text label', renderSource.includes('aria-label="RSS feed">RSS</a>') && !renderSource.includes('◔'));
+check('codeblock placeholders cannot render numeric sentinels', !/\\\\u0000\\$\\{idx\\}\\\\u0000/.test(await text('src/terminal/markdown.ts')));
+check('codeblock line numbers start at one', (await text('src/terminal/markdown.ts')).includes('for (let i = 1; i <= total; i += 1)'));
+check('codeblock CSS overrides inline code tint', cssSource.includes('.pretty-output.markdown-body .md-code-block code'));
 
 for (const command of ['about', 'resume', 'projects', 'posts', 'links', 'contact', 'pdf', 'chat']) {
   check(`navbar includes ${command}`, registrySource.includes(`name: '${command}'`) || registrySource.includes(`addViewCommand('${command}'`));
@@ -77,6 +83,19 @@ check('ls lists current directory', ls.status === 200 && String(ls.body.output).
 
 const top = await os('top');
 check('top command dispatches', top.status === 200 && String(top.body.output).includes('portfolio-os top'));
+
+const echoQuoted = await os('echo "hello world"');
+check('echo strips shell quotes', echoQuoted.status === 200 && echoQuoted.body.output === 'hello world');
+
+await os('export ECHO_TEST=ok');
+const echoEnv = await os("echo '$ECHO_TEST' \"$ECHO_TEST\" $USER");
+check('echo respects quote-aware env expansion', echoEnv.status === 200 && echoEnv.body.output === '$ECHO_TEST ok guest');
+
+const echoEscapes = await os('echo -e "a\\nb"');
+check('echo -e expands escapes', echoEscapes.status === 200 && echoEscapes.body.output === 'a\nb');
+
+const echoGt = await os('echo "a > b"');
+check('echo ignores redirection inside quotes', echoGt.status === 200 && echoGt.body.output === 'a > b');
 
 const write = await os('echo hello > /guest/sanity.md');
 const read = await os('cat /guest/sanity.md');

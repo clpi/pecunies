@@ -258,21 +258,23 @@ export function createCommandRegistry(): {
     eyebrow: 'pecunies.com',
     title: 'Home',
     description:
-      'A compact terminal portfolio. Type help, run a command, or use the small navigation bar above the shell.',
+      'My personal website and portfolio.',
     theme: 'frost',
-    tags: ['terminal', 'portfolio'],
+    tags: ['terminal', 'portfolio', 'view', 'home'],
     logline: 'Loaded terminal home.',
     actions: [
-      { label: 'help', command: 'help' },
+      { label: 'about', command: 'about' },
+      { label: 'commands', command: 'commands' },
       { label: 'resume', command: 'resume' },
       { label: 'projects', command: 'projects' },
       { label: 'experience', command: 'experience' },
       { label: 'skills', command: 'skills' },
-      { label: 'about', command: 'about' },
       { label: 'posts', command: 'posts' },
       { label: 'links', command: 'links' },
       { label: 'contact', command: 'contact' },
-      { label: 'neofetch', command: 'neofetch' },
+      { label: 'themes', command: 'themes' },
+      { label: 'pdf', command: 'pdf' },
+      { label: 'ask', command: 'ask ' },
     ],
     sections: [
       {
@@ -281,7 +283,7 @@ export function createCommandRegistry(): {
         lines: [
           'guest@pecunies',
           'os: pecuOS / Cloudflare Pages',
-          'shell: clpsh',
+          'shell: /bin/clpsh',
           'focus: cloud systems, DevOps automation, distributed systems, runtime engineering',
           'try: help, resume, projects, timeline, cat /README.md, ask <question>',
         ],
@@ -306,13 +308,13 @@ export function createCommandRegistry(): {
     route: 'resume',
     prompt: './resume --overview',
     eyebrow: 'Profile',
-    title: 'Cloud systems, DevOps automation, and runtime engineering.',
+    title: 'My professional profile.',
     description:
-      'A terminal-shaped portfolio backed by the current resume instead of one-off landing page copy.',
+      'My professional profile.',
     note: resumeData.availability,
     theme: 'green',
     tags: ['resume', 'career', 'portfolio'],
-    logline: 'Loaded full resume view with summary, experience, skills, projects, and education.',
+    logline: 'Loaded professional profile.',
     stats: buildSignalStats(),
     actions: [
       { label: 'Experience', command: 'experience' },
@@ -380,9 +382,11 @@ export function createCommandRegistry(): {
     route: 'experience',
     prompt: './resume --experience',
     eyebrow: 'Work history',
-    title: 'Four roles across blockchain infrastructure, distributed systems, cloud training, and research engineering.',
+    title: 'My work history.',
+    note: 'Use the experience command to open a role detail view.',
+    stats: buildSignalStats(),
     description:
-      'The work history moves from research-side engineering through AWS consulting into distributed systems and recent blockchain infrastructure work.',
+      'My work history.',
     theme: 'orange',
     tags: ['career', 'chronology'],
     logline: 'Loaded timeline view across consulting, blockchain infra, and platform work.',
@@ -449,16 +453,20 @@ export function createCommandRegistry(): {
     route: 'projects',
     prompt: './resume --projects',
     eyebrow: 'Independent work',
-    title: 'Independent systems work and production-shaped prototypes.',
+    title: 'My independent projects and work.',
     description:
-      'The project surface includes low-level runtime work, hardware-constrained infrastructure, and an API-driven marketplace integration prototype.',
+      'My independent projects and work.',
     theme: 'amber',
     tags: ['projects', 'engineering', 'devops'],
+    note: 'Use the project command to open a project detail view.',
+    stats: buildSignalStats(),
     logline: 'Loaded projects: Moe marketplace aggregation, Zig runtime work, and Raspberry Pi cluster ops.',
     actions: [
       { label: 'Skills', command: 'skills' },
-      { label: 'Resume PDF', command: 'pdf' },
+      { label: 'PDF', command: 'pdf' },
       { label: 'Contact', command: 'contact' },
+      { label: 'Links', command: 'links' },
+      { label: 'Experience', command: 'experience' },
     ],
     sections: [
       {
@@ -531,9 +539,9 @@ export function createCommandRegistry(): {
     route: 'education',
     prompt: './resume --education',
     eyebrow: 'Education',
-    title: 'University of Washington roots, plus research-side engineering work.',
+    title: 'My formal engineering education and coursework.',
     description:
-      'Formal training came through materials science, but the applied work quickly bent toward data systems, APIs, scientific tooling, and software delivery.',
+      'My formal engineering education and coursework.',
     theme: 'green',
     tags: ['career'],
     logline: 'Loaded education and coursework context.',
@@ -563,9 +571,9 @@ export function createCommandRegistry(): {
     route: 'contact',
     prompt: './resume --contact',
     eyebrow: 'Reach out',
-    title: 'Direct channels, no middleware.',
+    title: 'Reach out to me directly.',
     description:
-      'The site still behaves like a terminal, but the contact surface is straightforward: email, phone, links, and a PDF route when needed.',
+      'Reach out to me directly.',
     theme: 'blue',
     tags: ['contact', 'social', 'career'],
     logline: 'Loaded contact channels and resume links.',
@@ -598,7 +606,7 @@ export function createCommandRegistry(): {
     route: 'resume-pdf',
     prompt: './resume --pdf',
     eyebrow: 'Document view',
-    title: 'The exact resume, embedded without translation.',
+    title: 'My resume in PDF format.',
     description:
       'This route keeps the terminal framing while showing the real two-page PDF directly inside the experience.',
     note: 'Use the page thumbnails for a quick scan or open the file in a new tab for the raw document.',
@@ -775,18 +783,21 @@ export function createCommandRegistry(): {
   const aboutView: ViewDefinition = {
     id: 'about',
     route: 'about',
-    prompt: './terminal --about',
+    prompt: 'about',
     eyebrow: 'About',
-    title: 'A portfolio that behaves like a small operating system.',
+    title: 'About this site.',
     description:
-      'This site is a one-page terminal emulator with command history, fake files, AI-assisted commands, games, metrics, and view routing rendered in a single shell.',
-    theme: 'frost',
+      'This site is a one-page terminal emulator with command history, files, AI-assisted commands, games, metrics, and view routing rendered in a single shell.',
+    theme: 'blue',
     tags: ['terminal', 'portfolio', 'architecture'],
     logline: 'Loaded about page for the terminal application.',
     actions: [
       { label: 'README', command: 'cat /README.md' },
       { label: 'TODO', command: 'cat /TODO.md' },
+      { label: 'CHANGELOG', command: 'cat /CHANGELOG.md' },
       { label: 'Commands', command: 'help' },
+      { label: 'Tags', command: 'tags' },
+      { label: 'Home', command: 'home' },
     ],
     sections: [
       {
@@ -881,11 +892,45 @@ export function createCommandRegistry(): {
     return out;
   };
 
+  const usageParts = (usage: string): string[] => {
+    const parts = usage
+      .replace(/^\S+/, '')
+      .match(/(\[[^\]]+\]|<[^>]+>|--?[A-Za-z0-9][\w-]*(?:=<[^>]+>)?)/g);
+    return parts ?? [];
+  };
+
+  const describeUsagePart = (part: string): string => {
+    const isOptional = part.startsWith('[') && part.endsWith(']');
+    const inner = isOptional ? part.slice(1, -1) : part;
+    const isFlag = /^--?/.test(inner);
+    const isRequiredArg = inner.startsWith('<') && inner.endsWith('>');
+    const clean = inner.replace(/^<|>$/g, '');
+
+    if (inner.includes('|')) {
+      return `${part}: ${isOptional ? 'optional' : 'required'} choice. Pick one of ${inner
+        .replace(/[<>\[\]]/g, '')
+        .split('|')
+        .map((token) => token.trim())
+        .filter(Boolean)
+        .join(', ')}.`;
+    }
+
+    if (isFlag) {
+      const [, value] = inner.split('=');
+      return `${part}: ${isOptional ? 'optional' : 'accepted'} flag${value ? ` taking ${value.replace(/[<>]/g, '')}` : ''}.`;
+    }
+
+    if (isRequiredArg) {
+      return `${part}: required argument for ${clean.replace(/[-_]/g, ' ')}.`;
+    }
+
+    return `${part}: ${isOptional ? 'optional' : 'accepted'} argument for ${clean.replace(/[-_]/g, ' ')}.`;
+  };
+
   const buildManView = (command: CommandDefinition): ViewDefinition => {
     const tags = getCommandTags(command);
     const aliases = command.aliases.length ? command.aliases.map((alias) => `/${alias}`).join(', ') : 'none';
-    const usageTokens = command.usage.split(/\s+/).slice(1);
-    const optionLines = usageTokens.filter((token) => token.startsWith('-') || token.startsWith('['));
+    const parameterLines = usageParts(command.usage).map(describeUsagePart);
     const related = commands
       .filter(
         (candidate) =>
@@ -933,21 +978,30 @@ export function createCommandRegistry(): {
         },
         {
           type: 'paragraphs',
-          heading: 'OPTIONS',
+          heading: 'ARGUMENTS / FLAGS / OPTIONS',
           body:
-            optionLines.length > 0
-              ? optionLines.map((line) => line)
-              : ['No explicit options declared. Run without flags or check usage examples.'],
+            parameterLines.length > 0
+              ? parameterLines
+              : ['No explicit arguments or flags. Run the command exactly as shown in SYNOPSIS.'],
         },
         {
           type: 'paragraphs',
           heading: 'EXAMPLES',
-          body: [`/${command.usage}`, `/help ${command.name}`, `/commands ${command.name}`],
+          body: [
+            `/${command.usage}`,
+            `/man ${command.name}`,
+            `/help ${command.name}`,
+            `/commands ${command.name}`,
+            `/explain command ${command.name}`,
+          ],
         },
         {
           type: 'note',
           heading: 'TAGS',
-          lines: [`${tags.map((tag) => `#${tag}`).join(' ')}`, 'Tags are clickable chips above this page and in command listings.'],
+          lines: [
+            `${tags.map((tag) => `#${tag}`).join(' ')}`,
+            'Every command has tags. Click the chips above this page to filter related commands, files, and views.',
+          ],
         },
         {
           type: 'metrics',
@@ -968,10 +1022,10 @@ export function createCommandRegistry(): {
     route: 'help',
     prompt: './terminal --help',
     eyebrow: 'Registry',
-    title: 'Every interaction hangs off a single command registry.',
+    title: 'Help index.',
     description:
-      'Add a new command by appending one definition to the registry file, then decide whether it returns a view or a one-off system response.',
-    note: 'Leading slashes like /skills are accepted, and aliases like whoami still resolve cleanly.',
+      'Help index for the terminal application.',
+    note: 'Use the help command to open this page.',
     theme: 'amber',
     tags: ['terminal', 'tooling', 'portfolio'],
     logline: 'Loaded command registry and usage guide.',
@@ -980,6 +1034,8 @@ export function createCommandRegistry(): {
       { label: 'Experience', command: 'experience' },
       { label: 'Themes', command: 'themes' },
       { label: 'Full command list', command: 'commands' },
+      { label: 'Home', command: 'home' },
+      { label: 'About', command: 'about' },
     ],
     sections: [
       {
@@ -1013,9 +1069,9 @@ export function createCommandRegistry(): {
     route: 'themes',
     prompt: './terminal --themes',
     eyebrow: 'Palette',
-    title: 'Manual palette overrides sit on top of view-driven color modes.',
+    title: 'Themes.',
     description:
-      'Leave the shell on auto to let each view steer the accent, or pin a palette for the whole session.',
+      'Available themes for the terminal application.',
     note: currentTheme
       ? `Current manual palette: ${terminalThemes[currentTheme].label}.`
       : 'Current palette mode: auto, driven by the active panel.',

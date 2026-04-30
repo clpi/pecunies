@@ -2707,7 +2707,7 @@ function parseEchoWords(rest, state) {
       continue;
     }
 
-    if (ch === '\\' && quote !== "'") {
+    if (ch === '\\' && quote === null) {
       escaped = true;
       sawToken = true;
       continue;
@@ -2726,6 +2726,15 @@ function parseEchoWords(rest, state) {
     if (quote === '"') {
       if (ch === '"') {
         quote = null;
+        sawToken = true;
+      } else if (ch === '\\') {
+        const next = rest[i + 1];
+        if (next && ['$', '`', '"', '\\', '\n'].includes(next)) {
+          current += next === '\n' ? '' : next;
+          i += 1;
+        } else {
+          current += '\\';
+        }
         sawToken = true;
       } else if (ch === '$') {
         const expanded = readEnvExpansion(rest, i, state);

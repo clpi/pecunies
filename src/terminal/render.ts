@@ -636,7 +636,11 @@ function renderCommandHelpItem(item: CommandHelpItem): string {
         </div>`
       : '';
   return `
-    <article class="command-card">
+    <article
+      class="command-card is-clickable"
+      data-command="man ${escapeAttribute(item.name)}"
+      data-prepopulate-command="${escapeAttribute(item.name)}"
+    >
       <div class="command-copy">
         <button class="command-name" type="button" data-command="man ${escapeAttribute(item.name)}" data-prepopulate-command="${escapeAttribute(item.name)}">/${escapeHtml(item.name)}</button>
         <p class="command-desc">${escapeHtml(item.description)}</p>

@@ -58,6 +58,63 @@ Terminal app context:
 - Window/theme commands: theme <red|amber|frost|ivory|auto>, maximize, minimize, shutdown, clear, exit.
 `;
 
+const COMMAND_REFERENCE = `
+Command reference (name: usage - description):
+- help: help [command] - open command registry or manual page for a command
+- commands: commands [command] - list commands or open a command manual
+- man: man [command] - manual pages with examples and related commands
+- tags: tags [tag|prefix|tag1 tag2 ...] - browse/filter content tags
+- resume: resume - resume overview
+- experience: experience - work timeline
+- timeline: timeline - combined chronology
+- skills: skills [--category|--applications] - skills grouped by perspective
+- projects: projects - project index
+- project: project <slug> - open project detail
+- posts: posts - posts index
+- post: post open <slug|path-fragment> - open a post
+- contact: contact - contact channels
+- links: links - external links and profiles
+- pdf: pdf - embedded resume PDF
+- download: download [--markdown] - download resume PDF/Markdown
+- chat: chat - enter chat mode
+- ask: ask <question> - AI answer with terminal context
+- explain: explain <project|skill|work|education|command|last> [name] - AI explanation
+- theme: theme [set <name>|list|random|auto|<palette>] - palette controls
+- themes: themes - palette reference
+- dark: dark - force dark mode
+- light: light - force light mode
+- ls: ls [path] - list files
+- cat: cat [--pretty] <path> - read file
+- tree: tree [path] - file tree
+- find: find <query> - search files/dirs
+- grep: grep <query> - search file contents
+- pwd: pwd - print working directory
+- cd: cd [path] - change directory
+- head: head [-n N] <path> - first N lines
+- tail: tail [-n N] <path> - last N lines
+- less: less <path> - pager view
+- cp: cp <text> - copy text
+- echo: echo <text> - print text
+- comment: comment <post> <name> <message> - comment on post
+- internet: internet [site] - tiny fake text-web browser
+- weather: weather [location] - current weather
+- stock: stock <ticker> - market quote
+- ping: ping <host> - edge reachability
+- traceroute: traceroute <host> - hop-by-hop route
+- whois: whois <site> - ownership metadata
+- curl: curl <url> - fetch URL summary
+- metrics: metrics - usage metrics
+- leaderboard: leaderboard [game] - game scores
+- 2048|chess|minesweeper|jobquest: <command> - launch game
+`;
+
+const CHAT_TOOL_NAMES = new Set([
+  'create_user',
+  'register_user',
+  'generate_command',
+  'compose_query',
+]);
+
 const jsonHeaders = {
   'Content-Type': 'application/json; charset=utf-8',
   'Cache-Control': 'no-store',
@@ -151,7 +208,7 @@ export async function onRequestPost({ request, env }) {
     2,
   ).slice(0, 3200);
 
-  const userContent = `Portfolio context:\n${PROFILE_CONTEXT}\n\nPersistent session/app state:\n${sessionState}\n\nPersistent RAG/session context notes:\n${ragContext || '(none)'}\n\nVisible terminal context:\n${visibleContext || '(none)'}\n\nMetrics state:\n${JSON.stringify(metrics).slice(0, 3000)}\n\nLeaderboard state:\n${JSON.stringify(leaderboard).slice(0, 2000)}\n\nPosts digest:\n${postDigest}\n\nPersisted terminal history:\n${persistedHistory || '(empty)'}\n\nQuestion: ${message}`;
+  const userContent = `Portfolio context:\n${PROFILE_CONTEXT}\n\nTerminal command reference:\n${COMMAND_REFERENCE}\n\nPersistent session/app state:\n${sessionState}\n\nPersistent RAG/session context notes:\n${ragContext || '(none)'}\n\nVisible terminal context:\n${visibleContext || '(none)'}\n\nMetrics state:\n${JSON.stringify(metrics).slice(0, 3000)}\n\nLeaderboard state:\n${JSON.stringify(leaderboard).slice(0, 2000)}\n\nPosts digest:\n${postDigest}\n\nPersisted terminal history:\n${persistedHistory || '(empty)'}\n\nQuestion: ${message}`;
   const contextExcerpt = `chat_history_json:\n${JSON.stringify(mergedHistory).slice(0, 3500)}\n\n---\n${userContent}`;
 
   let result;
@@ -167,6 +224,10 @@ You may call tools by returning STRICT JSON only, with this shape:
 {"tool":"create_user","arguments":{"email":"user@example.com","username":"alice","fullName":"Alice"}}
 or
 {"tool":"register_user","arguments":{"email":"user@example.com","username":"alice","fullName":"Alice"}}
+or
+{"tool":"generate_command","arguments":{"goal":"show project timeline","constraints":["concise"],"includeAlternatives":true}}
+or
+{"tool":"compose_query","arguments":{"objective":"summarize posts about cloud and ai","maxSteps":4}}
 If no tool call is needed, return normal assistant text.
 ${systemPrompt ? `\n\nSession system prompt injection:\n${systemPrompt}` : ''}`,
         },
@@ -356,7 +417,7 @@ function extractToolCall(answer) {
     const tool = String(parsed.tool || '').trim();
     const args = parsed.arguments && typeof parsed.arguments === 'object' ? parsed.arguments : {};
     if (!tool) return null;
-    if (!['create_user', 'register_user'].includes(tool)) return null;
+    if (!CHAT_TOOL_NAMES.has(tool)) return null;
     return { tool, arguments: args };
   } catch {
     return null;
@@ -371,6 +432,13 @@ function sanitizeUserField(value, max = 120) {
 }
 
 async function executeChatTool(env, toolCall) {
+  if (toolCall.tool === 'generate_command') {
+    return executeGenerateCommandTool(toolCall.arguments || {});
+  }
+  if (toolCall.tool === 'compose_query') {
+    return executeComposeQueryTool(toolCall.arguments || {});
+  }
+
   const db = stateDb(env);
   if (!db) {
     return { ok: false, message: 'D1 database binding is required for user registration tools.' };
@@ -415,4 +483,100 @@ async function executeChatTool(env, toolCall) {
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : 'Database error.' };
   }
+}
+
+function executeGenerateCommandTool(args) {
+  const goal = sanitizeUserField(args.goal, 240);
+  const includeAlternatives = Boolean(args.includeAlternatives);
+  const constraints = Array.isArray(args.constraints)
+    ? args.constraints.map((value) => sanitizeUserField(value, 120)).filter(Boolean).slice(0, 6)
+    : [];
+  if (!goal) {
+    return { ok: false, message: 'generate_command requires a non-empty goal.' };
+  }
+
+  const command = inferCommandFromGoal(goal, constraints);
+  const lines = [
+    `Recommended command for goal "${goal}":`,
+    `\`${command}\``,
+  ];
+  if (constraints.length) {
+    lines.push(`Constraints: ${constraints.join(', ')}`);
+  }
+  if (includeAlternatives) {
+    const alternatives = buildCommandAlternatives(command).slice(0, 3);
+    if (alternatives.length) {
+      lines.push(`Alternatives: ${alternatives.map((item) => `\`${item}\``).join(', ')}`);
+    }
+  }
+  return { ok: true, message: lines.join('\n') };
+}
+
+function executeComposeQueryTool(args) {
+  const objective = sanitizeUserField(args.objective, 260);
+  const maxStepsRaw = Number(args.maxSteps ?? 4);
+  const maxSteps = Number.isFinite(maxStepsRaw) ? Math.min(8, Math.max(2, Math.floor(maxStepsRaw))) : 4;
+  if (!objective) {
+    return { ok: false, message: 'compose_query requires a non-empty objective.' };
+  }
+
+  const steps = composePlanForObjective(objective, maxSteps);
+  if (!steps.length) {
+    return { ok: false, message: `Could not compose a query plan for "${objective}".` };
+  }
+  const commandChain = steps.join(' && ');
+  const details = [
+    `Objective: ${objective}`,
+    'Proposed command sequence:',
+    ...steps.map((step, idx) => `${idx + 1}. \`${step}\``),
+    '',
+    `One-liner:\n\`${commandChain}\``,
+  ];
+  return { ok: true, message: details.join('\n') };
+}
+
+function inferCommandFromGoal(goal, constraints) {
+  const text = `${goal} ${(constraints || []).join(' ')}`.toLowerCase();
+  if (text.includes('timeline')) return 'timeline';
+  if (text.includes('project')) return 'projects';
+  if (text.includes('skill')) return 'skills --applications';
+  if (text.includes('resume')) return 'resume';
+  if (text.includes('post')) return 'posts';
+  if (text.includes('tag')) return 'tags';
+  if (text.includes('weather')) return 'weather';
+  if (text.includes('stock')) return 'stock AAPL';
+  if (text.includes('network') || text.includes('trace')) return 'traceroute pecunies.com';
+  if (text.includes('find') || text.includes('search')) return 'find resume';
+  if (text.includes('help') || text.includes('how')) return 'help';
+  return `ask ${goal}`;
+}
+
+function buildCommandAlternatives(command) {
+  if (command === 'projects') return ['project moe-marketplace-aggregator', 'timeline', 'explain project moe-marketplace-aggregator'];
+  if (command.startsWith('skills')) return ['skills --category', 'explain skill cloud', 'resume'];
+  if (command === 'posts') return ['post open latest', 'tags writing', 'ask summarize latest posts'];
+  if (command.startsWith('find')) return ['tree /', 'grep cloud', 'tags cloud'];
+  return ['help', 'commands', 'man ' + command.split(/\s+/)[0]];
+}
+
+function composePlanForObjective(objective, maxSteps) {
+  const text = objective.toLowerCase();
+  const steps = [];
+  if (text.includes('post')) {
+    steps.push('posts');
+    steps.push('tags writing');
+    steps.push(`ask summarize posts for: ${objective}`);
+  } else if (text.includes('project')) {
+    steps.push('projects');
+    steps.push('timeline');
+    steps.push(`explain project ${objective.replace(/^.*project\s+/i, '').trim() || 'moe-marketplace-aggregator'}`);
+  } else if (text.includes('skill')) {
+    steps.push('skills --applications');
+    steps.push('skills --category');
+    steps.push(`ask map skills to objective: ${objective}`);
+  } else {
+    steps.push('help');
+    steps.push(`ask ${objective}`);
+  }
+  return steps.slice(0, maxSteps);
 }

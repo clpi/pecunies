@@ -19,7 +19,10 @@ const PURIFY: Parameters<typeof DOMPurify.sanitize>[1] = {
     'hr', 'i', 'img', 'li', 'ol', 'p', 'pre', 's', 'small', 'span', 'strong', 'sub', 'sup',
     'table', 'tbody', 'td', 'th', 'thead', 'time', 'tr', 'ul',
   ],
-  ALLOWED_ATTR: ['href', 'title', 'alt', 'src', 'class', 'data-command', 'data-copy-code', 'data-lang', 'datetime', 'type', 'aria-label'],
+  ALLOWED_ATTR: [
+    'href', 'title', 'alt', 'src', 'class', 'data-command', 'data-copy-code', 'data-lang',
+    'datetime', 'type', 'aria-label', 'aria-hidden',
+  ],
   ALLOW_DATA_ATTR: false,
 };
 
@@ -121,6 +124,20 @@ const LANG_ALIASES: Record<string, string> = {
 const SHELL_LANGS = new Set(['sh', 'bash', 'zsh', 'fish']);
 
 const SHELL_COMMANDS = /\b(cat|less|ls|cd|pwd|echo|grep|sed|awk|find|tail|head|cp|mv|rm|mkdir|touch|source|sudo|su|man|curl|npm|npx|node|git)\b/g;
+const PLACEHOLDER_START = '\uE000';
+const PLACEHOLDER_END = '\uE001';
+const PLACEHOLDER_CODEPOINT_BASE = 0xE100;
+
+function makePlaceholder(index: number): string {
+  return `${PLACEHOLDER_START}${String.fromCodePoint(PLACEHOLDER_CODEPOINT_BASE + index)}${PLACEHOLDER_END}`;
+}
+
+function restorePlaceholders(raw: string, placeholders: string[]): string {
+  return escapeHtml(raw).replace(/\uE000([\uE100-\uF8FF])\uE001/g, (_m, marker: string) => {
+    const index = marker.codePointAt(0)! - PLACEHOLDER_CODEPOINT_BASE;
+    return placeholders[index] ?? '';
+  });
+}
 
 function highlightCode(source: string, language: string): string {
   const normalized = LANG_ALIASES[language] ?? language;
@@ -136,7 +153,7 @@ function highlightCode(source: string, language: string): string {
   const placeholders: string[] = [];
   const stash = (raw: string, cls: string): string => {
     const idx = placeholders.push(`<span class="${cls}">${escapeHtml(raw)}</span>`) - 1;
-    return `\u0000${idx}\u0000`;
+    return makePlaceholder(idx);
   };
 
   // Preserve comments/strings first so later passes don't recolor internals.
@@ -175,14 +192,14 @@ function highlightCode(source: string, language: string): string {
   token(/([()[\]{}.,;])/g, 'tok-punctuation');
 
   // Restore preserved comments/strings.
-  return escapeHtml(raw).replace(/\u0000(\d+)\u0000/g, (_m, i) => placeholders[Number(i)] ?? '');
+  return restorePlaceholders(raw, placeholders);
 }
 
 function highlightMarkdown(source: string): string {
   const placeholders: string[] = [];
   const stash = (raw: string, cls: string): string => {
     const idx = placeholders.push(`<span class="${cls}">${escapeHtml(raw)}</span>`) - 1;
-    return `\u0000${idx}\u0000`;
+    return makePlaceholder(idx);
   };
 
   let raw = source;
@@ -196,7 +213,7 @@ function highlightMarkdown(source: string): string {
     .replace(/(`[^`\n]+`)/g, (m) => stash(m, 'tok-string'))
     .replace(/(\[[^\]]+\])(\([^)]+\))/g, (_m, label: string, href: string) => `${stash(label, 'tok-function')}${stash(href, 'tok-string')}`);
 
-  return escapeHtml(raw).replace(/\u0000(\d+)\u0000/g, (_m, i) => placeholders[Number(i)] ?? '');
+  return restorePlaceholders(raw, placeholders);
 }
 
 function normalizeSourceForHighlight(source: string): string {

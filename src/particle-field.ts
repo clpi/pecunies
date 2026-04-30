@@ -19,7 +19,7 @@ export type ParticleFieldOptions = {
 // ─── Tunables ─────────────────────────────────────────────────────────────
 const CONFIG = {
   /** Base multipliers per preset for particle counts */
-  density: { minimal: 1.35, standard: 3.25, enhanced: 4.6 } as const,
+  density: { minimal: 1.12, standard: 2.55, enhanced: 3.6 } as const,
   /** Global flow rotation speed (rad / ms) */
   flowRotate: 0.00000016,
   /** Pointer repulsion: max extra velocity (px/frame at ~60fps scale) */
@@ -156,19 +156,13 @@ function readPreset(explicit?: ParticlePreset): ParticlePreset {
 }
 
 function layerCounts(
-  w: number,
-  h: number,
-  preset: ParticlePreset,
-  reducedMotion: boolean,
+  _w: number,
+  _h: number,
+  _preset: ParticlePreset,
+  _reducedMotion: boolean,
 ): [number, number, number] {
-  const area = w * h;
-  const d = CONFIG.density[preset] * (reducedMotion ? 0.12 : 1);
-  const cap = (n: number, m: number) => Math.min(m, Math.max(0, Math.floor(n * d)));
-
-  const back = cap(area / 1080, preset === 'enhanced' ? 1260 : preset === 'minimal' ? 460 : 980);
-  const mid = cap(area / 2450, preset === 'enhanced' ? 720 : preset === 'minimal' ? 250 : 520);
-  const fore = cap(area / 6900, preset === 'enhanced' ? 330 : preset === 'minimal' ? 120 : 240);
-  return [back, mid, fore];
+  // Particles disabled.
+  return [0, 0, 0];
 }
 
 function seedParticles(
@@ -188,20 +182,20 @@ function seedParticles(
       const isMidSignal = layer === 1 && roll > 0.985;
 
       let size: number;
-      let baseAlpha: number;
+      let baseAlpha: number = 0;
       if (layer === 0) {
         size = Math.random() < 0.76 ? 1 : Math.random() < 0.94 ? 2 : 3;
-        baseAlpha = 0.09 + Math.random() * 0.14;
+        baseAlpha = 0.065 + Math.random() * 0.11;
       } else if (layer === 1) {
         size = Math.random() < 0.58 ? 1 : Math.random() < 0.88 ? 2 : 3;
-        baseAlpha = 0.11 + Math.random() * 0.16;
+        baseAlpha = 0.082 + Math.random() * 0.13;
       } else {
         size = Math.random() < 0.42 ? 1 : Math.random() < 0.76 ? 2 : Math.random() < 0.94 ? 3 : 4;
-        baseAlpha = 0.13 + Math.random() * 0.2;
+        baseAlpha = 0.096 + Math.random() * 0.16;
       }
 
       if (isSignal || isMidSignal) {
-        baseAlpha = Math.min(0.34, baseAlpha * 1.8);
+        baseAlpha = Math.min(0.24, baseAlpha * 1.6);
         size = Math.min(3, size + 1);
       }
 
@@ -361,8 +355,9 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
       tx += burst * (Math.sin(ts * 0.002 + p.flickerPhase) * 0.06);
       ty += burst * (Math.cos(ts * 0.0017 + p.colorJitter) * 0.05);
 
-      p.vx += (tx - p.vx) * CONFIG.steer;
-      p.vy += (ty - p.vy) * CONFIG.steer;
+      // Keep particles static in place.
+      p.vx = 0;
+      p.vy = 0;
 
       const dx = p.x - pointer.x;
       const dy = p.y - pointer.y;
@@ -374,12 +369,7 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
         p.vy += (dy / dist) * f;
       }
 
-      const sway = Math.sin(ts * (0.00058 + p.layer * 0.00012) + p.flickerPhase * 1.7) * (0.006 + p.layer * 0.003);
-      p.x += (p.vx + sway) * dt * 0.028;
-      p.y += p.vy * dt * 0.028 + (CONFIG.fallBias[p.layer] + p.layer * 0.0019) * dt;
-
-      p.x -= px * par * 2.4;
-      p.y -= py * par * 2.05;
+      // Position intentionally unchanged (no sway, drift, or parallax offset).
 
       if (p.x < 0) {
         p.x += width;
@@ -400,7 +390,7 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
         (preset === 'enhanced' ? 0.065 * Math.sin(ts * 0.0011 + p.x * 0.01) : 0);
       let alpha = p.baseAlpha * flicker * (burst * 0.12 + 0.92);
       if (p.isSignal) {
-        alpha = Math.min(0.4, alpha * 1.95);
+        alpha = Math.min(0.28, alpha * 1.7);
       }
 
       const mix = p.colorJitter;

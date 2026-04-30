@@ -455,7 +455,7 @@ export class TerminalApp {
       if (this.activeView) {
         this.applyTheme(this.effectiveTheme(this.activeView));
       } else {
-        this.applyTheme(this.manualTheme ?? 'blue');
+        this.applyTheme(this.manualTheme ?? 'orange');
       }
     });
     document.addEventListener('click', (event) => {
@@ -630,7 +630,7 @@ export class TerminalApp {
       if (codeCopyButton) {
         const codeBlock = codeCopyButton.closest<HTMLElement>('.md-code-block');
         const code = codeBlock?.querySelector<HTMLElement>('code');
-        const codeText = code?.innerText;
+        const codeText = code?.textContent;
         if (codeText) {
           void navigator.clipboard?.writeText(codeText).catch(() => undefined);
           codeCopyButton.classList.add('is-copied');
@@ -1005,7 +1005,7 @@ export class TerminalApp {
       this.themeIndicator.textContent = 'workers-ai';
       this.highlightNavLink('chat');
       this.lines.push(this.responseLine(outcome.text, outcome.tone ?? 'success'));
-      this.applyTheme(this.manualTheme ?? 'blue');
+      this.applyTheme(this.manualTheme ?? 'orange');
 
       if (syncHash) {
         this.writeRoute(command.route ?? 'chat');
@@ -1150,7 +1150,7 @@ export class TerminalApp {
       if (this.activeView) {
         this.applyTheme(this.effectiveTheme(this.activeView));
       } else {
-        this.applyTheme(this.manualTheme ?? 'blue');
+        this.applyTheme(this.manualTheme ?? 'orange');
       }
     }
     if ('dark' in config) {
@@ -1293,7 +1293,7 @@ export class TerminalApp {
     this.darkMode = this.identityDarkModeInput.checked;
     this.systemPromptInjection = this.identitySystemPromptInput.value.trim().slice(0, 1200);
     this.applyDarkMode(this.darkMode);
-    this.applyTheme(this.manualTheme ?? (this.activeView ? this.activeView.theme : 'blue'));
+    this.applyTheme(this.manualTheme ?? (this.activeView ? this.activeView.theme : 'orange'));
     this.setShellPrompt();
     this.closeIdentityPopover();
     await this.setConfigQuiet('name', nextName);
@@ -1533,7 +1533,7 @@ export class TerminalApp {
       const raw = localStorage.getItem(SHELL_PROFILE_STORAGE);
       if (!raw) {
         this.shellAliases = {};
-        this.manualTheme = null;
+        this.manualTheme = 'orange';
         this.applySyntaxScheme('default');
         this.applyDarkMode(localStorage.getItem('pecunies.dark') !== 'false');
         this.persistShellProfile();
@@ -1564,19 +1564,20 @@ export class TerminalApp {
       } else if (t === 'auto') {
         this.manualTheme = null;
       } else {
-        this.manualTheme = null;
+        this.manualTheme = 'orange';
       }
       this.applySyntaxScheme(syntaxRaw === 'contrast' || syntaxRaw === 'pastel' ? syntaxRaw : 'default');
       if (this.activeView) {
         this.applyTheme(this.effectiveTheme(this.activeView));
       } else {
-        this.applyTheme(this.manualTheme ?? 'blue');
+        this.applyTheme(this.manualTheme ?? 'orange');
       }
     } catch {
       this.shellAliases = {};
-      this.manualTheme = null;
+      this.manualTheme = 'orange';
       this.applySyntaxScheme('default');
       this.applyDarkMode(true);
+      this.applyTheme('orange');
     }
   }
 
@@ -1739,7 +1740,7 @@ export class TerminalApp {
         if (this.activeView) {
           this.applyTheme(this.effectiveTheme(this.activeView));
         } else {
-          this.applyTheme(this.manualTheme ?? 'blue');
+          this.applyTheme(this.manualTheme ?? 'orange');
         }
       },
       getDarkMode: () => this.darkMode,
@@ -2375,7 +2376,7 @@ export class TerminalApp {
     this.promptScramble.textContent = '';
     this.statusScramble.textContent = '';
     this.routeIndicator.textContent = '';
-    this.applyTheme(this.manualTheme ?? 'blue');
+    this.applyTheme(this.manualTheme ?? 'orange');
     this.setShellPrompt();
     this.highlightNavLink(null);
     this.restoreWindow();
@@ -3815,13 +3816,13 @@ export class TerminalApp {
     }
 
     window.addEventListener('pointermove', (event) => {
-      const driftX = (event.clientX / window.innerWidth - 0.5) * 84;
-      const driftY = (event.clientY / window.innerHeight - 0.5) * 64;
+      const driftX = (event.clientX / window.innerWidth - 0.5) * 108;
+      const driftY = (event.clientY / window.innerHeight - 0.5) * 78;
       const xNorm = event.clientX / window.innerWidth;
       const yNorm = event.clientY / window.innerHeight;
       const depth = 0.86 + (1 - Math.abs(xNorm - 0.5) * 2) * 0.32;
-      const hueShift = (xNorm - 0.5) * 26;
-      const actionLift = (1 - yNorm) * 0.14;
+      const hueShift = (xNorm - 0.5) * 34;
+      const actionLift = (1 - yNorm) * 0.2;
       document.documentElement.style.setProperty('--pointer-drift-x', `${driftX}px`);
       document.documentElement.style.setProperty('--pointer-drift-y', `${driftY}px`);
       document.documentElement.style.setProperty('--pointer-depth', depth.toFixed(3));
