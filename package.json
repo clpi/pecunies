@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "build:wasm": "node scripts/build-wasm.mjs",
     "sync:posts": "node scripts/sync-posts.mjs",
+    "test": "node --test",
     "test:sanity": "node scripts/sanity-check.mjs",
     "preview": "vite preview",
     "deploy:cloudflare": "npm run build && npx wrangler pages deploy dist --project-name pecunies-chaos-portfolio"
@@ -15,13 +16,14 @@
   "devDependencies": {
     "@types/dompurify": "^3.0.5",
     "typescript": "~5.9.3",
-    "vite": "^8.0.1"
+    "vite": "^7.3.2"
   },
   "dependencies": {
+    "@cloudflare/workers-types": "^4.20260430.1",
     "dompurify": "^3.4.1",
     "marked": "^18.0.2"
   },
   "optionalDependencies": {
-    "@rolldown/binding-darwin-universal": "npm:null@*"
+    "@rolldown/binding-darwin-universal": "^2.0.0"
   }
 }

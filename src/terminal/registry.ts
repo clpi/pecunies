@@ -1788,6 +1788,18 @@ export function createCommandRegistry(): {
     description: 'Publish markdown under /posts/YYYY/MM/DD/ (sudo required).',
   });
 
+  addOsCommand('sync', {
+    usage: 'sync',
+    group: 'OS',
+    description: 'Sync /posts and /assets/posts content to D1 and R2 (sudo required by default).',
+  });
+
+  addOsCommand('upload', {
+    usage: 'upload image <post> <https://image-url> [alt text]',
+    group: 'OS',
+    description: 'Upload a remote image into /assets/posts and append it to the post markdown.',
+  });
+
   addOsCommand('date', {
     usage: 'date',
     group: 'OS',

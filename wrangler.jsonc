@@ -1,18 +1,67 @@
 {
-  "name": "pecunies-chaos-portfolio",
-  "$schema": "https://raw.githubusercontent.com/cloudflare/wrangler/main/schema.json",
-  "pages_build_output_dir": "./dist",
-  "compatibility_date": "2026-03-23",
-  "ai": {
-    "binding": "AI"
-  },
-  "vars": {
-    "OOKING_EMAIL_URL": "https://pecunies-booking-email.mtrl.workers.dev"
-  },
-  "kv_namespaces": [
-    {
-      "binding": "PORTFOLIO_OS",
-      "id": "3dde2866b8c341fb8fd803bf81ad23a3"
-    }
-  ]
+	"name": "pecunies-chaos-portfolio",
+	"$schema": "https://raw.githubusercontent.com/cloudflare/wrangler/main/schema.json",
+	"pages_build_output_dir": "./dist",
+	"compatibility_date": "2026-03-23",
+	"ai": {
+		"binding": "AI"
+	},
+	"vars": {
+		"OOKING_EMAIL_URL": "https://pecunies-booking-email.mtrl.workers.dev"
+	},
+	"vectorize": [
+		{
+			"binding": "VECTORIZE",
+			"index_name": "pecunies-vectorize",
+			"remote": true
+		}
+	],
+	"r2_buckets": [
+		{
+			"bucket_name": "pecunies-posts",
+			"binding": "POSTS",
+			"remote": true
+		},
+		{
+			"bucket_name": "pecunies-assets",
+			"binding": "STATIC",
+			"remote": true
+		}
+	],
+	// "durable_objects": {
+	//   "bindings": [
+	//     {
+	//       "name": "PECUNIES_STATE",
+	//       "script_name": "pecunies-state",
+	//       "class_name": "PecuniesState",
+	//     }
+	//   ]
+	// },
+	// "secrets": {
+	//   "required": [
+	//     "PECUNIES_SUDO_PASSWD"
+	//   ]
+	// },
+	"kv_namespaces": [
+		{
+			"binding": "PORTFOLIO_OS",
+			"id": "3dde2866b8c341fb8fd803bf81ad23a3"
+		}
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "pecunies-db",
+			"database_id": "a65bd06c-16c0-446d-a047-605ad1e6abc2",
+			"remote": true
+		}
+	],
+	// "migrations": [
+	//   {
+	//     "tag": "v1",
+	//     "new_sqlite_classes": [
+	//       "PecuniesState"
+	//     ]
+	//   }
+	// ]
 }

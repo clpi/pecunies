@@ -5,6 +5,10 @@ const jsonHeaders = {
   'Cache-Control': 'no-store',
 };
 
+function postsDb(env) {
+  return env.POSTS_DB || env.DB || null;
+}
+
 function unauthorized() {
   return Response.json({ error: 'Unauthorized.' }, { status: 401, headers: jsonHeaders });
 }
@@ -56,8 +60,9 @@ export async function onRequestPost({ request, env }) {
   }
 
   let removed = [];
-  if (prune && env.POSTS_DB) {
-    const rows = await env.POSTS_DB.prepare('SELECT path FROM posts').all();
+  const db = postsDb(env);
+  if (prune && db) {
+    const rows = await db.prepare('SELECT path FROM posts').all();
     const existing = Array.isArray(rows?.results) ? rows.results : [];
     for (const row of existing) {
       const existingPath = String(row?.path || '');

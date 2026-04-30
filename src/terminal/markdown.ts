@@ -142,6 +142,14 @@ function highlightCode(source: string, language: string): string {
 
   raw = escapeHtml(raw);
 
+  // Protect escaped HTML entities so later token regex passes (especially
+  // punctuation/operator passes) do not split entities like &lt; into invalid markup.
+  const entityPlaceholders: string[] = [];
+  raw = raw.replace(/&(?:amp|lt|gt|quot|#39);/g, (m) => {
+    const idx = entityPlaceholders.push(m) - 1;
+    return `\u0001${idx}\u0001`;
+  });
+
   // Numbers and booleans.
   raw = raw
     .replace(/\b(0x[a-fA-F0-9]+|0b[01]+|0o[0-7]+|\d+(?:\.\d+)?(?:e[+-]?\d+)?)\b/g, '<span class="tok-number">$1</span>')
@@ -167,6 +175,7 @@ function highlightCode(source: string, language: string): string {
 
   // Restore preserved comments/strings.
   raw = raw.replace(/\u0000(\d+)\u0000/g, (_m, i) => placeholders[Number(i)] ?? '');
+  raw = raw.replace(/\u0001(\d+)\u0001/g, (_m, i) => entityPlaceholders[Number(i)] ?? '');
   return raw;
 }
 
@@ -174,16 +183,8 @@ function normalizeSourceForHighlight(source: string): string {
   let next = String(source ?? '');
   // If upstream content already contains our token spans, collapse them back to plain code first.
   next = next.replace(/<\/?span\b[^>]*>/gi, '');
-  // Decode common escaped HTML entities so literal "&lt;span...&gt;" doesn't render as text noise.
-  next = next
-    .replaceAll('&lt;', '<')
-    .replaceAll('&gt;', '>')
-    .replaceAll('&amp;', '&')
-    .replaceAll('&quot;', '"')
-    .replaceAll('&#39;', "'");
-  // Remove token span tags again after entity decoding, otherwise decoded span markup
-  // can leak into rendered code as literal text on subsequent highlight passes.
-  next = next.replace(/<\/?span\b[^>]*>/gi, '');
+  // Do not decode entities here; decoding can re-introduce HTML-like text and
+  // leak markup artifacts into rendered code blocks.
   return next;
 }
 

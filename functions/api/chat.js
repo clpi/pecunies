@@ -1,10 +1,16 @@
 import { appendAiLog } from './ai-log.js';
+import { collectAllPosts } from './posts.js';
 
 const MODEL = '@cf/meta/llama-3.1-8b-instruct';
 const ALLOWED_MODELS = new Set([
   '@cf/meta/llama-3.1-8b-instruct',
   '@cf/meta/llama-3.1-70b-instruct',
   '@cf/qwen/qwen1.5-14b-chat-awq',
+  "@cf/qwen/qwen2.5-coder-32b-instruct",
+  "@openai/gpt-4o-mini",
+  "@cf/qwen/qwen2.5-32b-instruct",
+  "@cf/qwen/qwen2.5-72b-instruct",
+  "@hf/nousresearch/hermes-2-pro-mistral-7b"
 ]);
 
 const PROFILE_CONTEXT = `
@@ -88,6 +94,7 @@ export async function onRequestPost({ request, env }) {
   const requestedModel = typeof body?.model === 'string' ? body.model.trim() : '';
   const activeModel = ALLOWED_MODELS.has(requestedModel) ? requestedModel : MODEL;
   const systemPrompt = typeof body?.systemPrompt === 'string' ? body.systemPrompt.trim().slice(0, 1200) : '';
+  const visibleContext = typeof body?.visibleContext === 'string' ? body.visibleContext.trim().slice(-6000) : '';
 
   if (!message) {
     return Response.json({ error: 'Message is required.' }, { status: 400, headers: jsonHeaders });
@@ -100,7 +107,7 @@ export async function onRequestPost({ request, env }) {
     );
   }
 
-  const history = Array.isArray(body?.history)
+  const transientHistory = Array.isArray(body?.history)
     ? body.history
         .slice(-8)
         .map((entry) => ({
@@ -112,6 +119,17 @@ export async function onRequestPost({ request, env }) {
   const state = await readState(env, sessionId);
   const metrics = await readJson(env, 'metrics:global', {});
   const leaderboard = await readJson(env, 'leaderboard:global', {});
+  const postDigest = await buildPostDigest(env);
+  const persistedConversation = Array.isArray(state.chatHistory)
+    ? state.chatHistory
+        .slice(-12)
+        .map((entry) => ({
+          role: entry?.role === 'assistant' ? 'assistant' : 'user',
+          content: String(entry?.content ?? '').slice(0, 900),
+        }))
+        .filter((entry) => entry.content)
+    : [];
+  const mergedHistory = [...persistedConversation, ...transientHistory].slice(-16);
   const persistedHistory = state.history
     .slice(-16)
     .map((entry) => `${entry.at}: ${entry.command}`)
@@ -120,14 +138,21 @@ export async function onRequestPost({ request, env }) {
     ? state.ragContext.slice(-20).map((entry) => `${entry.at}: ${entry.text}`).join('\n')
     : '';
 
-  const sessionState = JSON.stringify({
-    config: state.config ?? {},
-    cwd: state.cwd,
-    reads: state.reads ?? [],
-  }).slice(0, 2400);
+  const sessionState = JSON.stringify(
+    {
+      config: state.config ?? {},
+      cwd: state.cwd,
+      previousCwd: state.previousCwd ?? null,
+      rootUntil: Number(state.rootUntil ?? 0),
+      reads: state.reads ?? [],
+      envVars: state.envVars ?? {},
+    },
+    null,
+    2,
+  ).slice(0, 3200);
 
-  const userContent = `Portfolio context:\n${PROFILE_CONTEXT}\n\nPersistent session/app state:\n${sessionState}\n\nPersistent RAG/session context notes:\n${ragContext || '(none)'}\n\nMetrics state:\n${JSON.stringify(metrics).slice(0, 3000)}\n\nLeaderboard state:\n${JSON.stringify(leaderboard).slice(0, 2000)}\n\nPersisted terminal history:\n${persistedHistory || '(empty)'}\n\nQuestion: ${message}`;
-  const contextExcerpt = `chat_history_json:\n${JSON.stringify(history).slice(0, 3500)}\n\n---\n${userContent}`;
+  const userContent = `Portfolio context:\n${PROFILE_CONTEXT}\n\nPersistent session/app state:\n${sessionState}\n\nPersistent RAG/session context notes:\n${ragContext || '(none)'}\n\nVisible terminal context:\n${visibleContext || '(none)'}\n\nMetrics state:\n${JSON.stringify(metrics).slice(0, 3000)}\n\nLeaderboard state:\n${JSON.stringify(leaderboard).slice(0, 2000)}\n\nPosts digest:\n${postDigest}\n\nPersisted terminal history:\n${persistedHistory || '(empty)'}\n\nQuestion: ${message}`;
+  const contextExcerpt = `chat_history_json:\n${JSON.stringify(mergedHistory).slice(0, 3500)}\n\n---\n${userContent}`;
 
   let result;
 
@@ -137,9 +162,15 @@ export async function onRequestPost({ request, env }) {
         {
           role: 'system',
           content:
-            `You are the AI help mode for Chris Pecunies terminal portfolio. Answer only from the provided context. Be concise and factual.${systemPrompt ? `\n\nSession system prompt injection:\n${systemPrompt}` : ''}`,
+            `You are the AI help mode for Chris Pecunies terminal portfolio. Answer only from the provided context. Be concise and factual.
+You may call tools by returning STRICT JSON only, with this shape:
+{"tool":"create_user","arguments":{"email":"user@example.com","username":"alice","fullName":"Alice"}}
+or
+{"tool":"register_user","arguments":{"email":"user@example.com","username":"alice","fullName":"Alice"}}
+If no tool call is needed, return normal assistant text.
+${systemPrompt ? `\n\nSession system prompt injection:\n${systemPrompt}` : ''}`,
         },
-        ...history,
+        ...mergedHistory,
         {
           role: 'user',
           content: userContent,
@@ -169,6 +200,14 @@ export async function onRequestPost({ request, env }) {
       : typeof result?.text === 'string'
         ? result.text
         : 'I could not extract a text response from the Workers AI result.';
+  const toolCall = extractToolCall(answer);
+  let finalAnswer = answer;
+  if (toolCall) {
+    const toolResult = await executeChatTool(env, toolCall);
+    finalAnswer = toolResult.ok
+      ? `${toolResult.message}`
+      : `Tool call failed: ${toolResult.message}`;
+  }
 
   await appendAiLog(env, {
     source: 'chat',
@@ -176,14 +215,20 @@ export async function onRequestPost({ request, env }) {
     model: activeModel,
     query: message,
     contextExcerpt,
-    response: answer,
+    response: finalAnswer,
   });
 
   state.history.push({ at: new Date().toISOString(), command: `chat: ${message}` });
   state.history = state.history.slice(-120);
+  if (!Array.isArray(state.chatHistory)) {
+    state.chatHistory = [];
+  }
+  state.chatHistory.push({ at: new Date().toISOString(), role: 'user', content: message });
+  state.chatHistory.push({ at: new Date().toISOString(), role: 'assistant', content: finalAnswer });
+  state.chatHistory = state.chatHistory.slice(-40);
   await writeState(env, sessionId, state);
 
-  return Response.json({ answer, model: activeModel }, { headers: jsonHeaders });
+  return Response.json({ answer: finalAnswer, model: activeModel }, { headers: jsonHeaders });
 }
 
 export async function onRequest() {
@@ -191,20 +236,41 @@ export async function onRequest() {
 }
 
 async function readState(env, sessionId) {
+  const db = stateDb(env);
+  if (db) {
+    await ensureStateInfra(env);
+    const row = await db.prepare('SELECT state_json FROM session_state WHERE session_id = ? LIMIT 1').bind(sessionId).first();
+    const rawJson = String(row?.state_json || '');
+    if (rawJson) {
+      try {
+        const parsed = JSON.parse(rawJson);
+        return normalizeState(parsed);
+      } catch {
+        // fall through to KV/default
+      }
+    }
+  }
   if (!env.PORTFOLIO_OS) {
-    return { history: [] };
+    return normalizeState({});
   }
 
   const state = (await env.PORTFOLIO_OS.get(`session:${sessionId}`, { type: 'json' })) ?? { history: [], reads: [] };
-  return {
-    ...state,
-    history: Array.isArray(state.history) ? state.history : [],
-    reads: Array.isArray(state.reads) ? state.reads : [],
-    ragContext: Array.isArray(state.ragContext) ? state.ragContext : [],
-  };
+  return normalizeState(state);
 }
 
 async function writeState(env, sessionId, state) {
+  const db = stateDb(env);
+  if (db) {
+    await ensureStateInfra(env);
+    await db
+      .prepare(
+        `INSERT INTO session_state (session_id, state_json, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(session_id) DO UPDATE SET state_json = excluded.state_json, updated_at = excluded.updated_at`,
+      )
+      .bind(sessionId, JSON.stringify(state), new Date().toISOString())
+      .run();
+  }
   if (!env.PORTFOLIO_OS) {
     return;
   }
@@ -223,4 +289,130 @@ async function readJson(env, key, fallback) {
 function sanitizeSessionId(value) {
   const raw = String(value || 'anonymous');
   return raw.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 96) || 'anonymous';
+}
+
+function stateDb(env) {
+  return env.DB || env.POSTS_DB || null;
+}
+
+async function ensureStateInfra(env) {
+  const db = stateDb(env);
+  if (!db) return;
+  await db.prepare(
+    `CREATE TABLE IF NOT EXISTS session_state (
+      session_id TEXT PRIMARY KEY,
+      state_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
+  ).run();
+  await db.prepare(
+    `CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      username TEXT NOT NULL UNIQUE,
+      full_name TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
+  ).run();
+}
+
+function normalizeState(state) {
+  const s = state && typeof state === 'object' ? state : {};
+  return {
+    ...s,
+    history: Array.isArray(s.history) ? s.history : [],
+    reads: Array.isArray(s.reads) ? s.reads : [],
+    ragContext: Array.isArray(s.ragContext) ? s.ragContext : [],
+    chatHistory: Array.isArray(s.chatHistory) ? s.chatHistory : [],
+  };
+}
+
+async function buildPostDigest(env) {
+  try {
+    const posts = await collectAllPosts(env);
+    if (!Array.isArray(posts) || !posts.length) {
+      return '(none)';
+    }
+    return posts
+      .slice(0, 12)
+      .map((post, idx) =>
+        `${idx + 1}. ${post.title} [${post.published || 'unknown'}] tags=${(post.tags || []).join(', ') || 'none'} slug=${post.slug}\n   ${String(post.description || '').slice(0, 180)}`,
+      )
+      .join('\n');
+  } catch {
+    return '(failed to load posts)';
+  }
+}
+
+function extractToolCall(answer) {
+  const text = String(answer || '').trim();
+  if (!text) return null;
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  const candidate = fenced ? fenced[1] : text;
+  try {
+    const parsed = JSON.parse(candidate);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const tool = String(parsed.tool || '').trim();
+    const args = parsed.arguments && typeof parsed.arguments === 'object' ? parsed.arguments : {};
+    if (!tool) return null;
+    if (!['create_user', 'register_user'].includes(tool)) return null;
+    return { tool, arguments: args };
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeUserField(value, max = 120) {
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, max);
+}
+
+async function executeChatTool(env, toolCall) {
+  const db = stateDb(env);
+  if (!db) {
+    return { ok: false, message: 'D1 database binding is required for user registration tools.' };
+  }
+  await ensureStateInfra(env);
+  const tool = toolCall.tool;
+  const args = toolCall.arguments || {};
+  const email = sanitizeUserField(args.email, 160).toLowerCase();
+  const username = sanitizeUserField(args.username, 40).toLowerCase().replace(/[^a-z0-9._-]/g, '');
+  const fullName = sanitizeUserField(args.fullName || args.name, 120);
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, message: 'Missing/invalid email for user registration.' };
+  }
+  if (!username || username.length < 3) {
+    return { ok: false, message: 'Missing/invalid username for user registration.' };
+  }
+  const now = new Date().toISOString();
+  const id = `usr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  try {
+    if (tool === 'create_user') {
+      await db
+        .prepare(
+          `INSERT INTO users (id, email, username, full_name, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(id, email, username, fullName || null, now, now)
+        .run();
+      return { ok: true, message: `User created: ${username} <${email}>` };
+    }
+    await db
+      .prepare(
+        `INSERT INTO users (id, email, username, full_name, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(email) DO UPDATE SET
+           username = excluded.username,
+           full_name = excluded.full_name,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(id, email, username, fullName || null, now, now)
+      .run();
+    return { ok: true, message: `User registered: ${username} <${email}>` };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : 'Database error.' };
+  }
 }

@@ -322,6 +322,10 @@ const MANUALS = {
   su: 'su\nAsk for the root password and grant a short-lived root session for protected filesystem operations.',
   comment: 'comment <post> <name> <message>\nAdd a viewer comment to a markdown post. Example: comment terminal-portfolio-changelog alice nice post.',
   new: 'new post --title=<title> --tags=<comma,tags> [--description=<text>] <body>\nCreate a dated markdown post under /posts/YYYY/MM/DD/ (sudo required). Body is the markdown after flags.',
+  upload:
+    'upload image <post-slug|/posts/path.md> <https://image-url> [alt text]\nFetch an image URL, store it under /assets/posts, append a markdown image reference to the post body, and sync to D1/R2.',
+  sync:
+    'sync\nSync /posts markdown into D1 + R2 snapshots and sync /assets/posts files into R2 assets. Requires sudo by default; use POST_CREATION_MODE=open to allow local non-admin sync.',
   date: 'date\nPrint current Cloudflare edge time.',
   uptime: 'uptime\nShow current time, up duration, users, and load averages.',
   last: 'last [n]\nShow recent session command activity in a login-style list.',
@@ -384,6 +388,7 @@ const COMMAND_TAGS = {
   man: ['terminal', 'tooling'],
   tags: ['portfolio', 'tooling', 'terminal'],
   config: ['system', 'terminal'],
+  sync: ['content', 'devops', 'system'],
   theme: ['theme', 'terminal'],
   grep: ['tooling', 'devops'],
   find: ['tooling'],
@@ -407,6 +412,7 @@ const COMMAND_TAGS = {
   clear: ['terminal'],
   neofetch: ['system', 'terminal'],
   new: ['writing', 'content', 'terminal'],
+  upload: ['writing', 'content', 'tooling'],
   post: ['writing', 'content'],
   env: ['system', 'tooling', 'terminal'],
 };
@@ -461,6 +467,7 @@ export async function onRequestPost({ request, env }) {
         output: pendingAuth.output,
         mode: pendingAuth.mode,
         config: mergeConfigDefaults(state.config),
+        cwd: state.cwd || userHomePath(state),
       },
       { status: pendingAuth.status ?? 200, headers: jsonHeaders },
     );
@@ -475,7 +482,7 @@ export async function onRequestPost({ request, env }) {
     logSystemEvent(state, `record-only persisted: session=${sessionId} history=${state.history.length}`, true);
     await writeState(env, sessionId, state);
     return Response.json(
-      { output: 'recorded', config: mergeConfigDefaults(state.config) },
+      { output: 'recorded', config: mergeConfigDefaults(state.config), cwd: state.cwd || userHomePath(state) },
       { headers: jsonHeaders },
     );
   }
@@ -507,6 +514,7 @@ export async function onRequestPost({ request, env }) {
       output: result.output,
       mode: result.mode,
       config: mergeConfigDefaults(state.config),
+      cwd: state.cwd || userHomePath(state),
     },
     { status: result.status ?? 200, headers: jsonHeaders },
   );
@@ -726,6 +734,10 @@ async function runCommand(parsed, state, env, visibleContext, request, options =
       return await tagsOutput(parsed.args[0], env);
     case 'new':
       return await createNewPost(parsed, env, options);
+    case 'upload':
+      return await uploadPostImage(parsed.args, env, options);
+    case 'sync':
+      return await syncPostsAndAssets(env, options);
     case 'export': {
       const eq = parsed.rest.indexOf('=');
       if (eq < 0) return { output: 'Usage: export KEY=VALUE', status: 400 };
@@ -877,7 +889,7 @@ async function runCommand(parsed, state, env, visibleContext, request, options =
 
 function parseCommand(command) {
   const normalized = command.replace(/^\//, '').replace(/^\.\//, '').trim();
-  const [name = '', ...args] = normalized.split(/\s+/);
+  const [name = '', ...args] = splitShellArgs(normalized);
   const aliases = {
     log: 'logs',
   };
@@ -887,6 +899,52 @@ function parseCommand(command) {
     args,
     rest: normalized.slice(name.length).trim(),
   };
+}
+
+function splitShellArgs(input) {
+  const tokens = [];
+  let current = '';
+  let quote = null;
+  let escape = false;
+
+  for (let i = 0; i < input.length; i += 1) {
+    const ch = input[i];
+    if (escape) {
+      current += ch;
+      escape = false;
+      continue;
+    }
+    if (ch === '\\' && quote !== "'") {
+      escape = true;
+      continue;
+    }
+    if (quote) {
+      if (ch === quote) {
+        quote = null;
+      } else {
+        current += ch;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (current) {
+        tokens.push(current);
+        current = '';
+      }
+      continue;
+    }
+    current += ch;
+  }
+
+  if (current) {
+    tokens.push(current);
+  }
+
+  return tokens;
 }
 
 function stripRedirection(commandText) {
@@ -953,9 +1011,10 @@ function parseSudoPrefix(parsed) {
   }
 
   if (parsed.args.length >= 2 && looksLikePassword(parsed.args[0])) {
+    const commandWithOriginalQuoting = parsed.rest.replace(/^\S+\s*/, '').trim();
     return {
       password: parsed.args[0],
-      command: parsed.args.slice(1).join(' '),
+      command: commandWithOriginalQuoting,
     };
   }
 
@@ -1400,6 +1459,9 @@ async function doctorDiagnostics(env, request) {
 
   record('Workers AI binding', Boolean(env.AI), env.AI ? 'configured' : 'missing');
   record('KV binding (PORTFOLIO_OS)', Boolean(env.PORTFOLIO_OS), env.PORTFOLIO_OS ? 'configured' : 'missing');
+  record('D1 binding', Boolean(env.DB || env.POSTS_DB), env.DB || env.POSTS_DB ? 'configured' : 'missing');
+  record('R2 posts bucket', Boolean(env.POSTS || env.POSTS_BUCKET), env.POSTS || env.POSTS_BUCKET ? 'configured' : 'missing');
+  record('Vectorize binding', Boolean(getVectorIndex(env)), getVectorIndex(env) ? 'configured' : 'missing');
 
   try {
     const res = await fetch('https://pecunies.com', { method: 'HEAD', signal: AbortSignal.timeout(4000) });
@@ -2144,6 +2206,15 @@ function parseNewPostFlags(rest) {
   return flags;
 }
 
+function normalizePostTags(raw) {
+  return String(raw || '')
+    .split(',')
+    .map((tag) => tag.trim().toLowerCase())
+    .filter(Boolean)
+    .map((tag) => tag.replace(/[^a-z0-9._-]+/g, '-').replace(/^-|-$/g, ''))
+    .filter(Boolean);
+}
+
 function slugifyPostTitle(title) {
   return (
     title
@@ -2165,13 +2236,31 @@ async function createNewPost(parsed, env, options) {
       status: 400,
     };
   }
-  if (!options.elevated) {
-    return { output: 'new post: writing under /posts requires sudo (sudo new post … or root session)', status: 403 };
+  const postCreationMode = String(env.POST_CREATION_MODE || 'sudo').trim().toLowerCase();
+  const requiresAdmin = postCreationMode !== 'open';
+  if (requiresAdmin && !options.elevated) {
+    return {
+      output:
+        'new post: admin mode required for /posts writes. Use sudo new post … (or su), or set POST_CREATION_MODE=open for local development.',
+      status: 403,
+    };
   }
-  const rest = parsed.args.slice(1).join(' ').trim();
+  const rest = parsed.rest.replace(/^post\b/i, '').trim();
   const flags = parseNewPostFlags(rest);
   if (!flags.title) {
     return { output: 'new post: --title= is required', status: 400 };
+  }
+  const tags = normalizePostTags(flags.tags);
+  if (!tags.length) {
+    return { output: 'new post: --tags= is required (comma-separated list)', status: 400 };
+  }
+  const body = String(flags.body || '').trim();
+  if (!body) {
+    return { output: 'new post: markdown body is required', status: 400 };
+  }
+  const description = String(flags.description || '').trim();
+  if (!description) {
+    return { output: 'new post: --description= is required', status: 400 };
   }
 
   const now = new Date();
@@ -2187,21 +2276,16 @@ async function createNewPost(parsed, env, options) {
     n += 1;
   }
 
-  const tagLine = flags.tags || 'general';
-  const desc =
-    flags.description ||
-    flags.body.replace(/^#\s+.*$/m, '').trim().slice(0, 280) ||
-    flags.title;
   const md = `---
 title: "${yamlEscapeLine(flags.title)}"
 date: ${dateStr}
-tags: ${tagLine}
-description: "${yamlEscapeLine(desc)}"
+tags: ${tags.join(', ')}
+description: "${yamlEscapeLine(description)}"
 ---
 
 # ${flags.title}
 
-${flags.body || ''}
+${body}
 `;
 
   const write = await writeUserFile(env, {}, relPath, md, { elevated: true });
@@ -2209,7 +2293,172 @@ ${flags.body || ''}
     return write;
   }
   const slug = relPath.split('/').pop()?.replace(/\.md$/i, '') ?? 'post';
-  return { output: `published ${relPath}\nRun posts or post open ${slug} to view.` };
+  return { output: `created ${relPath}\nRun posts or post open ${slug} to view.` };
+}
+
+async function uploadPostImage(args, env, options = {}) {
+  const [kind = '', postRef = '', imageUrl = '', ...altParts] = args;
+  if (kind.toLowerCase() !== 'image' || !postRef || !imageUrl) {
+    return {
+      output: 'Usage: upload image <post-slug|/posts/path.md> <https://image-url> [alt text]',
+      status: 400,
+    };
+  }
+
+  const postCreationMode = String(env.POST_CREATION_MODE || 'sudo').trim().toLowerCase();
+  const requiresAdmin = postCreationMode !== 'open';
+  if (requiresAdmin && !options.elevated) {
+    return {
+      output:
+        'upload: admin mode required for post assets. Use sudo upload image … (or su), or set POST_CREATION_MODE=open for local development.',
+      status: 403,
+    };
+  }
+
+  const resolvedPostPath = await resolvePostIdentifierToPath(postRef, env);
+  if (!resolvedPostPath) {
+    return { output: `upload: post "${postRef}" not found`, status: 404 };
+  }
+
+  let source;
+  try {
+    source = new URL(imageUrl);
+  } catch {
+    return { output: 'upload: image URL is invalid', status: 400 };
+  }
+
+  const response = await fetch(source.toString());
+  if (!response.ok) {
+    return { output: `upload: failed to fetch image (${response.status})`, status: 400 };
+  }
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+  if (!contentType.startsWith('image/')) {
+    return { output: `upload: remote content is not an image (${contentType || 'unknown'})`, status: 400 };
+  }
+  const binary = await response.arrayBuffer();
+  const extGuess = contentType.includes('png')
+    ? 'png'
+    : contentType.includes('jpeg') || contentType.includes('jpg')
+      ? 'jpg'
+      : contentType.includes('webp')
+        ? 'webp'
+        : contentType.includes('gif')
+          ? 'gif'
+          : contentType.includes('svg')
+            ? 'svg'
+            : 'bin';
+  const postSlug = resolvedPostPath.split('/').pop()?.replace(/\.md$/i, '') || 'post';
+  const sourceName = source.pathname.split('/').pop() || '';
+  const sourceStem = sourceName.replace(/\.[a-z0-9]+$/i, '') || `image-${Date.now()}`;
+  const safeStem = sourceStem.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-|-$/g, '').slice(0, 64) || 'image';
+  const ext = (sourceName.split('.').pop() || extGuess).toLowerCase().replace(/[^a-z0-9]/g, '') || extGuess;
+  const directory = resolvedPostPath.slice(0, resolvedPostPath.lastIndexOf('/'));
+  const assetPath = postPathToAssetPath(`${directory}/${postSlug}-${safeStem}.${ext}`);
+
+  if (env.PORTFOLIO_OS) {
+    await env.PORTFOLIO_OS.put(userFileKey(assetPath), binary);
+  }
+  await syncAssetToStorage(env, assetPathToPostPath(assetPath), binary);
+
+  const currentMarkdown = await readUserFile(env, resolvedPostPath);
+  if (typeof currentMarkdown !== 'string') {
+    return { output: `upload: could not read post ${resolvedPostPath} for markdown update`, status: 500 };
+  }
+  const alt = altParts.join(' ').trim() || safeStem.replace(/[-_]+/g, ' ');
+  const imageLine = `![${alt}](${assetPath})`;
+  const nextMarkdown = `${currentMarkdown.trimEnd()}\n\n${imageLine}\n`;
+  const write = await writeUserFile(env, {}, resolvedPostPath, nextMarkdown, { elevated: true });
+  if (write.status && write.status >= 400) {
+    return write;
+  }
+
+  return {
+    output: `uploaded ${assetPath}\nlinked in ${resolvedPostPath}`,
+  };
+}
+
+async function syncPostsAndAssets(env, options = {}) {
+  const hasDb = Boolean(env.POSTS_DB || env.DB);
+  const hasBucket = Boolean(env.POSTS_BUCKET || env.POSTS);
+  const postCreationMode = String(env.POST_CREATION_MODE || 'sudo').trim().toLowerCase();
+  const requiresAdmin = postCreationMode !== 'open';
+  if (requiresAdmin && !options.elevated) {
+    return {
+      output:
+        'sync: admin mode required for content sync. Use sudo sync (or su), or set POST_CREATION_MODE=open for local development.',
+      status: 403,
+    };
+  }
+  if (!hasDb && !hasBucket) {
+    return {
+      output: 'sync: no storage bindings configured (POSTS_DB|DB and POSTS_BUCKET|POSTS missing).',
+      status: 500,
+    };
+  }
+
+  const allPaths = new Set(Object.keys(FILES));
+  const userPaths = await listUserFiles(env);
+  for (const p of userPaths) allPaths.add(p);
+
+  const postTargets = new Map();
+  const assetTargets = new Set();
+
+  for (const path of allPaths) {
+    const normalized = normalizePath(path);
+    if (normalized.startsWith('/posts/') && normalized.toLowerCase().endsWith('.md')) {
+      postTargets.set(assetPathToPostPath(normalized), normalized);
+      continue;
+    }
+    if (normalized.startsWith('/assets/posts/')) {
+      if (normalized.toLowerCase().endsWith('.md')) {
+        postTargets.set(assetPathToPostPath(normalized), normalized);
+      } else {
+        assetTargets.add(normalized);
+      }
+    }
+  }
+
+  let syncedPosts = 0;
+  let syncedAssets = 0;
+  const failures = [];
+
+  for (const [canonicalPath, sourcePath] of postTargets.entries()) {
+    try {
+      const markdown = await readFile(sourcePath, env, { elevated: true });
+      if (typeof markdown !== 'string' || !markdown.trim()) {
+        continue;
+      }
+      await syncPostToStorage(env, canonicalPath, markdown);
+      syncedPosts += 1;
+    } catch (error) {
+      failures.push(`post ${canonicalPath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  for (const assetPath of assetTargets) {
+    try {
+      const content = await readFile(assetPath, env, { elevated: true });
+      if (content === null || content === undefined) {
+        continue;
+      }
+      await syncAssetToStorage(env, assetPathToPostPath(assetPath), content);
+      syncedAssets += 1;
+    } catch (error) {
+      failures.push(`asset ${assetPath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  const lines = [
+    `sync complete`,
+    `posts: ${syncedPosts}`,
+    `assets: ${syncedAssets}`,
+  ];
+  if (failures.length) {
+    lines.push(`failures: ${failures.length}`);
+    lines.push(...failures.slice(0, 8));
+    return { output: lines.join('\n'), status: 500 };
+  }
+  return { output: lines.join('\n') };
 }
 
 async function tagsOutput(tagFilter, env) {
@@ -2902,6 +3151,19 @@ function normalizeState(state) {
 }
 
 async function readState(env, sessionId) {
+  const db = stateDb(env);
+  if (db) {
+    await ensureStateInfra(env);
+    const row = await db.prepare('SELECT state_json FROM session_state WHERE session_id = ? LIMIT 1').bind(sessionId).first();
+    const rawJson = String(row?.state_json || '');
+    if (rawJson) {
+      try {
+        return normalizeState(JSON.parse(rawJson));
+      } catch {
+        // Fall back to KV/default below.
+      }
+    }
+  }
   if (!env.PORTFOLIO_OS) {
     return defaultState();
   }
@@ -3066,6 +3328,18 @@ async function recordBooking(env, booking) {
 }
 
 async function writeState(env, sessionId, state) {
+  const db = stateDb(env);
+  if (db) {
+    await ensureStateInfra(env);
+    await db
+      .prepare(
+        `INSERT INTO session_state (session_id, state_json, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(session_id) DO UPDATE SET state_json = excluded.state_json, updated_at = excluded.updated_at`,
+      )
+      .bind(sessionId, JSON.stringify(state), new Date().toISOString())
+      .run();
+  }
   if (!env.PORTFOLIO_OS) {
     return;
   }
@@ -3076,6 +3350,34 @@ async function writeState(env, sessionId, state) {
 
 function defaultState() {
   return normalizeState({});
+}
+
+function stateDb(env) {
+  return env.DB || env.POSTS_DB || null;
+}
+
+async function ensureStateInfra(env) {
+  const db = stateDb(env);
+  if (!db) return;
+  await db.prepare(
+    `CREATE TABLE IF NOT EXISTS session_state (
+      session_id TEXT PRIMARY KEY,
+      state_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
+  ).run();
+  await db.prepare(
+    `CREATE TABLE IF NOT EXISTS rag_memory (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      text TEXT NOT NULL,
+      source TEXT,
+      at TEXT,
+      meta_json TEXT,
+      created_at TEXT NOT NULL
+    )`,
+  ).run();
+  await db.prepare('CREATE INDEX IF NOT EXISTS idx_rag_memory_session ON rag_memory(session_id, created_at DESC)').run();
 }
 
 function appendHistory(state, command) {
@@ -3315,6 +3617,26 @@ async function gatherRagKnowledge(question, state, env, sessionId = 'anonymous',
 }
 
 async function persistRagMemory(env, sessionId, text, meta = {}) {
+  const db = stateDb(env);
+  if (db) {
+    await ensureStateInfra(env);
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await db
+      .prepare(
+        `INSERT INTO rag_memory (id, session_id, text, source, at, meta_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        id,
+        sessionId,
+        String(text || '').slice(0, 4000),
+        String(meta.source || 'rag'),
+        String(meta.at || new Date().toISOString()),
+        JSON.stringify(meta || {}),
+        new Date().toISOString(),
+      )
+      .run();
+  }
   if (!env?.PORTFOLIO_OS) return;
   const key = `rag:memory:${sessionId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
   const payload = {
@@ -3328,6 +3650,30 @@ async function persistRagMemory(env, sessionId, text, meta = {}) {
 }
 
 async function readPersistedRagMemories(env, sessionId, limit = 60) {
+  const db = stateDb(env);
+  if (db) {
+    await ensureStateInfra(env);
+    const rows = await db
+      .prepare(
+        `SELECT text, source, at, created_at
+         FROM rag_memory
+         WHERE session_id = ?
+         ORDER BY created_at DESC
+         LIMIT ?`,
+      )
+      .bind(sessionId, Math.max(1, Math.min(200, Number(limit) || 60)))
+      .all();
+    const list = Array.isArray(rows?.results)
+      ? rows.results.map((row) => ({
+          text: String(row?.text || ''),
+          source: String(row?.source || 'rag'),
+          at: String(row?.at || row?.created_at || new Date().toISOString()),
+        }))
+      : [];
+    if (list.length) {
+      return list;
+    }
+  }
   if (!env?.PORTFOLIO_OS?.list) return [];
   const out = [];
   let cursor = undefined;

@@ -30,6 +30,14 @@ const R2_POST_PREFIX = 'posts/markdown';
 const R2_ASSET_PREFIX = 'posts/assets';
 const R2_SNAPSHOT_PREFIX = 'posts/snapshots';
 
+function postsDb(env) {
+  return env.POSTS_DB || env.DB || null;
+}
+
+function postsBucket(env) {
+  return env.POSTS_BUCKET || env.POSTS || null;
+}
+
 /**
  * Parse optional YAML-like frontmatter (--- blocks).
  * @returns {{ body: string, meta: Record<string, string> }}
@@ -103,7 +111,8 @@ function assetRefsFromMarkdown(markdown) {
 }
 
 export async function ensureContentInfra(env) {
-  if (!env.POSTS_DB) {
+  const db = postsDb(env);
+  if (!db) {
     return;
   }
   const stmts = [
@@ -167,19 +176,21 @@ export async function ensureContentInfra(env) {
     )`,
   ];
   for (const sql of stmts) {
-    await env.POSTS_DB.prepare(sql).run();
+    await db.prepare(sql).run();
   }
 }
 
 export async function syncPostToStorage(env, path, markdown) {
   await ensureContentInfra(env);
+  const db = postsDb(env);
+  const bucket = postsBucket(env);
   const payload = await postPayload(path, markdown, env);
   const nowIso = new Date().toISOString();
   const r2MarkdownKey = `${R2_POST_PREFIX}${path}`;
   const r2SnapshotKey = `${R2_SNAPSHOT_PREFIX}${path}.${nowIso.replaceAll(':', '-')}.json`;
 
-  if (env.POSTS_BUCKET) {
-    await env.POSTS_BUCKET.put(r2MarkdownKey, markdown, {
+  if (bucket) {
+    await bucket.put(r2MarkdownKey, markdown, {
       httpMetadata: { contentType: 'text/markdown; charset=utf-8' },
       customMetadata: {
         path,
@@ -188,7 +199,7 @@ export async function syncPostToStorage(env, path, markdown) {
         updated: payload.updated,
       },
     });
-    await env.POSTS_BUCKET.put(
+    await bucket.put(
       r2SnapshotKey,
       JSON.stringify({
         path,
@@ -206,10 +217,10 @@ export async function syncPostToStorage(env, path, markdown) {
     );
   }
 
-  if (!env.POSTS_DB) {
+  if (!db) {
     return;
   }
-  await env.POSTS_DB.prepare(
+  await db.prepare(
     `INSERT INTO posts (
       path, slug, title, published, updated, description, tags_json, body_text, featured_asset,
       r2_markdown_key, r2_snapshot_key, updated_at
@@ -237,24 +248,24 @@ export async function syncPostToStorage(env, path, markdown) {
       JSON.stringify(payload.tags),
       payload.body,
       String(payload.meta.featured || '').trim() || null,
-      env.POSTS_BUCKET ? r2MarkdownKey : null,
-      env.POSTS_BUCKET ? r2SnapshotKey : null,
+      bucket ? r2MarkdownKey : null,
+      bucket ? r2SnapshotKey : null,
       nowIso,
     )
     .run();
 
-  await env.POSTS_DB.prepare('DELETE FROM post_tags WHERE post_path = ?').bind(path).run();
+  await db.prepare('DELETE FROM post_tags WHERE post_path = ?').bind(path).run();
   for (const tag of payload.tags) {
-    await env.POSTS_DB.prepare('INSERT OR IGNORE INTO post_tags (post_path, tag) VALUES (?, ?)').bind(path, tag).run();
+    await db.prepare('INSERT OR IGNORE INTO post_tags (post_path, tag) VALUES (?, ?)').bind(path, tag).run();
   }
-  await env.POSTS_DB.prepare(
+  await db.prepare(
     `INSERT INTO post_search (post_path, searchable_text, updated_at)
      VALUES (?, ?, ?)
      ON CONFLICT(post_path) DO UPDATE SET searchable_text = excluded.searchable_text, updated_at = excluded.updated_at`,
   )
     .bind(path, [payload.title, payload.description, payload.body, payload.tags.join(' ')].join('\n'), nowIso)
     .run();
-  await env.POSTS_DB.prepare(
+  await db.prepare(
     `INSERT INTO post_metrics (post_path, views, reactions, messages, bookings, updated_at)
      VALUES (?, 0, 0, 0, 0, ?)
      ON CONFLICT(post_path) DO NOTHING`,
@@ -265,7 +276,8 @@ export async function syncPostToStorage(env, path, markdown) {
 
 export async function syncAssetToStorage(env, path, content) {
   await ensureContentInfra(env);
-  if (env.POSTS_BUCKET) {
+  const bucket = postsBucket(env);
+  if (bucket) {
     const key = `${R2_ASSET_PREFIX}${path}`;
     const ext = path.split('.').pop()?.toLowerCase() ?? '';
     const contentType =
@@ -282,34 +294,37 @@ export async function syncAssetToStorage(env, path, content) {
                 : ext === 'pdf'
                   ? 'application/pdf'
                   : 'application/octet-stream';
-    await env.POSTS_BUCKET.put(key, content, { httpMetadata: { contentType } });
+    await bucket.put(key, content, { httpMetadata: { contentType } });
   }
 }
 
 export async function deletePostFromStorage(env, path) {
   await ensureContentInfra(env);
-  if (env.POSTS_BUCKET) {
-    await env.POSTS_BUCKET.delete(`${R2_POST_PREFIX}${path}`);
+  const db = postsDb(env);
+  const bucket = postsBucket(env);
+  if (bucket) {
+    await bucket.delete(`${R2_POST_PREFIX}${path}`);
   }
-  if (!env.POSTS_DB) {
+  if (!db) {
     return;
   }
-  await env.POSTS_DB.prepare('DELETE FROM post_tags WHERE post_path = ?').bind(path).run();
-  await env.POSTS_DB.prepare('DELETE FROM post_search WHERE post_path = ?').bind(path).run();
-  await env.POSTS_DB.prepare('DELETE FROM post_metrics WHERE post_path = ?').bind(path).run();
-  await env.POSTS_DB.prepare('DELETE FROM post_reactions WHERE post_path = ?').bind(path).run();
-  await env.POSTS_DB.prepare('DELETE FROM post_messages WHERE post_path = ?').bind(path).run();
-  await env.POSTS_DB.prepare('DELETE FROM posts WHERE path = ?').bind(path).run();
+  await db.prepare('DELETE FROM post_tags WHERE post_path = ?').bind(path).run();
+  await db.prepare('DELETE FROM post_search WHERE post_path = ?').bind(path).run();
+  await db.prepare('DELETE FROM post_metrics WHERE post_path = ?').bind(path).run();
+  await db.prepare('DELETE FROM post_reactions WHERE post_path = ?').bind(path).run();
+  await db.prepare('DELETE FROM post_messages WHERE post_path = ?').bind(path).run();
+  await db.prepare('DELETE FROM posts WHERE path = ?').bind(path).run();
 }
 
 export async function recordPostEvent(env, postPath, event, details = {}) {
   await ensureContentInfra(env);
-  if (!env.POSTS_DB || !postPath) {
+  const db = postsDb(env);
+  if (!db || !postPath) {
     return;
   }
   const now = new Date().toISOString();
   if (event === 'view') {
-    await env.POSTS_DB.prepare(
+    await db.prepare(
       `INSERT INTO post_metrics (post_path, views, reactions, messages, bookings, updated_at)
        VALUES (?, 1, 0, 0, 0, ?)
        ON CONFLICT(post_path) DO UPDATE SET views = views + 1, updated_at = excluded.updated_at`,
@@ -320,14 +335,14 @@ export async function recordPostEvent(env, postPath, event, details = {}) {
   }
   if (event === 'reaction') {
     const reaction = String(details.reaction || 'like').slice(0, 32);
-    await env.POSTS_DB.prepare(
+    await db.prepare(
       `INSERT INTO post_reactions (post_path, reaction, count, updated_at)
        VALUES (?, ?, 1, ?)
        ON CONFLICT(post_path, reaction) DO UPDATE SET count = count + 1, updated_at = excluded.updated_at`,
     )
       .bind(postPath, reaction, now)
       .run();
-    await env.POSTS_DB.prepare(
+    await db.prepare(
       `INSERT INTO post_metrics (post_path, views, reactions, messages, bookings, updated_at)
        VALUES (?, 0, 1, 0, 0, ?)
        ON CONFLICT(post_path) DO UPDATE SET reactions = reactions + 1, updated_at = excluded.updated_at`,
@@ -340,12 +355,12 @@ export async function recordPostEvent(env, postPath, event, details = {}) {
     const name = String(details.name || 'anonymous').slice(0, 60);
     const message = String(details.message || '').slice(0, 2000);
     const kind = String(details.kind || 'message').slice(0, 24);
-    await env.POSTS_DB.prepare(
+    await db.prepare(
       'INSERT INTO post_messages (post_path, name, message, kind, created_at) VALUES (?, ?, ?, ?, ?)',
     )
       .bind(postPath, name, message, kind, now)
       .run();
-    await env.POSTS_DB.prepare(
+    await db.prepare(
       `INSERT INTO post_metrics (post_path, views, reactions, messages, bookings, updated_at)
        VALUES (?, 0, 0, 1, 0, ?)
        ON CONFLICT(post_path) DO UPDATE SET messages = messages + 1, updated_at = excluded.updated_at`,
@@ -357,11 +372,12 @@ export async function recordPostEvent(env, postPath, event, details = {}) {
 
 export async function recordBookingEvent(env, booking) {
   await ensureContentInfra(env);
-  if (!env.POSTS_DB) {
+  const db = postsDb(env);
+  if (!db) {
     return;
   }
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  await env.POSTS_DB.prepare(
+  await db.prepare(
     `INSERT INTO bookings (id, email, date, time, duration, message, meet_link, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   )

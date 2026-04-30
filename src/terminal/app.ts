@@ -46,6 +46,7 @@ type OsResponse = {
   error?: string;
   mode?: 'chat';
   config?: Record<string, unknown>;
+  cwd?: string;
 };
 type ChatResponse = {
   answer?: string;
@@ -319,6 +320,7 @@ export class TerminalApp {
   private shellAliases: Record<string, string> = {};
   private identityDisplayName = 'guest';
   private identityEnvironment = 'pecunies';
+  private osCurrentDir = '/home/guest';
   private identityEmail = '';
   private aiModel = DEFAULT_AI_MODEL;
   private systemPromptInjection = '';
@@ -1211,7 +1213,11 @@ export class TerminalApp {
   }
 
   private currentIdentityPrompt(): string {
-    return `${this.identityDisplayName}@${this.identityEnvironment}:~$`;
+    const home = this.osUserHomeDir();
+    const raw = (this.osCurrentDir || home).trim() || home;
+    const normalized = raw.startsWith('/') ? raw : `/${raw}`;
+    const displayPath = normalized === home ? '~' : normalized.startsWith(`${home}/`) ? `~${normalized.slice(home.length)}` : normalized;
+    return `${this.identityDisplayName}@${this.identityEnvironment}:${displayPath}$`;
   }
 
   private setShellPrompt(): void {
@@ -1388,6 +1394,12 @@ export class TerminalApp {
       const payload = (await response.json().catch(() => null)) as OsResponse | null;
       if (payload?.config && typeof payload.config === 'object') {
         this.applyOsConfig(payload.config as Record<string, unknown>);
+      }
+      if (typeof payload?.cwd === 'string' && payload.cwd.trim()) {
+        this.osCurrentDir = payload.cwd.trim();
+        if (!this.chatMode && !this.gameMode) {
+          this.setShellPrompt();
+        }
       }
       if (!response.ok) {
         return {};
@@ -1754,8 +1766,52 @@ export class TerminalApp {
     // Expand ~ to /home in paths (avoid lookbehind for compat)
     const tildeExpanded = rawInput.replace(/(^|\s)~(?=\/|\s|$)/g, '$1/home');
     const normalized = tildeExpanded.replace(/^\//, '').replace(/^\.\//, '').trim();
-    const [name = '', ...args] = normalized.split(/\s+/);
+    const [name = '', ...args] = this.splitShellArgs(normalized);
     return { name: name.toLowerCase(), args };
+  }
+
+  private splitShellArgs(input: string): string[] {
+    const tokens: string[] = [];
+    let current = '';
+    let quote: '"' | "'" | null = null;
+    let escape = false;
+
+    for (let i = 0; i < input.length; i += 1) {
+      const ch = input[i] ?? '';
+      if (escape) {
+        current += ch;
+        escape = false;
+        continue;
+      }
+      if (ch === '\\' && quote !== "'") {
+        escape = true;
+        continue;
+      }
+      if (quote) {
+        if (ch === quote) {
+          quote = null;
+        } else {
+          current += ch;
+        }
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        quote = ch;
+        continue;
+      }
+      if (/\s/.test(ch)) {
+        if (current) {
+          tokens.push(current);
+          current = '';
+        }
+        continue;
+      }
+      current += ch;
+    }
+    if (current) {
+      tokens.push(current);
+    }
+    return tokens;
   }
 
   private applyAiCliFlags(args: string[]): string[] {
@@ -2528,7 +2584,7 @@ export class TerminalApp {
               <a href="/api/rss" target="_blank" rel="noopener noreferrer" class="rss-subscribe-link" aria-label="RSS feed">RSS</a>
             </p>
           </div>
-          <div class="output-records post-feed">
+          <div class="output-records post-feed timeline-rail">
             ${posts
               .map((post) => {
                 const commentList = post.comments ?? [];
@@ -2536,11 +2592,12 @@ export class TerminalApp {
 
                 return `
                   <article
-                    class="output-record post-card is-clickable"
+                    class="output-record post-card timeline-item post-timeline-item is-clickable"
                     role="button"
                     tabindex="0"
                     data-command="post open ${this.escapeAttribute(post.slug)}"
                   >
+                    <span class="timeline-marker" aria-hidden="true"></span>
                     <div class="record-topline">
                       <p class="post-card-titleline">
                         <strong>${this.escapeHtml(post.title)}</strong>
@@ -2640,6 +2697,7 @@ export class TerminalApp {
           model: this.aiModel,
           systemPrompt: this.systemPromptInjection,
           message,
+          visibleContext: this.visibleContext(),
           history: this.lines
             .filter((line) => line.id !== pendingId)
             .slice(-12)
@@ -2696,7 +2754,7 @@ export class TerminalApp {
       const payload = (await response.json().catch(() => null)) as OsResponse | null;
       const output = response.ok
         ? payload?.output ?? 'OK'
-        : payload?.error ?? `OS command failed with status ${response.status}.`;
+        : payload?.output ?? payload?.error ?? `OS command failed with status ${response.status}.`;
 
       if (payload?.config && typeof payload.config === 'object') {
         this.applyOsConfig(payload.config as Record<string, unknown>);

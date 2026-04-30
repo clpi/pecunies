@@ -194,14 +194,15 @@ input:focus-visible {
   inset: -12%;
   z-index: 1;
   pointer-events: none;
-  opacity: 0.085;
+  opacity: 0.004;
   background-image:
-    repeating-linear-gradient(62deg, color-mix(in srgb, var(--accent) 10%, rgba(255, 255, 255, 0.02)) 0 1px, transparent 1px 40px),
-    repeating-linear-gradient(-62deg, rgba(106, 196, 255, 0.04) 0 1px, transparent 1px 54px),
-    repeating-linear-gradient(28deg, rgba(194, 142, 255, 0.022) 0 1px, transparent 1px 66px);
+    repeating-linear-gradient(62deg, color-mix(in srgb, var(--accent) 2%, rgba(255, 255, 255, 0.003)) 0 1px, transparent 1px 40px),
+    repeating-linear-gradient(-62deg, rgba(106, 196, 255, 0.005) 0 1px, transparent 1px 54px),
+    repeating-linear-gradient(28deg, rgba(194, 142, 255, 0.004) 0 1px, transparent 1px 66px);
   background-size: 170px 170px, 220px 220px, 280px 280px;
   transform: translate3d(var(--parallax-grid-x, 0px), var(--parallax-grid-y, 0px), 0) scale(1.02);
   will-change: transform;
+  animation: parallax-grid-drift 42s linear infinite;
 }
 
 .ambient-noise {
@@ -409,7 +410,7 @@ body.view-switching .field-canvas {
 }
 
 body.view-switching .parallax-grid {
-  opacity: 0.1;
+  opacity: 0.008;
 }
 
 body.view-switching .ambient-noise {
@@ -536,6 +537,37 @@ html.crt-on .terminal-crt-scan {
   }
   100% {
     transform: translate(0, 0);
+  }
+}
+
+@keyframes parallax-grid-drift {
+  0% {
+    transform: translate3d(calc(var(--parallax-grid-x, 0px) - 1px), calc(var(--parallax-grid-y, 0px) - 1px), 0) scale(1.02);
+    opacity: 0.0036;
+  }
+  11% {
+    transform: translate3d(calc(var(--parallax-grid-x, 0px) + 1.2px), calc(var(--parallax-grid-y, 0px) - 0.2px), 0) scale(1.021);
+    opacity: 0.0041;
+  }
+  27% {
+    transform: translate3d(calc(var(--parallax-grid-x, 0px) + 0.1px), calc(var(--parallax-grid-y, 0px) + 1.4px), 0) scale(1.019);
+    opacity: 0.0033;
+  }
+  44% {
+    transform: translate3d(calc(var(--parallax-grid-x, 0px) - 1.5px), calc(var(--parallax-grid-y, 0px) + 0.4px), 0) scale(1.022);
+    opacity: 0.0042;
+  }
+  63% {
+    transform: translate3d(calc(var(--parallax-grid-x, 0px) + 1.4px), calc(var(--parallax-grid-y, 0px) - 1.1px), 0) scale(1.02);
+    opacity: 0.0032;
+  }
+  81% {
+    transform: translate3d(calc(var(--parallax-grid-x, 0px) - 0.4px), calc(var(--parallax-grid-y, 0px) + 1.6px), 0) scale(1.021);
+    opacity: 0.0039;
+  }
+  100% {
+    transform: translate3d(calc(var(--parallax-grid-x, 0px) - 1px), calc(var(--parallax-grid-y, 0px) - 1px), 0) scale(1.02);
+    opacity: 0.0036;
   }
 }
 
@@ -2925,11 +2957,13 @@ a.output-record:hover {
 .md-code-block code {
   display: block;
   padding: 0.58rem 0.65rem;
-  overflow-x: hidden;
+  overflow-x: auto;
   max-width: 100%;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+  line-height: 1.45;
+  tab-size: 2;
 }
 
 :root {
