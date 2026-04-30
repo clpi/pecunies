@@ -2198,7 +2198,7 @@ export function createCommandRegistry(): {
   addOsCommand('config', {
     usage: 'config <set|get|list|reset> [key] [value]',
     group: 'System',
-    description: 'Manage user config: theme, font_size, font, dark, name, environment, email.',
+    description: 'Manage user config: theme, syntax_scheme, font_size, font, dark, name, environment, email.',
   });
 
   addOsCommand('note', {

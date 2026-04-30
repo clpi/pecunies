@@ -371,7 +371,7 @@ const MANUALS = {
   tags: 'tags [fragment]\nList all tags used in the portfolio OS, or show content for tags whose names match <fragment> (substring).',
   post: 'post open <slug>\nFrontend command: load a full post from /api/posts. Use posts to browse the index.',
   config:
-    'config <set|get|list|reset> [key] [value]\nSession preferences: crt on|off (CRT scanline effect), theme, font_size, font, dark, name, environment, email, ai_model, system_prompt.\nChanging name moves the simulated home to /home/<name>, creates it if needed, migrates .clpshrc and .clpsh_history from the previous home when present, and resets cwd to the new home.',
+    'config <set|get|list|reset> [key] [value]\nSession preferences: crt on|off (CRT scanline effect), theme, syntax_scheme (default|contrast|pastel), font_size, font, dark, name, environment, email, ai_model, system_prompt.\nChanging name moves the simulated home to /home/<name>, creates it if needed, migrates .clpshrc and .clpsh_history from the previous home when present, and resets cwd to the new home.',
 };
 
 /** Command → taxonomy tags (shown on man pages); keep in sync with src/data/content-tags.ts COMMAND_TAGS */
@@ -2804,6 +2804,7 @@ function normalizeUrl(rawUrl) {
 function mergeConfigDefaults(raw) {
   return {
     theme: 'orange',
+    syntax_scheme: 'default',
     font_size: 14,
     font: 'monospace',
     dark: true,
@@ -3415,6 +3416,7 @@ function renderGuestShellRc(config) {
     `export ENVIRONMENT=${String(c.environment || 'pecunies')}`,
     `export AI_MODEL=${String(c.ai_model || '@cf/meta/llama-3.1-8b-instruct')}`,
     `export THEME=${String(c.theme || 'orange')}`,
+    `export SYNTAX_SCHEME=${String(c.syntax_scheme || 'default')}`,
     `export DARK_MODE=${String(c.dark !== false)}`,
     `export SYSTEM_PROMPT=${JSON.stringify(String(c.system_prompt || ''))}`,
     '',
@@ -3451,6 +3453,9 @@ async function configHandler(args, state, env) {
     } else {
       if (key === 'name') {
         val = sanitizeUsername(String(val));
+      } else if (key === 'syntax_scheme') {
+        const normalized = String(val || '').trim().toLowerCase();
+        val = ['default', 'contrast', 'pastel'].includes(normalized) ? normalized : 'default';
       } else if (val === 'true') val = true;
       else if (val === 'false') val = false;
       else if (key !== 'email' && key !== 'environment' && key !== 'system_prompt' && /^\d+$/.test(val)) {

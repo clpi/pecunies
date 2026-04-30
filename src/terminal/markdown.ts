@@ -39,7 +39,7 @@ function renderMarkdownCore(markdown: string): string {
     const language = (lang || 'text').toLowerCase();
     const highlighted = highlightCode(text, language);
     const lineNumbers = buildLineNumbers(text);
-    return `<pre class="md-code-block" data-lang="${escapeHtml(language)}"><div class="md-code-block-head"><span class="md-code-block-language">${escapeHtml(language)}</span><button type="button" class="md-code-copy-button" aria-label="Copy code" data-copy-code>Copy</button></div><div class="md-code-block-body"><span class="md-code-line-numbers" aria-hidden="true">${lineNumbers}</span><code class="language-${escapeHtml(language)}">${highlighted}</code></div></pre>`;
+    return `<pre class="md-code-block" data-lang="${escapeHtml(language)}"><div class="md-code-block-head"><span class="md-code-block-language">${escapeHtml(language)}</span><button type="button" class="md-code-copy-button" aria-label="Copy code" data-copy-code></button></div><div class="md-code-block-body"><span class="md-code-line-numbers" aria-hidden="true">${lineNumbers}</span><code class="language-${escapeHtml(language)}">${highlighted}</code></div></pre>`;
   };
   const raw = marked.parse(markdown, { async: false, renderer }) as string;
   return DOMPurify.sanitize(raw, PURIFY) as string;

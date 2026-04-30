@@ -208,7 +208,7 @@ const ARG_HINTS: Record<string, Array<{ token: string; description: string }>> =
   su: [{ token: '<password>', description: 'optional password to become root for 5 minutes' }],
   source: [{ token: '<path>', description: 'shell script or rc file to source' }],
   rag: [
-    { token: '<add|list|clear>', description: 'manage persistent session context notes' },
+    { token: '<add|list|search|clear>', description: 'manage persistent session context notes' },
     { token: '<context>', description: 'context text injected into AI calls' },
   ],
   comment: [
@@ -222,7 +222,7 @@ const ARG_HINTS: Record<string, Array<{ token: string; description: string }>> =
   ],
   config: [
     { token: '<set|get|list|reset>', description: 'config subcommand' },
-    { token: '<key>', description: 'theme, font_size, font, dark, name, email' },
+    { token: '<key>', description: 'theme, syntax_scheme, font_size, font, dark, name, email' },
     { token: '<value>', description: 'value for the config key' },
   ],
   note: [
@@ -323,6 +323,7 @@ export class TerminalApp {
   private aiModel = DEFAULT_AI_MODEL;
   private systemPromptInjection = '';
   private darkMode = true;
+  private syntaxScheme: 'default' | 'contrast' | 'pastel' = 'default';
   private suppressNextFocusAutocomplete = false;
   private typingIdleTimer: ReturnType<typeof setTimeout> | null = null;
   private viewHistory: string[] = [];
@@ -632,11 +633,9 @@ export class TerminalApp {
           void navigator.clipboard?.writeText(codeText).catch(() => undefined);
           codeCopyButton.classList.add('is-copied');
           codeCopyButton.setAttribute('aria-label', 'Copied');
-          codeCopyButton.textContent = 'Copied';
           window.setTimeout(() => {
             codeCopyButton.classList.remove('is-copied');
             codeCopyButton.setAttribute('aria-label', 'Copy code');
-            codeCopyButton.textContent = 'Copy';
           }, 1200);
         }
         return;
@@ -1184,7 +1183,16 @@ export class TerminalApp {
     if ('system_prompt' in config) {
       this.systemPromptInjection = String(config.system_prompt ?? '').slice(0, 1200);
     }
+    if ('syntax_scheme' in config) {
+      const raw = String(config.syntax_scheme ?? '').trim().toLowerCase();
+      this.applySyntaxScheme(raw === 'contrast' || raw === 'pastel' ? raw : 'default');
+    }
     this.updatePromptIdentityUi();
+  }
+
+  private applySyntaxScheme(scheme: 'default' | 'contrast' | 'pastel'): void {
+    this.syntaxScheme = scheme;
+    document.documentElement.setAttribute('data-syntax-scheme', scheme);
   }
 
   private normalizeIdentityPart(value: unknown, fallback: string): string {
@@ -1325,6 +1333,8 @@ export class TerminalApp {
     const crt = Boolean(config.crt ?? true);
     const aiModel = String(config.ai_model ?? this.aiModel);
     const systemPrompt = String(config.system_prompt ?? '');
+    const syntaxSchemeRaw = String(config.syntax_scheme ?? this.syntaxScheme).toLowerCase();
+    const syntaxScheme = syntaxSchemeRaw === 'contrast' || syntaxSchemeRaw === 'pastel' ? syntaxSchemeRaw : 'default';
     const themeOptions = ['auto', ...Object.keys(terminalThemes)]
       .map((t) => `<option value="${this.escapeAttribute(t)}"${t === theme ? ' selected' : ''}>${this.escapeHtml(t)}</option>`)
       .join('');
@@ -1347,6 +1357,7 @@ export class TerminalApp {
             <label class="config-editor-field"><span>environment</span><input data-config-field="environment" type="text" value="${this.escapeAttribute(environment)}" /></label>
             <label class="config-editor-field"><span>email</span><input data-config-field="email" type="email" value="${this.escapeAttribute(email)}" /></label>
             <label class="config-editor-field"><span>ai_model</span><select data-config-field="ai_model">${modelOptions}</select></label>
+            <label class="config-editor-field"><span>syntax_scheme</span><select data-config-field="syntax_scheme"><option value="default"${syntaxScheme === 'default' ? ' selected' : ''}>default</option><option value="contrast"${syntaxScheme === 'contrast' ? ' selected' : ''}>contrast</option><option value="pastel"${syntaxScheme === 'pastel' ? ' selected' : ''}>pastel</option></select></label>
             <label class="config-editor-toggle"><input data-config-field="dark" type="checkbox"${dark ? ' checked' : ''} /><span>dark</span></label>
             <label class="config-editor-toggle"><input data-config-field="crt" type="checkbox"${crt ? ' checked' : ''} /><span>crt</span></label>
           </div>
@@ -1426,6 +1437,7 @@ export class TerminalApp {
       ['environment', this.readConfigEditorField('environment') || 'pecunies'],
       ['email', this.readConfigEditorField('email') || ''],
       ['ai_model', this.readConfigEditorField('ai_model') || DEFAULT_AI_MODEL],
+      ['syntax_scheme', this.readConfigEditorField('syntax_scheme') || 'default'],
       ['system_prompt', this.readConfigEditorField('system_prompt') || ''],
       ['dark', this.readConfigEditorToggle('dark') ? 'true' : 'false'],
       ['crt', this.readConfigEditorToggle('crt') ? 'true' : 'false'],
@@ -1510,6 +1522,7 @@ export class TerminalApp {
       if (!raw) {
         this.shellAliases = {};
         this.manualTheme = null;
+        this.applySyntaxScheme('default');
         this.applyDarkMode(localStorage.getItem('pecunies.dark') !== 'false');
         this.persistShellProfile();
         return;
@@ -1526,6 +1539,7 @@ export class TerminalApp {
         delete this.shellAliases.ls;
       }
       const t = p.env?.THEME?.toLowerCase();
+      const syntaxRaw = String(p.env?.SYNTAX_SCHEME ?? '').toLowerCase();
       if (p.aiModel && AI_MODEL_OPTIONS.includes(p.aiModel as (typeof AI_MODEL_OPTIONS)[number])) {
         this.aiModel = p.aiModel;
       }
@@ -1540,6 +1554,7 @@ export class TerminalApp {
       } else {
         this.manualTheme = null;
       }
+      this.applySyntaxScheme(syntaxRaw === 'contrast' || syntaxRaw === 'pastel' ? syntaxRaw : 'default');
       if (this.activeView) {
         this.applyTheme(this.effectiveTheme(this.activeView));
       } else {
@@ -1548,6 +1563,7 @@ export class TerminalApp {
     } catch {
       this.shellAliases = {};
       this.manualTheme = null;
+      this.applySyntaxScheme('default');
       this.applyDarkMode(true);
     }
   }
@@ -1558,7 +1574,7 @@ export class TerminalApp {
         SHELL_PROFILE_STORAGE,
         JSON.stringify({
           aliases: this.shellAliases,
-          env: { THEME: this.manualTheme ?? 'auto' },
+          env: { THEME: this.manualTheme ?? 'auto', SYNTAX_SCHEME: this.syntaxScheme },
           aiModel: this.aiModel,
           systemPrompt: this.systemPromptInjection,
           darkMode: this.darkMode,
@@ -2722,8 +2738,7 @@ export class TerminalApp {
         await this.streamMarkdownToLine(pendingId, output, isAiMarkdown ? this.aiModel : undefined, renderer);
       } else if (isCodePath) {
         this.morphLineToPretty(pendingId);
-        const lang = targetPath.split('.').pop() || 'text';
-        await this.streamMarkdownToLine(pendingId, `\`\`\`${lang}\n${output}\n\`\`\``);
+        await this.streamMarkdownToLine(pendingId, this.normalizeCodeMarkdown(output, targetPath));
       } else {
         this.replaceLine(pendingId, output, 'success');
       }
@@ -2758,6 +2773,18 @@ export class TerminalApp {
     return [this.viewElement.textContent ?? '', ...this.lines.map((line) => this.lineText(line))]
       .join('\n')
       .slice(-6000);
+  }
+
+  private normalizeCodeMarkdown(output: string, targetPath: string): string {
+    const lang = (targetPath.split('.').pop() || 'text').toLowerCase();
+    const trimmed = String(output || '').trim();
+    const fenced = trimmed.match(/^```([a-zA-Z0-9_-]*)\n([\s\S]*?)\n```$/);
+    if (fenced) {
+      const existingLang = (fenced[1] || '').toLowerCase() || lang;
+      const body = fenced[2] ?? '';
+      return `\`\`\`${existingLang}\n${body}\n\`\`\``;
+    }
+    return `\`\`\`${lang}\n${output}\n\`\`\``;
   }
 
   private lineText(line: SessionLine): string {

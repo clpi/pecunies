@@ -205,7 +205,7 @@ input:focus-visible {
 
 .ambient-noise {
   z-index: 2;
-  opacity: 0.075;
+  opacity: 0.092;
   mix-blend-mode: screen;
   background-image:
     radial-gradient(circle at 12% 20%, rgba(255, 255, 255, 0.32) 0 1px, transparent 1px),
@@ -213,7 +213,7 @@ input:focus-visible {
     radial-gradient(circle at 38% 66%, rgba(255, 255, 255, 0.2) 0 1px, transparent 1px),
     radial-gradient(circle at 54% 42%, rgba(255, 255, 255, 0.14) 0 1px, transparent 1px);
   background-size: 18px 20px, 28px 32px, 44px 48px, 62px 68px;
-  animation: ambient-noise-drift 0.46s steps(3) infinite;
+  animation: ambient-noise-drift 0.42s steps(3) infinite;
 }
 
 .scanlines {
@@ -846,8 +846,8 @@ html.light-mode .field-canvas {
   box-shadow:
     0 44px 118px rgba(0, 0, 0, 0.64),
     0 0 0 1px rgba(255, 255, 255, 0.042) inset,
-    0 0 6px color-mix(in srgb, var(--accent) 3%, transparent),
-    0 0 10px color-mix(in srgb, var(--glow) 8%, transparent);
+    0 0 5px color-mix(in srgb, var(--accent) 2%, transparent),
+    0 0 8px color-mix(in srgb, var(--glow) 6%, transparent);
   transform:
     rotateX(var(--shell-tilt-x, 0deg))
     rotateY(var(--shell-tilt-y, 0deg))
@@ -947,7 +947,7 @@ html.light-mode .field-canvas {
     linear-gradient(118deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent 26%, transparent 72%, rgba(255, 255, 255, 0.028)),
     linear-gradient(120deg, rgba(255, 255, 255, 0.065), transparent 14%, transparent 78%, rgba(255, 255, 255, 0.034)),
     linear-gradient(210deg, transparent 40%, rgba(255, 255, 255, 0.045) 50%, transparent 60%);
-  opacity: 0.15;
+  opacity: 0.12;
   animation: terminal-aura-drift 14s cubic-bezier(0.44, 0.06, 0.31, 0.97) infinite;
 }
 
@@ -2852,10 +2852,9 @@ a.output-record:hover {
   padding: 0.28rem 0.58rem;
   font-size: 0.63rem;
   letter-spacing: 0.05em;
-  text-transform: uppercase;
+  text-transform: lowercase;
   color: color-mix(in srgb, var(--accent) 76%, #fff 24%);
-  background: color-mix(in srgb, var(--accent-soft) 16%, rgba(255, 255, 255, 0.01));
-  border-bottom: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
+  background: transparent;
 }
 
 .md-code-block-language {
@@ -2865,19 +2864,35 @@ a.output-record:hover {
 .md-code-copy-button {
   opacity: 0;
   pointer-events: none;
-  border: 0;
-  background: transparent;
+  width: 1.26rem;
+  height: 1.26rem;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, transparent);
+  background: color-mix(in srgb, var(--accent-soft) 14%, transparent);
   color: color-mix(in srgb, var(--accent) 64%, #fff 36%);
   font: inherit;
-  font-size: 0.62rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  transition: opacity 120ms ease, color 120ms ease;
+  transition: opacity 120ms ease, color 120ms ease, border-color 120ms ease, background 120ms ease, transform 120ms ease;
+}
+
+.md-code-copy-button::before {
+  content: '⧉';
+  font-size: 0.7rem;
+  line-height: 1;
 }
 
 .md-code-copy-button.is-copied {
   opacity: 1;
   color: color-mix(in srgb, var(--accent) 42%, #b8f8ce 58%);
+  border-color: color-mix(in srgb, var(--accent) 30%, #8ef0ba 70%);
+  background: color-mix(in srgb, var(--accent-soft) 18%, rgba(142, 240, 186, 0.12));
+  transform: scale(1.02);
+}
+
+.md-code-copy-button.is-copied::before {
+  content: '✓';
+  font-size: 0.72rem;
 }
 
 .md-code-block:hover .md-code-copy-button,
@@ -2888,6 +2903,8 @@ a.output-record:hover {
 
 .md-code-copy-button:hover {
   color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 62%, transparent);
+  background: color-mix(in srgb, var(--accent-soft) 22%, transparent);
 }
 
 .md-code-block-body {
@@ -2901,7 +2918,6 @@ a.output-record:hover {
   margin: 0;
   padding: 0.58rem 0.52rem 0.58rem 0.58rem;
   min-width: 2.2rem;
-  border-right: 1px solid rgba(255, 255, 255, 0.07);
   color: color-mix(in srgb, var(--ink-dim) 78%, rgba(255, 255, 255, 0.24));
   font-size: 0.67rem;
   text-align: right;
@@ -2919,14 +2935,57 @@ a.output-record:hover {
   word-break: break-word;
 }
 
-.tok-keyword { color: color-mix(in srgb, var(--accent) 32%, #b58cff 68%); }
-.tok-type { color: color-mix(in srgb, var(--accent) 20%, #86bdff 80%); }
-.tok-function { color: color-mix(in srgb, var(--accent) 18%, #79e8d1 82%); }
-.tok-string { color: color-mix(in srgb, var(--accent) 16%, #b7f28e 84%); }
-.tok-number { color: color-mix(in srgb, var(--accent) 22%, #ff9a76 78%); }
-.tok-comment { color: color-mix(in srgb, var(--muted) 74%, #8fa5ba 26%); font-style: italic; }
-.tok-builtin { color: color-mix(in srgb, var(--accent) 14%, #8fdfff 86%); }
-.tok-constant { color: color-mix(in srgb, var(--accent) 18%, #ffd17d 82%); }
-.tok-operator { color: color-mix(in srgb, var(--accent) 22%, #ff8b96 78%); }
-.tok-punctuation { color: color-mix(in srgb, var(--ink) 84%, #8ea3b8 16%); }
-.tok-decorator { color: color-mix(in srgb, var(--accent) 20%, #ffb27a 80%); }
+:root {
+  /* Theme-independent syntax palette (drawn from all UI palettes). */
+  --syntax-keyword: #c688ff;      /* magenta/purple */
+  --syntax-type: #78b7ff;         /* blue/frost */
+  --syntax-function: #66e2c3;     /* green/cyan */
+  --syntax-string: #c6eb7c;       /* green/amber blend */
+  --syntax-number: #ffb07a;       /* amber/orange */
+  --syntax-comment: #8ea2b7;      /* slate */
+  --syntax-builtin: #7fdfff;      /* frost blue */
+  --syntax-constant: #ffd27a;     /* amber */
+  --syntax-operator: #ff8899;     /* red/pink */
+  --syntax-punctuation: #a9b8c8;  /* neutral */
+  --syntax-decorator: #ffbe86;    /* orange */
+}
+
+html[data-syntax-scheme='contrast'] {
+  --syntax-keyword: #cf8fff;
+  --syntax-type: #7dc0ff;
+  --syntax-function: #4deed4;
+  --syntax-string: #c7ff78;
+  --syntax-number: #ff9f66;
+  --syntax-comment: #93a7bc;
+  --syntax-builtin: #7fe5ff;
+  --syntax-constant: #ffcf72;
+  --syntax-operator: #ff7a90;
+  --syntax-punctuation: #a7b8c9;
+  --syntax-decorator: #ffbc66;
+}
+
+html[data-syntax-scheme='pastel'] {
+  --syntax-keyword: #c8a6ff;
+  --syntax-type: #a8ccff;
+  --syntax-function: #9de8d9;
+  --syntax-string: #cdeca3;
+  --syntax-number: #ffc3a2;
+  --syntax-comment: #9aa9ba;
+  --syntax-builtin: #afe3ff;
+  --syntax-constant: #f8dc9f;
+  --syntax-operator: #f1a7af;
+  --syntax-punctuation: #b2bcc8;
+  --syntax-decorator: #f6c39f;
+}
+
+.tok-keyword { color: var(--syntax-keyword); }
+.tok-type { color: var(--syntax-type); }
+.tok-function { color: var(--syntax-function); }
+.tok-string { color: var(--syntax-string); }
+.tok-number { color: var(--syntax-number); }
+.tok-comment { color: var(--syntax-comment); font-style: italic; }
+.tok-builtin { color: var(--syntax-builtin); }
+.tok-constant { color: var(--syntax-constant); }
+.tok-operator { color: var(--syntax-operator); }
+.tok-punctuation { color: var(--syntax-punctuation); }
+.tok-decorator { color: var(--syntax-decorator); }
