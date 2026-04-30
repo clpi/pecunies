@@ -63,7 +63,7 @@ export const TAG_INDEX: Record<string, TagContentItem[]> = {
   chronology: [{ label: 'Timeline view', type: 'view', command: 'timeline' }],
   writing: [
     { label: 'Posts view', type: 'view', command: 'posts' },
-    { label: 'Terminal portfolio changelog', type: 'post', command: 'cat /posts/terminal-portfolio-changelog.md' },
+    { label: 'Terminal portfolio changelog', type: 'post', command: 'cat /posts/2026/04/29/terminal-portfolio-changelog.md' },
     { label: 'posts/', type: 'dir', command: 'ls /posts' },
   ],
   content: [
@@ -122,6 +122,7 @@ export const TAG_INDEX: Record<string, TagContentItem[]> = {
     { label: '2048', type: 'command', command: '2048' },
     { label: 'chess', type: 'command', command: 'chess' },
     { label: 'minesweeper', type: 'command', command: 'minesweeper' },
+    { label: 'jobquest', type: 'command', command: 'jobquest' },
     { label: 'leaderboard', type: 'command', command: 'leaderboard' },
   ],
   network: [

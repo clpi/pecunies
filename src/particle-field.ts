@@ -19,21 +19,21 @@ export type ParticleFieldOptions = {
 // ─── Tunables ─────────────────────────────────────────────────────────────
 const CONFIG = {
   /** Base multipliers per preset for particle counts */
-  density: { minimal: 0.42, standard: 1, enhanced: 1.55 } as const,
+  density: { minimal: 0.72, standard: 1.72, enhanced: 2.56 } as const,
   /** Global flow rotation speed (rad / ms) */
   flowRotate: 0.00000055,
   /** Pointer repulsion: max extra velocity (px/frame at ~60fps scale) */
-  repelMax: 0.85,
-  repelRadius: 118,
+  repelMax: 1.32,
+  repelRadius: 176,
   /** Noise strength scales per layer (0 = back … 2 = fore) */
-  noiseLayer: [0.22, 0.32, 0.42] as const,
+  noiseLayer: [0.4, 0.58, 0.84] as const,
   /** Velocity smoothing toward flow + noise */
-  steer: 0.031,
+  steer: 0.043,
   /** Extra vignette strength in enhanced */
   vignetteEnhanced: 0.08,
   /** Rare drift “current” pulses */
   clusterIntervalMs: 5200,
-  clusterStrength: 0.018,
+  clusterStrength: 0.041,
 } as const;
 
 // ─── Palette: dim terminal dust + theme accent (modes match terminalThemes.mode 0–3) ─
@@ -58,6 +58,8 @@ type DustParticle = {
   flickerRate: number;
   isSignal: boolean;
   colorJitter: number;
+  hueShift: number;
+  blur: number;
 };
 
 let noisePerm: Uint8Array | null = null;
@@ -161,9 +163,9 @@ function layerCounts(
   const d = CONFIG.density[preset] * (reducedMotion ? 0.12 : 1);
   const cap = (n: number, m: number) => Math.min(m, Math.max(0, Math.floor(n * d)));
 
-  const back = cap(area / 1900, preset === 'enhanced' ? 620 : preset === 'minimal' ? 220 : 480);
-  const mid = cap(area / 4500, preset === 'enhanced' ? 280 : preset === 'minimal' ? 90 : 200);
-  const fore = cap(area / 14000, preset === 'enhanced' ? 110 : preset === 'minimal' ? 36 : 78);
+  const back = cap(area / 1320, preset === 'enhanced' ? 980 : preset === 'minimal' ? 360 : 760);
+  const mid = cap(area / 3000, preset === 'enhanced' ? 540 : preset === 'minimal' ? 190 : 390);
+  const fore = cap(area / 8200, preset === 'enhanced' ? 240 : preset === 'minimal' ? 90 : 170);
   return [back, mid, fore];
 }
 
@@ -186,14 +188,14 @@ function seedParticles(
       let size: number;
       let baseAlpha: number;
       if (layer === 0) {
-        size = Math.random() < 0.88 ? 1 : 2;
-        baseAlpha = 0.05 + Math.random() * 0.07;
+        size = Math.random() < 0.58 ? 1 : Math.random() < 0.84 ? 2 : Math.random() < 0.96 ? 3 : 4;
+        baseAlpha = 0.05 + Math.random() * 0.11;
       } else if (layer === 1) {
-        size = Math.random() < 0.7 ? 1 : Math.random() < 0.85 ? 2 : 2;
-        baseAlpha = 0.08 + Math.random() * 0.1;
+        size = Math.random() < 0.28 ? 1 : Math.random() < 0.7 ? 2 : Math.random() < 0.94 ? 3 : 4;
+        baseAlpha = 0.08 + Math.random() * 0.14;
       } else {
-        size = Math.random() < 0.55 ? 1 : Math.random() < 0.9 ? 2 : 3;
-        baseAlpha = 0.09 + Math.random() * 0.11;
+        size = Math.random() < 0.2 ? 1 : Math.random() < 0.56 ? 2 : Math.random() < 0.84 ? 3 : Math.random() < 0.96 ? 4 : 5;
+        baseAlpha = 0.1 + Math.random() * 0.16;
       }
 
       if (isSignal || isMidSignal) {
@@ -213,6 +215,13 @@ function seedParticles(
         flickerRate: 0.00035 + Math.random() * 0.00085,
         isSignal: Boolean(isSignal || isMidSignal),
         colorJitter: Math.random(),
+        hueShift: (Math.random() - 0.5) * 0.38,
+        blur:
+          layer === 0
+            ? Math.random() * 0.6
+            : layer === 1
+              ? Math.random() * 0.9
+              : Math.random() * 1.2,
       });
     }
   };
@@ -254,7 +263,7 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
   const pool: DustParticle[] = [];
 
   const layerSpeed = [0.11, 0.26, 0.48] as const;
-  const layerParallax = [0.35, 0.62, 1] as const;
+  const layerParallax = [0.62, 1.08, 1.72] as const;
 
   const resize = (): void => {
     const rect = canvas.getBoundingClientRect();
@@ -331,6 +340,7 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
 
       const nx = fbm2(p.x * nScale + t, p.y * nScale * 1.1 - t * 0.4);
       const ny = fbm2(p.x * nScale * 1.3 - t * 0.3, p.y * nScale + t * 0.5 + 13.7);
+      const hueNoise = fbm2(p.x * nScale * 0.58 + t * 0.42, p.y * nScale * 0.62 - t * 0.27);
 
       let tx = flowX * ls + nx * CONFIG.noiseLayer[p.layer] * ls * 4.2;
       let ty = flowY * ls + ny * CONFIG.noiseLayer[p.layer] * ls * 4.2;
@@ -357,8 +367,8 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
       p.x += p.vx * dt * 0.055;
       p.y += p.vy * dt * 0.055;
 
-      p.x -= px * par * 2.2;
-      p.y -= py * par * 1.8;
+      p.x -= px * par * 3.8;
+      p.y -= py * par * 3.2;
 
       if (p.x < 0) {
         p.x += width;
@@ -376,7 +386,7 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
       const flicker =
         0.88 +
         0.12 * Math.sin(ts * p.flickerRate + p.flickerPhase) +
-        (preset === 'enhanced' ? 0.04 * Math.sin(ts * 0.0011 + p.x * 0.01) : 0);
+        (preset === 'enhanced' ? 0.065 * Math.sin(ts * 0.0011 + p.x * 0.01) : 0);
       let alpha = p.baseAlpha * flicker * (burst * 0.12 + 0.92);
       if (p.isSignal) {
         alpha = Math.min(0.22, alpha * 1.75);
@@ -387,16 +397,28 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
       const g = lerp(dust.dim[1], dust.mid[1], mix) + (p.isSignal ? dust.hi[1] - dust.mid[1] : 0) * 0.35;
       const b = lerp(dust.dim[2], dust.mid[2], mix) + (p.isSignal ? dust.hi[2] - dust.mid[2] : 0) * 0.35;
 
-      const fr = Math.min(255, r + (p.isSignal ? dust.signal[0] - dust.hi[0] : 0) * 0.25);
-      const fg = Math.min(255, g + (p.isSignal ? dust.signal[1] - dust.hi[1] : 0) * 0.25);
-      const fb = Math.min(255, b + (p.isSignal ? dust.signal[2] - dust.hi[2] : 0) * 0.25);
+      const hue = p.hueShift + hueNoise * 0.18;
+      const fr = Math.min(
+        255,
+        Math.max(0, r + (p.isSignal ? dust.signal[0] - dust.hi[0] : 0) * 0.25 + hue * 22),
+      );
+      const fg = Math.min(
+        255,
+        Math.max(0, g + (p.isSignal ? dust.signal[1] - dust.hi[1] : 0) * 0.25 + hue * 8),
+      );
+      const fb = Math.min(
+        255,
+        Math.max(0, b + (p.isSignal ? dust.signal[2] - dust.hi[2] : 0) * 0.25 - hue * 28),
+      );
 
       ctx.fillStyle = `rgba(${fr | 0}, ${fg | 0}, ${fb | 0}, ${alpha})`;
       const s = p.size;
       const rx = p.x | 0;
       const ry = p.y | 0;
+      ctx.filter = p.blur > 0 ? `blur(${p.blur}px)` : 'none';
       ctx.fillRect(rx, ry, s, s);
     }
+    ctx.filter = 'none';
 
     const cx = width * 0.5 + px * 6;
     const cy = height * 0.5 + py * 5;

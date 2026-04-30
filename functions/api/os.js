@@ -1,5 +1,12 @@
 import { appendAiLog, readAiLogText } from './ai-log.js';
-import { collectAllPosts } from './posts.js';
+import {
+  collectAllPosts,
+  deletePostFromStorage,
+  recordBookingEvent,
+  recordPostEvent,
+  syncAssetToStorage,
+  syncPostToStorage,
+} from './posts.js';
 
 const MODEL = '@cf/meta/llama-3.1-8b-instruct';
 
@@ -74,20 +81,21 @@ const FILES = {
   '/projects/down-nvim.md': `# ${PROJECTS['down-nvim'].title}\n\n${PROJECTS['down-nvim'].body}`,
   '/contact.md':
     '# Contact\n\n- Email: chris@pecunies.com\n- GitHub: https://github.com/clpi\n- GitLab: https://gitlab.com/clpi\n- SourceHut: https://sr.ht/~clp/\n- Codeberg: https://codeberg.org/clp\n- LinkedIn: https://linkedin.com/in/chrispecunies\n- Website: https://pecunies.com\n- Short website: https://clp.is\n- Ko-fi: https://ko-fi.com/clp\n- X: https://x.com/clpif\n- Threads: https://www.threads.com/@chris.pecunies\n- Patreon: https://patreon.com/pecunies\n- Open Collective: https://opencollective.com/clp\n- Cal.com: https://cal.com/chrisp\n- Calendly: https://calendly.com/pecunies\n- Buy Me a Coffee: https://buymeacoffee.com/pecunies\n- Instagram: https://www.instagram.com/chris.pecunies/\n- Facebook: https://www.facebook.com/chris.pecunies/\n- Location: Seattle, WA',
-  '/posts/terminal-portfolio-changelog.md':
+  '/posts/2026/04/29/terminal-portfolio-changelog.md':
     '# Terminal Portfolio Changelog\n\nInitial post placeholder for the terminal-native writing system. Posts are markdown files under `/posts`; creating, editing, or removing them requires sudo privileges.',
   '/system/man.txt':
-    'Portfolio OS commands: ls, cat, man, whoami, history, ps, top, pwd, echo, cp, tree, find, grep, touch, rm, mkdir, tail, less, logs, date, ask, explain, curl, ping, trace, weather, stock, metrics, leaderboard, internet, fzf, clpsh, email, book, comment, sudo, su, 2048, clear, chat, exit, download, theme, maximize, minimize, shutdown.',
+    'Portfolio OS commands: ls, cat, man, whoami, history, ps, top, pwd, echo, cp, tree, find, grep, touch, rm, mkdir, tail, less, logs, date, uptime, last, ask, explain, curl, ping, traceroute, trace, weather, stock, metrics, leaderboard, internet, fzf, clpsh, email, book, comment, sudo, su, 2048, jobquest, clear, chat, exit, download, theme, maximize, minimize, shutdown.',
   '/bin/clpsh': '#!/bin/clpsh\nPortfolio OS shell. Type commands at the prompt.',
   '/bin/minesweeper': '#!/bin/minesweeper\nText-mode minesweeper game.',
   '/bin/2048': '#!/bin/2048\nText-mode 2048 game.',
   '/bin/chess': '#!/bin/chess\\nLightweight text-mode chess.',
+  '/bin/jobquest': '#!/bin/jobquest\nText adventure: job search / signal hunt.',
   '/bin/edit': '#!/bin/edit\\nText editor for the pecuOS filesystem.',
-  '/home/chris/README.txt':
+  '/home/guest/README.txt':
     'Home directory for chris@pecunies. See projects/ and skills/ for portfolio slices aligned with the terminal UI.',
-  '/home/chris/projects/README.md':
+  '/home/guest/projects/README.md':
     '# ~/projects\n\nSymlink-style view of shipped work. Use `projects` or `explain project` from the shell for full cards.',
-  '/home/chris/skills/README.md':
+  '/home/guest/skills/README.md':
     '# ~/skills\n\nSkill clusters mirror `skills` and resume markdown. Run `skills` or `cat /resume/skills.md`.',
   '/etc/clpsh/clpshrc': '# pecuOS clpsh shell rc\\n# Runs when clpsh initializes\\n# Use export, alias, set commands here',
   '/etc/edit/editrc': '# pecuOS edit rc\\n# Runs when /edit initializes\\n# Settings for the edit text editor',
@@ -138,13 +146,16 @@ const FILES = {
 const DIRECTORIES = {
   '/': ['README.md', 'TODO.md', 'app/', 'bin/', 'etc/', 'guest/', 'home/', 'opt/', 'posts/', 'resume/', 'projects/', 'contact.md', 'system/', 'tmp/', 'usr/', 'var/', 'root/'],
   '/app': [],
-  '/bin': ['clpsh', 'minesweeper', '2048', 'chess'],
+  '/bin': ['clpsh', 'minesweeper', '2048', 'chess', 'jobquest'],
   '/guest': [],
-  '/home': ['chris/'],
-  '/home/chris': ['projects/', 'skills/', 'README.txt'],
-  '/home/chris/projects': ['README.md'],
-  '/home/chris/skills': ['README.md'],
-  '/posts': ['terminal-portfolio-changelog.md'],
+  '/home': ['guest/'],
+  '/home/guest': ['projects/', 'skills/', 'README.txt', '.clpshrc'],
+  '/home/guest/projects': ['README.md'],
+  '/home/guest/skills': ['README.md'],
+  '/posts': ['2026/'],
+  '/posts/2026': ['04/'],
+  '/posts/2026/04': ['29/'],
+  '/posts/2026/04/29': ['terminal-portfolio-changelog.md'],
   '/resume': ['resume.md', 'skills.md', 'projects.md'],
   '/projects': ['marketplace-aggregator.md', 'webassembly-runtime.md', 'down-nvim.md', 'pi-cluster.md'],
   '/system': ['man.txt'],
@@ -152,8 +163,8 @@ const DIRECTORIES = {
   '/var': ['log/'],
   '/var/log': ['system.log', 'system_public.log', 'ai.log'],
   '/root': [],
-  '/etc': ['clpsh/', 'edit/', 'themes/'],
-  '/etc/clpsh': ['clpshrc'],
+  '/etc': ['edit/', 'themes/'],
+  
   '/etc/edit': ['editrc'],
   '/etc/themes': ['red.json', 'amber.json', 'frost.json', 'ivory.json', 'magenta.json', 'blue.json', 'green.json'],
   '/usr': [],
@@ -194,6 +205,7 @@ const TAGS = {
     { label: '2048', type: 'command', command: '2048' },
     { label: 'chess', type: 'command', command: 'chess' },
     { label: 'minesweeper', type: 'command', command: 'minesweeper' },
+    { label: 'jobquest', type: 'command', command: 'jobquest' },
     { label: 'leaderboard', type: 'command', command: 'leaderboard' },
   ],
   'cloud': [
@@ -291,13 +303,16 @@ const MANUALS = {
   comment: 'comment <post> <name> <message>\nAdd a viewer comment to a markdown post. Example: comment terminal-portfolio-changelog alice nice post.',
   new: 'new post --title=<title> --tags=<comma,tags> [--description=<text>] <body>\nCreate a dated markdown post under /posts/YYYY/MM/DD/ (sudo required). Body is the markdown after flags.',
   date: 'date\nPrint current Cloudflare edge time.',
+  uptime: 'uptime\nShow current time, up duration, users, and load averages.',
+  last: 'last [n]\nShow recent session command activity in a login-style list.',
   curl: 'curl <url>\nFetch a URL from the Cloudflare edge and print status plus a short text preview.',
   ping: 'ping <host>\nApproximate network reachability with an HTTP request from Cloudflare Workers.',
+  traceroute: 'traceroute <host>\nShow a hop-style path to a host using simulated edge/network hops.',
   trace: 'trace <website>\nShow a stylized network trace from browser to Cloudflare edge to the target.',
   weather: 'weather [location]\nShow current weather using Open-Meteo. Defaults to Seattle, WA.',
   stock: 'stock <ticker>\nShow a compact quote using Stooq market data.',
   metrics: 'metrics\nShow site visits, page hits, command counts, and geographic breakdowns stored in KV.',
-  leaderboard: 'leaderboard [game]\nShow high scores for terminal games.',
+  leaderboard: 'leaderboard [game]\nShow high scores for terminal games (2048, chess, minesweeper, jobquest).',
   internet: 'internet [site]\nOpen a fake text web browser. Try internet home, internet foundry, internet moe, or internet notes.',
   fzf: 'fzf [query]\nFuzzy-find commands, files, projects, and views.',
   download: 'download [--markdown]\nDownload the resume PDF, or Markdown with --markdown.',
@@ -309,6 +324,8 @@ const MANUALS = {
   '2048': '2048\nBoot the local text-mode 2048 game. Use w/a/s/d to move, n for new, q to quit.',
   chess: 'chess\nBoot a lightweight text-mode chess board. Use moves like e2e4.',
   minesweeper: 'minesweeper\nBoot text-mode minesweeper. Use open A1 and flag B2.',
+  jobquest:
+    'jobquest\nBoot the Signal Hunt text adventure (job search). Type 1–9 or choice keywords; help re-reads the scene; n new; q quit.',
   clear: 'clear\nClear the terminal buffer.',
   chat: 'chat\nEnter chat mode backed by Workers AI.',
   exit: 'exit\nLeave chat or game mode.',
@@ -325,7 +342,7 @@ const MANUALS = {
   tags: 'tags [fragment]\nList all tags used in the portfolio OS, or show content for tags whose names match <fragment> (substring).',
   post: 'post open <slug>\nFrontend command: load a full post from /api/posts. Use posts to browse the index.',
   config:
-    'config <set|get|list|reset> [key] [value]\nSession preferences: crt on|off (CRT scanline effect), theme, font_size, font, dark, name, email.',
+    'config <set|get|list|reset> [key] [value]\nSession preferences: crt on|off (CRT scanline effect), theme, font_size, font, dark, name, environment, email.',
 };
 
 /** Command → taxonomy tags (shown on man pages); keep in sync with src/data/content-tags.ts COMMAND_TAGS */
@@ -343,6 +360,9 @@ const COMMAND_TAGS = {
   find: ['tooling'],
   curl: ['network', 'cloud'],
   ping: ['network'],
+  traceroute: ['network'],
+  uptime: ['system'],
+  last: ['system'],
   weather: ['cloud', 'network'],
   internet: ['network', 'games'],
   fzf: ['tooling', 'terminal'],
@@ -544,7 +564,7 @@ async function runCommand(parsed, state, env, visibleContext, request, options =
   // Path executor: /bin/xxx routes to the appropriate command
   if (parsed.name.startsWith('/bin/')) {
     const binCommand = parsed.name.replace(/^\/bin\//, '');
-    if (['2048', 'chess', 'minesweeper'].includes(binCommand)) {
+    if (['2048', 'chess', 'minesweeper', 'jobquest'].includes(binCommand)) {
       return { output: `Booting ${binCommand}... Type /${binCommand} to start.` };
     }
     if (binCommand === 'clpsh') {
@@ -574,7 +594,7 @@ async function runCommand(parsed, state, env, visibleContext, request, options =
       return { output: `${body}${tagLine}` };
     }
     case 'whoami':
-      return { output: 'chris@pecunies: Software Engineer, Seattle, WA, U.S. Citizen' };
+      return { output: identitySummary(state) };
     case 'history':
       if (parsed.args[0] === 'clear') {
         state.history = [];
@@ -641,6 +661,10 @@ async function runCommand(parsed, state, env, visibleContext, request, options =
       return addComment(parsed.args, env);
     case 'date':
       return { output: new Date().toString() };
+    case 'uptime':
+      return { output: uptimeOutput(state) };
+    case 'last':
+      return { output: lastOutput(state, parsed.args[0]) };
     case 'ask': {
       const simple = parsed.args.includes('--simple');
       const cleanRest = simple ? parsed.rest.replace('--simple', '').trim() : parsed.rest;
@@ -678,6 +702,8 @@ async function runCommand(parsed, state, env, visibleContext, request, options =
       return curlUrl(parsed.rest);
     case 'ping':
       return pingHost(parsed.rest || 'pecunies.com');
+    case 'traceroute':
+      return tracerouteHost(parsed.rest || 'pecunies.com', request);
     case 'trace':
       return traceHost(parsed.rest || 'pecunies.com', request);
     case 'weather':
@@ -703,7 +729,7 @@ async function runCommand(parsed, state, env, visibleContext, request, options =
     case 'note':
       return noteHandler(parsed.args, state);
     case 'config':
-      return configHandler(parsed.args, state);
+      return await configHandler(parsed.args, state, env);
     case 'alias':
       return aliasHandler(parsed.args, state);
     case 'unalias':
@@ -847,14 +873,10 @@ async function catPath(path, state, env, options = {}) {
   }
 
   if (options.pretty) {
-    const ext = normalized.split('.').pop()?.toLowerCase();
-    if (ext === 'md' || ext === 'markdown') {
-      return { output: file };
-    }
     return { output: prettyPrint(file, normalized) };
   }
 
-  return { output: file };
+  return { output: renderTerminalFileContent(file, normalized) };
 }
 
 async function askAi(question, state, env, visibleContext, sessionId) {
@@ -1060,6 +1082,29 @@ async function pingHost(host) {
   };
 }
 
+function tracerouteHost(host, request) {
+  const url = normalizeUrl(host);
+  const target = new URL(url);
+  const cf = request.cf ?? {};
+  const hops = [
+    ['router.local', 0.3, 0.7],
+    [`${cf.colo ?? 'edge'}-cf-gw`, 2.8, 5.9],
+    ['portfolio-worker', 6.2, 12.5],
+    [target.host, 16.5, 34.2],
+  ];
+  const lines = [`traceroute to ${target.host} (${target.host}), ${hops.length} hops max`];
+
+  hops.forEach((hop, index) => {
+    const [name, min, max] = hop;
+    const p1 = (Math.random() * (max - min) + min).toFixed(3);
+    const p2 = (Math.random() * (max - min) + min).toFixed(3);
+    const p3 = (Math.random() * (max - min) + min).toFixed(3);
+    lines.push(`${String(index + 1).padStart(2, ' ')}  ${String(name).padEnd(24, ' ')}  ${p1} ms  ${p2} ms  ${p3} ms`);
+  });
+
+  return { output: lines.join('\n') };
+}
+
 async function weather(location) {
   let geo = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1&language=en&format=json`).then((res) => res.json());
   let place = geo?.results?.[0];
@@ -1244,12 +1289,20 @@ async function addComment(args, env) {
 
   const key = `comments:${path}`;
   const comments = (await env.PORTFOLIO_OS.get(key, { type: 'json' })) ?? [];
-  comments.push({
+  const savedComment = {
     name: name.slice(0, 60),
     message: message.slice(0, 1200),
     at: new Date().toISOString(),
+  };
+  comments.push({
+    ...savedComment,
   });
   await env.PORTFOLIO_OS.put(key, JSON.stringify(comments.slice(-100)));
+  await recordPostEvent(env, path, 'message', {
+    name: savedComment.name,
+    message: savedComment.message,
+    kind: 'comment',
+  });
 
   return { output: `comment added to ${path}` };
 }
@@ -1276,6 +1329,11 @@ async function writeUserFile(env, _state, rawPath, content, options = {}) {
   const previous = options.append ? (await readUserFile(env, path)) ?? '' : '';
   const next = options.append ? `${previous}${previous ? '\n' : ''}${content}` : content;
   await env.PORTFOLIO_OS.put(userFileKey(path), next);
+  if (path.startsWith('/posts/') && path.toLowerCase().endsWith('.md')) {
+    await syncPostToStorage(env, path, next);
+  } else if (path.startsWith('/posts/')) {
+    await syncAssetToStorage(env, path, next);
+  }
   return { output: `${options.createOnly ? 'touched' : 'wrote'} ${path}` };
 }
 
@@ -1314,6 +1372,9 @@ async function deleteUserFile(env, path) {
   }
 
   await env.PORTFOLIO_OS.delete(userFileKey(path));
+  if (path.startsWith('/posts/') && path.toLowerCase().endsWith('.md')) {
+    await deletePostFromStorage(env, path);
+  }
 }
 
 async function directoryEntries(path, env) {
@@ -1433,6 +1494,7 @@ async function bookMeeting(args, rest, env) {
   const meetLink = `https://meet.google.com/new?hs=portfolio&authuser=0`;
   const summary = `booking request\nfrom: ${email}\ndate: ${date}\ntime: ${time}\nduration: ${duration}\nmessage: ${message}\nmeet: ${meetLink}`;
   await recordBooking(env, { email, date, time, duration, message, meetLink, at: new Date().toISOString() });
+  await recordBookingEvent(env, { email, date, time, duration, message, meetLink });
   const emailStatus = await sendBookingEmail(env, { email, date, time, duration, message, meetLink });
 
   return {
@@ -1496,6 +1558,45 @@ function traceHost(host, request) {
     `country: ${cf.country ?? 'unknown'} | tls: ${request.headers.get('cf-visitor') ?? 'edge'}`,
     ].join('\n'),
   };
+}
+
+function formatUptimeDuration(ms) {
+  const totalSeconds = Math.max(1, Math.floor(ms / 1000));
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  if (days > 0) {
+    return `${days} day${days === 1 ? '' : 's'}, ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  }
+  return `${hours}:${String(minutes).padStart(2, '0')}`;
+}
+
+function uptimeOutput(state) {
+  const now = new Date();
+  const firstEvent = state.history[0]?.at ? Date.parse(state.history[0].at) : NaN;
+  const fallback = Date.now() - (3 * 60 * 60 + 27 * 60) * 1000;
+  const bootMs = Number.isFinite(firstEvent) ? firstEvent : fallback;
+  const upFor = Math.max(1000, Date.now() - bootMs);
+  const users = 1;
+  const load1 = (Math.random() * 0.8 + 0.08).toFixed(2);
+  const load5 = (Math.random() * 0.6 + 0.05).toFixed(2);
+  const load15 = (Math.random() * 0.4 + 0.04).toFixed(2);
+  return `${now.toTimeString().slice(0, 8)} up ${formatUptimeDuration(upFor)}, ${users} user, load averages: ${load1} ${load5} ${load15}`;
+}
+
+function lastOutput(state, rawLimit) {
+  const limit = Math.min(Math.max(Number.parseInt(String(rawLimit ?? ''), 10) || 10, 1), 50);
+  const rows = state.history
+    .slice(-limit)
+    .reverse()
+    .map((entry) => {
+      const at = new Date(entry.at || Date.now());
+      const datePart = at.toDateString().slice(0, 10);
+      const timePart = at.toTimeString().slice(0, 5);
+      const cmd = String(entry.command || '').slice(0, 36);
+      return `chris    ttys000  edge-gateway  ${datePart} ${timePart}   still logged in   (${cmd})`;
+    });
+  return rows.length ? rows.join('\n') : 'wtmp begins: no session history yet';
 }
 
 async function metricsOutput(env) {
@@ -1786,7 +1887,11 @@ async function tagsOutput(tagFilter, env) {
 }
 
 function changeDir(path, state) {
-  if (!path || path === '~' || path === '/') {
+  if (!path || path === '~') {
+    state.cwd = '/home/guest';
+    return { output: '' };
+  }
+  if (path === '/') {
     state.cwd = '/';
     return { output: '' };
   }
@@ -1978,7 +2083,7 @@ async function lessFile(args, state, env) {
   const normalized = normalizePath(path);
   const content = await readFile(normalized, env);
   if (content === null || content === undefined) return { output: `less: ${path}: no such file`, status: 404 };
-  return { output: content };
+  return { output: renderTerminalFileContent(content, normalized) };
 }
 
 function mkdirPath(args, options) {
@@ -1990,6 +2095,21 @@ function mkdirPath(args, options) {
   if (DIRECTORIES[normalized]) return { output: `mkdir: ${normalized}: directory exists` };
   DIRECTORIES[normalized] = [];
   return { output: `created directory ${normalized}` };
+}
+
+
+
+function renderTerminalFileContent(content, path) {
+  const ext = path.split('.').pop()?.toLowerCase() || '';
+  if (ext === 'md' || ext === 'markdown') {
+    return content;
+  }
+  if (['ts', 'tsx', 'js', 'jsx', 'json', 'css', 'html', 'py', 'go', 'rs', 'zig', 'sh', 'bash', 'yml', 'yaml', 'toml'].includes(ext)) {
+    return `\`\`\`${ext}
+${content}
+\`\`\``;
+  }
+  return content;
 }
 
 function prettyPrint(content, path) {
@@ -2031,8 +2151,10 @@ function mergeConfigDefaults(raw) {
     font: 'monospace',
     dark: true,
     name: 'guest',
+    environment: 'pecunies',
     email: '',
     crt: true,
+    ai_model: '@cf/meta/llama-3.1-8b-instruct',
     ...(raw && typeof raw === 'object' ? raw : {}),
   };
 }
@@ -2046,7 +2168,7 @@ function normalizeState(state) {
     rootUntil: Number(s.rootUntil ?? 0),
     logEntries: Array.isArray(s.logEntries) ? s.logEntries : [],
     publicLogEntries: Array.isArray(s.publicLogEntries) ? s.publicLogEntries : [],
-    cwd: typeof s.cwd === 'string' ? s.cwd : '/',
+    cwd: typeof s.cwd === 'string' ? s.cwd : '/home/guest',
     previousCwd: typeof s.previousCwd === 'string' ? s.previousCwd : null,
     envVars: s.envVars && typeof s.envVars === 'object' ? s.envVars : {},
     config: mergeConfigDefaults(s.config),
@@ -2187,6 +2309,7 @@ async function readLeaderboard(env) {
     '2048': Array.isArray(board['2048']) ? board['2048'] : [],
     chess: Array.isArray(board.chess) ? board.chess : [],
     minesweeper: Array.isArray(board.minesweeper) ? board.minesweeper : [],
+    jobquest: Array.isArray(board.jobquest) ? board.jobquest : [],
   };
 }
 
@@ -2203,6 +2326,7 @@ function defaultLeaderboard() {
     '2048': [],
     chess: [],
     minesweeper: [],
+    jobquest: [],
   };
 }
 
@@ -2238,6 +2362,15 @@ function appendHistory(state, command) {
   }
 }
 
+
+
+function identitySummary(state) {
+  const config = mergeConfigDefaults(state?.config);
+  const name = String(config.name || 'guest').trim() || 'guest';
+  const env = String(config.environment || 'pecunies').trim() || 'pecunies';
+  return `${name}@${env}: visitor shell session`;
+}
+
 function sanitizeSessionId(value) {
   const raw = String(value || 'anonymous');
   return raw.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 96) || 'anonymous';
@@ -2261,7 +2394,7 @@ async function sessionOutput(state, env, request) {
       `tls: ${cf.tlsVersion ?? 'unknown'}`,
       '',
       '=== Whoami ===',
-      'chris@pecunies: Software Engineer, Seattle, WA, U.S. Citizen',
+      identitySummary(state),
       '',
       '=== Site Metrics ===',
       `total visits: ${metrics.visits}`,
@@ -2356,8 +2489,30 @@ function noteHandler(args, state) {
   return { output: 'Usage: note <add|list|clear>', status: 400 };
 }
 
+
+
+function renderGuestShellRc(config) {
+  const c = mergeConfigDefaults(config);
+  return [
+    '# pecuOS guest shell rc',
+    '# Auto-generated from session identity/config',
+    `export USER=${String(c.name || 'guest')}`,
+    `export ENVIRONMENT=${String(c.environment || 'pecunies')}`,
+    `export AI_MODEL=${String(c.ai_model || '@cf/meta/llama-3.1-8b-instruct')}`,
+    '',
+  ].join('
+');
+}
+
+async function updateGuestShellRc(env, config) {
+  if (!env.PORTFOLIO_OS) {
+    return;
+  }
+  await env.PORTFOLIO_OS.put(userFileKey('/home/guest/.clpshrc'), renderGuestShellRc(config));
+}
+
 // ── config ──
-function configHandler(args, state) {
+async function configHandler(args, state, env) {
   state.config = mergeConfigDefaults(state.config);
   const sub = args[0]?.toLowerCase();
   if (sub === 'list' || sub === 'get') {
@@ -2378,10 +2533,12 @@ function configHandler(args, state) {
       else if (/^\d+$/.test(val)) val = Number(val);
     }
     state.config[key] = val;
+    await updateGuestShellRc(env, state.config);
     return { output: `config: ${key} = ${JSON.stringify(val)}` };
   }
   if (sub === 'reset') {
     state.config = mergeConfigDefaults();
+    await updateGuestShellRc(env, state.config);
     return { output: 'Config reset to defaults.' };
   }
   return { output: 'Usage: config <set|get|list|reset> [key] [value]', status: 400 };

@@ -182,7 +182,7 @@ export type SessionLine =
   | { id: string; kind: 'system'; label: string; text: string; tone: LogTone }
   | { id: string; kind: 'command'; text: string }
   | { id: string; kind: 'response'; text: string; tone: LogTone }
-  | { id: string; kind: 'pretty-response'; html: string; text: string }
+  | { id: string; kind: 'pretty-response'; html: string; text: string; model?: string; copyable?: boolean }
   | { id: string; kind: 'view'; html: string; text: string };
 
 export type CommandContext = {
@@ -207,7 +207,7 @@ export type CommandOutcome =
   | { kind: 'window'; action: 'shutdown' | 'minimize' | 'maximize'; text?: string; tone?: LogTone }
   | { kind: 'download'; format: 'pdf' | 'markdown'; text?: string; tone?: LogTone }
   | { kind: 'os'; command: string; tone?: LogTone }
-  | { kind: 'game'; game: '2048' | 'chess' | 'minesweeper'; text: string; tone?: LogTone }
+  | { kind: 'game'; game: '2048' | 'chess' | 'minesweeper' | 'jobquest'; text: string; tone?: LogTone }
   | { kind: 'editor'; file: string; content: string; tone?: LogTone }
   | { kind: 'url'; url: string; text: string; tone?: LogTone }
   | { kind: 'clear' };

@@ -55,6 +55,11 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
       `,
     )
     .join('');
+  const rssNavButton = `
+    <a class="nav-link nav-link-icon" href="/api/rss" target="_blank" rel="noopener noreferrer" aria-label="RSS feed">
+      <span aria-hidden="true">◔</span>
+    </a>
+  `;
 
   return `
     <canvas class="field-canvas" id="field-canvas" aria-hidden="true"></canvas>
@@ -66,12 +71,13 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
     <div class="scanlines" aria-hidden="true"></div>
 
     <header class="site-nav" aria-label="Primary navigation">
-      <button class="brand-mark" type="button" data-command="resume">
+      <button class="brand-mark" type="button" data-command="home">
         <span class="brand-dot" aria-hidden="true"></span>
         <span>${escapeHtml(resumeData.name)}</span>
       </button>
       <nav class="nav-links" aria-label="Portfolio sections">
         ${navLinks}
+        ${rssNavButton}
       </nav>
     </header>
 
@@ -86,7 +92,20 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
           </div>
           <div class="terminal-state">
             <span id="route-indicator">resume</span>
-            <button id="theme-indicator" type="button" data-command="themes">palette:auto</button>
+            <button id="theme-indicator" type="button" aria-haspopup="dialog" aria-expanded="false">palette:auto</button>
+            <div class="theme-popover" id="theme-popover" hidden>
+              <div class="theme-popover-title">Choose palette</div>
+              <div class="theme-popover-grid">
+                <button type="button" class="theme-choice-chip" data-theme-choice="auto">auto</button>
+                <button type="button" class="theme-choice-chip" data-theme-choice="red">red</button>
+                <button type="button" class="theme-choice-chip" data-theme-choice="amber">amber</button>
+                <button type="button" class="theme-choice-chip" data-theme-choice="frost">frost</button>
+                <button type="button" class="theme-choice-chip" data-theme-choice="ivory">ivory</button>
+                <button type="button" class="theme-choice-chip" data-theme-choice="green">green</button>
+                <button type="button" class="theme-choice-chip" data-theme-choice="magenta">magenta</button>
+                <button type="button" class="theme-choice-chip" data-theme-choice="blue">blue</button>
+              </div>
+            </div>
           </div>
           <button class="ghost-button" type="button" data-command="clear">clear</button>
         </header>
@@ -94,7 +113,7 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
         <div class="terminal-body crt-text">
           <div class="terminal-output terminal-text">
             <div class="banner-line">
-              <span class="prompt-prefix" id="terminal-prompt-label">chris@pecunies:~$</span>
+              <span class="prompt-prefix" id="terminal-prompt-label">guest@pecunies:~$</span>
               <span class="banner-command" id="prompt-scramble" data-scramble>${escapeHtml(resumeData.commandBanner)}</span>
             </div>
 
@@ -119,7 +138,15 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
           <div class="terminal-prompt-bar">
             <form class="terminal-form" id="terminal-form" autocomplete="off">
               <label class="sr-only" for="terminal-input">Terminal command input</label>
-              <span class="prompt-prefix">chris@pecunies:~$</span>
+              <button
+                class="prompt-prefix prompt-identity-button"
+                id="prompt-identity-button"
+                type="button"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+              >
+                guest@pecunies:~$
+              </button>
               <input
                 class="terminal-input crt-text"
                 id="terminal-input"
@@ -134,6 +161,25 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
               />
               <button class="submit-button" type="submit">Run</button>
             </form>
+            <div class="identity-popover" id="identity-popover" hidden>
+              <div class="identity-popover-title">Session identity</div>
+              <label class="identity-popover-label" for="identity-display-name">Display name</label>
+              <input class="identity-popover-input" id="identity-display-name" type="text" maxlength="32" />
+              <label class="identity-popover-label" for="identity-environment">Environment</label>
+              <select class="identity-popover-select" id="identity-environment">
+                <option value="pecunies">pecunies</option>
+              </select>
+              <label class="identity-popover-label" for="identity-model">AI model</label>
+              <select class="identity-popover-select" id="identity-model">
+                <option value="@cf/meta/llama-3.1-8b-instruct">@cf/meta/llama-3.1-8b-instruct</option>
+                <option value="@cf/meta/llama-3.1-70b-instruct">@cf/meta/llama-3.1-70b-instruct</option>
+                <option value="@cf/qwen/qwen1.5-14b-chat-awq">@cf/qwen/qwen1.5-14b-chat-awq</option>
+              </select>
+              <div class="identity-popover-actions">
+                <button class="ghost-button" id="identity-cancel" type="button">Cancel</button>
+                <button class="submit-button" id="identity-save" type="button">Save</button>
+              </div>
+            </div>
           </div>
         </div>
         <span class="shell-resize-handle shell-resize-n" data-resize="n" aria-hidden="true"></span>
@@ -159,7 +205,7 @@ export function renderLog(lines: SessionLine[]): string {
       if (line.kind === 'command') {
         return `
           <li class="log-line log-line-command">
-            <span class="log-prefix">chris@pecunies:~$</span>
+            <span class="log-prefix">guest@pecunies:~$</span>
             <span class="log-copy">${escapeHtml(line.text)}</span>
           </li>
         `;
@@ -175,9 +221,19 @@ export function renderLog(lines: SessionLine[]): string {
       }
 
       if (line.kind === 'pretty-response') {
+        const modelHeader = line.model
+          ? `<div class="pretty-output-meta"><span class="pretty-output-model">${escapeHtml(line.model)}</span></div>`
+          : '';
+        const copyButton = line.copyable
+          ? `<button class="pretty-copy-button" type="button" data-copy-pretty-id="${escapeAttribute(line.id)}" aria-label="Copy AI response">Copy</button>`
+          : '';
         return `
           <li class="log-line log-line-pretty">
-            <div class="pretty-output markdown-body">${line.html}</div>
+            <div class="pretty-output-shell">
+              ${modelHeader}
+              <div class="pretty-output markdown-body">${line.html}</div>
+              ${copyButton ? `<div class="pretty-output-actions">${copyButton}</div>` : ''}
+            </div>
           </li>
         `;
       }

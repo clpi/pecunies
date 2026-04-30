@@ -1,5 +1,5 @@
 import { resumeData } from '../data/resume';
-import { renderMarkdownToHtml } from './markdown';
+import { renderPostMarkdownToHtml } from './markdown';
 import {
   COMMAND_TAGS,
   TAG_INDEX,
@@ -1142,7 +1142,12 @@ export function createCommandRegistry(): {
             tone: 'warn',
           };
         }
-        const html = renderMarkdownToHtml(post.markdown);
+        void fetch('/api/posts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'view', path: post.path }),
+        }).catch(() => null);
+        const html = renderPostMarkdownToHtml(post.markdown);
         return {
           kind: 'markdown-view',
           title: post.title,
@@ -1311,6 +1316,18 @@ export function createCommandRegistry(): {
     description: 'Print current edge time.',
   });
 
+  addOsCommand('uptime', {
+    usage: 'uptime',
+    group: 'System',
+    description: 'Show current time, uptime duration, users, and load averages.',
+  });
+
+  addOsCommand('last', {
+    usage: 'last [n]',
+    group: 'System',
+    description: 'Show recent command activity in a login-style list.',
+  });
+
   addOsCommand('curl', {
     usage: 'curl <url>',
     group: 'Network',
@@ -1321,6 +1338,12 @@ export function createCommandRegistry(): {
     usage: 'ping <host>',
     group: 'Network',
     description: 'Measure HTTP reachability from the Cloudflare edge.',
+  });
+
+  addOsCommand('traceroute', {
+    usage: 'traceroute <host>',
+    group: 'Network',
+    description: 'Show a hop-by-hop path view similar to bash traceroute.',
   });
 
   addOsCommand('weather', {
@@ -1350,7 +1373,7 @@ export function createCommandRegistry(): {
   addOsCommand('leaderboard', {
     usage: 'leaderboard [game]',
     group: 'Games',
-    description: 'Show high scores for 2048, chess, and minesweeper.',
+    description: 'Show high scores for 2048, chess, minesweeper, and jobquest.',
   });
 
   addOsCommand('internet', {
@@ -1596,6 +1619,23 @@ export function createCommandRegistry(): {
   });
 
   commands.push({
+    name: 'jobquest',
+    aliases: ['signalhunt', '/bin/jobquest'],
+    usage: 'jobquest',
+    group: 'Games',
+    featured: true,
+    description: 'Text adventure: hunt for signal in a very relatable job search.',
+    execute() {
+      return {
+        kind: 'game',
+        game: 'jobquest',
+        text: 'Signal Hunt booted. Type 1–9 or a choice keyword; help to re-read the scene; n new; q quit.',
+        tone: 'success',
+      };
+    },
+  });
+
+  commands.push({
     name: 'exit',
     aliases: ['quit'],
     usage: 'exit',
@@ -1639,7 +1679,7 @@ export function createCommandRegistry(): {
   addOsCommand('config', {
     usage: 'config <set|get|list|reset> [key] [value]',
     group: 'System',
-    description: 'Manage user config: theme, font_size, font, dark, name, email.',
+    description: 'Manage user config: theme, font_size, font, dark, name, environment, email.',
   });
 
   addOsCommand('note', {
@@ -1733,20 +1773,20 @@ export function createCommandRegistry(): {
     group: 'System',
     description: 'Display pecuOS system information with ASCII art.',
     execute() {
-      const ascii = `        -/ossso/-
-      -+ssssssssss+-
-     /sssssssssssss/
-    :sssssssssssssss:
-   :sssssssssssssssss:
-   sssssssssssssssssss
-  /sssssssssssssssssss/
- /sssssssssssssssssssss/
- sssssssssssssssssssssss
- sssssssssssssssssssssss
- sssssssssssssssssssssss
- sssssssssssssssssssssss
- sssssssssssssssssssssss
-  sssssssssssssssssssss`;
+      const ascii = `            .-:::::-.
+         .:+ooooooooo+:
+       .:ooooooooooooooo:.
+      :ooooooooooooooooooo:
+     :ooooooooooooooooooooo:
+    .ooooooooooooooooooooooo.
+    :ooooooooooooooooooooooo:
+    :ooooooooooooooooooooooo:
+    .ooooooooooooooooooooooo.
+     :ooooooooooooooooooooo:
+      :ooooooooooooooooooo:
+       .:ooooooooooooooo:.
+         .:+ooooooooo+:
+            .-:::::-.`;
       const info = [
         '                   chris@pecunies.com',
         '                   ------------------',
@@ -1841,6 +1881,44 @@ export function createCommandRegistry(): {
     tags: ['portfolio', 'tooling', 'terminal'],
     execute(_context, args) {
       return { kind: 'view', view: buildTagsView(args[0]) };
+    },
+  });
+
+
+  commands.push({
+    name: 'home',
+    aliases: ['landing'],
+    usage: 'home',
+    group: 'Core',
+    route: 'home',
+    fullPageView: true,
+    description: 'Show a minimal terminal landing page.',
+    execute() {
+      return {
+        kind: 'view',
+        view: {
+          id: 'home',
+          route: 'home',
+          prompt: './terminal --home',
+          eyebrow: 'Welcome',
+          title: 'pecuOS shell',
+          description: 'Minimal entrypoint. Type help, resume, projects, posts, or chat.',
+          note: 'Shortcuts: help · resume · posts · links · contact',
+          theme: 'frost',
+          logline: 'Opened minimal home shell.',
+          tags: ['terminal', 'portfolio'],
+          sections: [
+            {
+              type: 'note',
+              heading: 'Ready',
+              lines: [
+                'guest@pecunies shell initialized.',
+                'Run help to inspect commands.',
+              ],
+            },
+          ],
+        },
+      };
     },
   });
 

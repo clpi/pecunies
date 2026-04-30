@@ -1,6 +1,11 @@
 import { appendAiLog } from './ai-log.js';
 
 const MODEL = '@cf/meta/llama-3.1-8b-instruct';
+const ALLOWED_MODELS = new Set([
+  '@cf/meta/llama-3.1-8b-instruct',
+  '@cf/meta/llama-3.1-70b-instruct',
+  '@cf/qwen/qwen1.5-14b-chat-awq',
+]);
 
 const PROFILE_CONTEXT = `
 You answer questions about Chris Pecunies using only this public portfolio context.
@@ -39,10 +44,10 @@ Contact:
 Terminal app context:
 - Core views: about, resume, timeline, projects, skills, posts, links, contact, pdf, chat, help, themes.
 - Documents: download [--markdown], pdf.
-- OS commands: ls, cat, man, whoami, history, ps, top, pwd, echo, cp, tree, find, grep, date.
+- OS commands: ls, cat, man, whoami, history, ps, top, pwd, echo, cp, tree, find, grep, date, uptime, last.
 - AI commands: ask <question>, explain <project|skill|work|education|command> [name], chat.
-- Network commands: curl, ping, trace, weather, stock, internet.
-- Games and state: 2048, chess, minesweeper, leaderboard, metrics.
+- Network commands: curl, ping, traceroute, trace, weather, stock, internet.
+- Games and state: 2048, chess, minesweeper, jobquest (Signal Hunt text adventure), leaderboard, metrics.
 - Contact commands: email <your email> <subject> <message>, book <your email> <date> <time> <duration> <message>.
 - Window/theme commands: theme <red|amber|frost|ivory|auto>, maximize, minimize, shutdown, clear, exit.
 `;
@@ -80,6 +85,8 @@ export async function onRequestPost({ request, env }) {
 
   const message = typeof body?.message === 'string' ? body.message.trim() : '';
   const sessionId = sanitizeSessionId(body?.sessionId);
+  const requestedModel = typeof body?.model === 'string' ? body.model.trim() : '';
+  const activeModel = ALLOWED_MODELS.has(requestedModel) ? requestedModel : MODEL;
 
   if (!message) {
     return Response.json({ error: 'Message is required.' }, { status: 400, headers: jsonHeaders });
@@ -115,7 +122,7 @@ export async function onRequestPost({ request, env }) {
   let result;
 
   try {
-    result = await env.AI.run(MODEL, {
+    result = await env.AI.run(activeModel, {
       messages: [
         {
           role: 'system',
@@ -135,7 +142,7 @@ export async function onRequestPost({ request, env }) {
     await appendAiLog(env, {
       source: 'chat',
       sessionId,
-      model: MODEL,
+      model: activeModel,
       query: message,
       contextExcerpt,
       error: err instanceof Error ? err.message : String(err),
@@ -156,7 +163,7 @@ export async function onRequestPost({ request, env }) {
   await appendAiLog(env, {
     source: 'chat',
     sessionId,
-    model: MODEL,
+    model: activeModel,
     query: message,
     contextExcerpt,
     response: answer,
@@ -166,7 +173,7 @@ export async function onRequestPost({ request, env }) {
   state.history = state.history.slice(-120);
   await writeState(env, sessionId, state);
 
-  return Response.json({ answer }, { headers: jsonHeaders });
+  return Response.json({ answer, model: activeModel }, { headers: jsonHeaders });
 }
 
 export async function onRequest() {

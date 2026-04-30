@@ -4,6 +4,14 @@ import type { CodeMirrorMount } from './editor-codemirror';
 import { bumpCommandFrequency, fuzzyScore, rankByFuzzyAndFrequency, readCommandFrequency } from './fuzzy-rank';
 import { renderMarkdownToHtml } from './markdown';
 import { terminalThemes, type ThemeName } from './palette';
+import {
+  createJobQuestState,
+  formatJobQuestScene,
+  jobQuestScore,
+  jobQuestWouldHandleAsGameInput,
+  processJobQuestInput,
+  type JobQuestState,
+} from './jobquest-game';
 import { renderEditor, renderLog, renderShell, renderView } from './render';
 import type {
   CommandContext,
@@ -40,8 +48,13 @@ type OsResponse = {
   mode?: 'chat';
   config?: Record<string, unknown>;
 };
+type ChatResponse = {
+  answer?: string;
+  model?: string;
+  error?: string;
+};
 
-type GameKind = '2048' | 'chess' | 'minesweeper';
+type GameKind = '2048' | 'chess' | 'minesweeper' | 'jobquest';
 
 type MinesCell = {
   mine: boolean;
@@ -91,16 +104,17 @@ const FILE_PATHS = [
   '/bin/minesweeper',
   '/bin/2048',
   '/bin/chess',
+  '/bin/jobquest',
   '/bin/edit',
-  '/etc/clpsh/clpshrc',
+  '/home/guest/.clpshrc',
   '/etc/edit/editrc',
   '/guest',
   '/home',
-  '/home/chris',
-  '/home/chris/projects',
-  '/home/chris/skills',
+  '/home/guest',
+  '/home/guest/projects',
+  '/home/guest/skills',
   '/posts',
-  '/posts/terminal-portfolio-changelog.md',
+  '/posts/2026/04/29/terminal-portfolio-changelog.md',
   '/resume',
   '/resume/resume.md',
   '/resume/skills.md',
@@ -126,9 +140,9 @@ const DIRECTORY_PATHS = [
   '/etc/themes',
   '/guest',
   '/home',
-  '/home/chris',
-  '/home/chris/projects',
-  '/home/chris/skills',
+  '/home/guest',
+  '/home/guest/projects',
+  '/home/guest/skills',
   '/opt',
   '/posts',
   '/resume',
@@ -213,6 +227,12 @@ const SHELL_FRAME_STORAGE = 'pecunies.terminalFrame';
 const SHELL_PROFILE_STORAGE = 'pecunies.shellProfile';
 /** Cap autocomplete rows so the panel never looks like a “153 results” dump. */
 const MAX_AUTOCOMPLETE_RESULTS = 14;
+const DEFAULT_AI_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+const AI_MODEL_OPTIONS = [
+  '@cf/meta/llama-3.1-8b-instruct',
+  '@cf/meta/llama-3.1-70b-instruct',
+  '@cf/qwen/qwen1.5-14b-chat-awq',
+] as const;
 
 export class TerminalApp {
   private readonly root: HTMLElement;
@@ -227,11 +247,19 @@ export class TerminalApp {
   private readonly formElement: HTMLFormElement;
   private readonly routeIndicator: HTMLElement;
   private readonly themeIndicator: HTMLElement;
+  private readonly themePopover: HTMLElement;
   private readonly promptScramble: HTMLElement;
   private readonly statusScramble: HTMLElement;
   private readonly autocompletePanel: HTMLElement;
   private readonly autocompleteList: HTMLElement;
   private readonly promptLabel: HTMLElement;
+  private readonly promptIdentityButton: HTMLButtonElement;
+  private readonly identityPopover: HTMLElement;
+  private readonly identityDisplayNameInput: HTMLInputElement;
+  private readonly identityEnvironmentSelect: HTMLSelectElement;
+  private readonly identityModelSelect: HTMLSelectElement;
+  private readonly identitySaveButton: HTMLButtonElement;
+  private readonly identityCancelButton: HTMLButtonElement;
   private readonly dockElement: HTMLButtonElement;
   private readonly siteShellElement: HTMLElement;
 
@@ -262,12 +290,17 @@ export class TerminalApp {
   private minesBoard: MinesCell[][] = [];
   private minesOpenCount = 0;
   private minesGameOver = false;
+  private jobQuestState: JobQuestState | null = null;
   private pendingScore: { game: GameKind; score: number } | null = null;
   private readonly sessionId: string;
   private preMaximizeFrame: ShellFrame | null = null;
   private shellWindowingActive = false;
   private shellBindingsDone = false;
   private shellAliases: Record<string, string> = { ls: 'timeline' };
+  private identityDisplayName = 'guest';
+  private identityEnvironment = 'pecunies';
+  private aiModel = DEFAULT_AI_MODEL;
+  private suppressNextFocusAutocomplete = false;
   private typingIdleTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor({ root, commands, featuredCommands }: TerminalAppOptions) {
@@ -286,11 +319,19 @@ export class TerminalApp {
     this.formElement = this.requireElement<HTMLFormElement>('#terminal-form');
     this.routeIndicator = this.requireElement<HTMLElement>('#route-indicator');
     this.themeIndicator = this.requireElement<HTMLElement>('#theme-indicator');
+    this.themePopover = this.requireElement<HTMLElement>('#theme-popover');
     this.promptScramble = this.requireElement<HTMLElement>('#prompt-scramble');
     this.statusScramble = this.requireElement<HTMLElement>('#status-scramble');
     this.autocompletePanel = this.requireElement<HTMLElement>('#autocomplete-panel');
     this.autocompleteList = this.requireElement<HTMLElement>('#autocomplete-list');
     this.promptLabel = this.requireElement<HTMLElement>('#terminal-prompt-label');
+    this.promptIdentityButton = this.requireElement<HTMLButtonElement>('#prompt-identity-button');
+    this.identityPopover = this.requireElement<HTMLElement>('#identity-popover');
+    this.identityDisplayNameInput = this.requireElement<HTMLInputElement>('#identity-display-name');
+    this.identityEnvironmentSelect = this.requireElement<HTMLSelectElement>('#identity-environment');
+    this.identityModelSelect = this.requireElement<HTMLSelectElement>('#identity-model');
+    this.identitySaveButton = this.requireElement<HTMLButtonElement>('#identity-save');
+    this.identityCancelButton = this.requireElement<HTMLButtonElement>('#identity-cancel');
     this.dockElement = this.requireElement<HTMLButtonElement>('#terminal-dock');
 
     for (const command of this.commands) {
@@ -301,6 +342,7 @@ export class TerminalApp {
     this.restorePersistedHistory();
     this.initCrtFromStorage();
     this.loadShellProfile();
+    this.setShellPrompt();
     this.startParallaxLoop();
     this.setupInputCaretClasses();
 
@@ -313,7 +355,7 @@ export class TerminalApp {
       if (this.pendingPrompt && raw && !raw.startsWith('/')) {
         submitted = `${this.pendingPrompt} ${raw}`;
         this.pendingPrompt = null;
-        this.promptLabel.textContent = 'chris@pecunies:~$';
+        this.setShellPrompt();
       }
 
       if (!submitted) {
@@ -345,7 +387,48 @@ export class TerminalApp {
     });
 
     this.inputElement.addEventListener('focus', () => {
+      if (this.suppressNextFocusAutocomplete) {
+        this.suppressNextFocusAutocomplete = false;
+        return;
+      }
+      if (!this.inputElement.value.trim()) {
+        this.hideAutocomplete();
+        return;
+      }
       this.updateAutocomplete();
+    });
+
+    this.promptIdentityButton.addEventListener('click', () => {
+      this.toggleIdentityPopover();
+    });
+    this.themeIndicator.addEventListener('click', () => {
+      this.toggleThemePopover();
+    });
+    this.identityCancelButton.addEventListener('click', () => {
+      this.closeIdentityPopover();
+    });
+    this.identitySaveButton.addEventListener('click', () => {
+      void this.saveIdentityFromPopover();
+    });
+    document.addEventListener('click', (event) => {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (
+        !this.identityPopover.hidden &&
+        !this.identityPopover.contains(target) &&
+        !this.promptIdentityButton.contains(target)
+      ) {
+        this.closeIdentityPopover();
+      }
+      if (
+        !this.themePopover.hidden &&
+        !this.themePopover.contains(target) &&
+        !this.themeIndicator.contains(target)
+      ) {
+        this.closeThemePopover();
+      }
     });
 
     /* Keep focus on the input while scrolling or clicking the autocomplete list (avoids blur-close race). */
@@ -423,12 +506,13 @@ export class TerminalApp {
 
       if (
         target instanceof HTMLElement &&
-        target.closest('button, a, input, iframe, [data-command], [data-suggestion-value]')
+        target.closest('button, a, input, select, textarea, iframe, [data-command], [data-suggestion-value]')
       ) {
         return;
       }
 
       this.hideAutocomplete();
+      this.suppressNextFocusAutocomplete = true;
       this.inputElement.focus();
     });
 
@@ -467,6 +551,33 @@ export class TerminalApp {
       if (suggestion) {
         this.acceptSuggestion(suggestion);
         this.hideAutocomplete();
+        return;
+      }
+
+      const copyPrettyId = target.closest<HTMLElement>('[data-copy-pretty-id]')?.dataset.copyPrettyId;
+      if (copyPrettyId) {
+        const line = this.lines.find((entry) => entry.id === copyPrettyId && entry.kind === 'pretty-response');
+        if (line?.text) {
+          void navigator.clipboard?.writeText(line.text).catch(() => undefined);
+        }
+        return;
+      }
+
+      const themeChoice = target.closest<HTMLElement>('[data-theme-choice]')?.dataset.themeChoice;
+      if (themeChoice) {
+        this.closeThemePopover();
+        this.execute(themeChoice === 'auto' ? 'theme auto' : `theme set ${themeChoice}`);
+        this.hideAutocomplete();
+        return;
+      }
+
+      const configAction = target.closest<HTMLElement>('[data-config-action]')?.dataset.configAction;
+      if (configAction === 'save') {
+        void this.saveConfigEditorValues();
+        return;
+      }
+      if (configAction === 'reset') {
+        void this.resetConfigEditorValues();
         return;
       }
 
@@ -554,6 +665,34 @@ export class TerminalApp {
       return;
     }
 
+    if (normalized === '!!') {
+      const lastCommand = this.history.at(-1);
+      if (!lastCommand) {
+        if (echo) {
+          this.lines.push(this.commandLine('!!'));
+        }
+        this.lines.push(this.responseLine('!!: event not found', 'warn'));
+        this.renderLog();
+        if (focus) {
+          this.inputElement.focus();
+        }
+        return;
+      }
+
+      if (echo) {
+        this.lines.push(this.commandLine('!!'));
+        this.lines.push(this.responseLine(lastCommand, 'info'));
+      }
+
+      await this.execute(lastCommand, {
+        echo: false,
+        syncHash,
+        focus,
+        recordHistory,
+      });
+      return;
+    }
+
     /* Pending sudo/su password: send raw line to the worker (handlePendingAuth); do not resolve as a shell command. */
     if (this.sensitiveNextInput) {
       void this.sendOsCommand(normalized);
@@ -580,7 +719,7 @@ export class TerminalApp {
 
     if (this.gameMode) {
       this.gameMode = null;
-      this.promptLabel.textContent = 'chris@pecunies:~$';
+      this.setShellPrompt();
       this.lines.push(this.responseLine('Game session closed; running terminal command.', 'info'));
     }
 
@@ -597,8 +736,47 @@ export class TerminalApp {
       return;
     }
 
-    const expandedLine = this.expandShellAliases(normalized);
+    const shorthandExpanded = normalized === '..' ? 'cd ..' : normalized === '.' ? 'pwd' : normalized;
+    const expandedLine = this.expandShellAliases(shorthandExpanded);
     const { name, args } = this.parseCommand(expandedLine);
+
+    if (name === 'chat' && args.length > 0) {
+      const firstPrompt = args.join(' ').trim();
+      if (echo) {
+        this.lines.push(this.commandLine(normalized));
+      }
+      if (recordHistory) {
+        this.pushHistory(normalized);
+      }
+      void this.recordCommand(normalized);
+      this.applyOutcome(
+        { kind: 'chat', text: 'Chat mode active. Ask about Chris, his work history, or projects. Type /exit to leave.', tone: 'success' },
+        this.resolveCommand('chat') ?? this.commands[0]!,
+        syncHash,
+      );
+      this.renderLog();
+      await this.sendChat(firstPrompt);
+      if (focus) {
+        this.inputElement.focus();
+      }
+      return;
+    }
+
+    if (name === 'config' && (!args.length || args[0]?.toLowerCase() === 'edit')) {
+      if (echo) {
+        this.lines.push(this.commandLine(normalized));
+      }
+      if (recordHistory) {
+        this.pushHistory(normalized);
+      }
+      void this.recordCommand(normalized);
+      await this.openConfigView(syncHash);
+      this.renderLog();
+      if (focus) {
+        this.inputElement.focus();
+      }
+      return;
+    }
 
     /* Handle debug locally — toggles the debugMode field and skips or enables verbose logging. */
     if (name === 'debug') {
@@ -709,7 +887,7 @@ export class TerminalApp {
     if (outcome.kind === 'markdown-view') {
       this.chatMode = false;
       this.gameMode = null;
-      this.promptLabel.textContent = 'chris@pecunies:~$';
+      this.setShellPrompt();
       this.lines.push(this.responseLine(`Loaded: ${outcome.title}`, outcome.tone ?? 'success'));
       this.lines.push({
         id: this.makeId(),
@@ -736,7 +914,7 @@ export class TerminalApp {
       this.promptLabel.textContent = 'chat>';
       this.routeIndicator.textContent = 'chat';
       this.themeIndicator.textContent = 'workers-ai';
-      this.highlightNavLink(null);
+      this.highlightNavLink('chat');
       this.lines.push(this.responseLine(outcome.text, outcome.tone ?? 'success'));
       this.applyTheme(this.manualTheme ?? 'green');
 
@@ -750,7 +928,7 @@ export class TerminalApp {
     if (outcome.kind === 'exit') {
       this.chatMode = false;
       this.gameMode = null;
-      this.promptLabel.textContent = 'chris@pecunies:~$';
+      this.setShellPrompt();
       this.lines.push(this.responseLine(outcome.text, outcome.tone ?? 'info'));
       return;
     }
@@ -819,7 +997,7 @@ export class TerminalApp {
     this.activeView = outcome.view;
     this.chatMode = false;
     this.gameMode = null;
-    this.promptLabel.textContent = 'chris@pecunies:~$';
+    this.setShellPrompt();
     this.lines.push(this.responseLine(outcome.view.logline, outcome.tone ?? 'success'));
     const viewHtml = renderView(outcome.view);
     this.lines.push({
@@ -829,7 +1007,7 @@ export class TerminalApp {
       text: this.viewText(outcome.view),
     });
     this.routeIndicator.textContent = outcome.view.route;
-    this.highlightNavLink(outcome.view.route);
+    this.highlightNavLink(outcome.view.id);
     this.scrambleText(this.promptScramble, outcome.view.prompt);
     this.scrambleText(this.statusScramble, outcome.view.description);
     this.applyTheme(this.effectiveTheme(outcome.view));
@@ -861,6 +1039,7 @@ export class TerminalApp {
     document.documentElement.style.setProperty('--ink', theme.text);
     document.documentElement.style.setProperty('--muted', theme.muted);
     this.themeIndicator.textContent = `palette:${themeName}`;
+    this.themeIndicator.setAttribute('data-theme-current', themeName);
     this.fieldHandle?.setMode(theme.mode);
     this.fieldHandle?.burst();
   }
@@ -879,17 +1058,262 @@ export class TerminalApp {
   }
 
   private applyOsConfig(config: Record<string, unknown>): void {
-    if (!('crt' in config)) return;
-    const raw = config.crt;
-    let on = true;
-    if (raw === false || raw === 'false' || raw === 'off') {
-      on = false;
-    } else if (raw === true || raw === 'true' || raw === 'on') {
-      on = true;
-    } else if (typeof raw === 'string') {
-      on = raw.toLowerCase() !== 'off' && raw.toLowerCase() !== 'false';
+    if ('crt' in config) {
+      const raw = config.crt;
+      let on = true;
+      if (raw === false || raw === 'false' || raw === 'off') {
+        on = false;
+      } else if (raw === true || raw === 'true' || raw === 'on') {
+        on = true;
+      } else if (typeof raw === 'string') {
+        on = raw.toLowerCase() !== 'off' && raw.toLowerCase() !== 'false';
+      }
+      this.applyCrtMode(on);
     }
-    this.applyCrtMode(on);
+    if ('name' in config) {
+      this.identityDisplayName = this.normalizeIdentityPart(config.name, 'guest');
+    }
+    if ('environment' in config) {
+      this.identityEnvironment = this.normalizeIdentityPart(config.environment, 'pecunies');
+    }
+    if ('ai_model' in config) {
+      const rawModel = String(config.ai_model || '').trim();
+      this.aiModel = AI_MODEL_OPTIONS.includes(rawModel as (typeof AI_MODEL_OPTIONS)[number]) ? rawModel : DEFAULT_AI_MODEL;
+    }
+    this.updatePromptIdentityUi();
+  }
+
+  private normalizeIdentityPart(value: unknown, fallback: string): string {
+    const next = String(value ?? '').trim().replace(/\s+/g, '-').replace(/[^a-zA-Z0-9._-]/g, '');
+    return next.slice(0, 24) || fallback;
+  }
+
+  private currentIdentityPrompt(): string {
+    return `${this.identityDisplayName}@${this.identityEnvironment}:~$`;
+  }
+
+  private setShellPrompt(): void {
+    this.promptLabel.textContent = this.currentIdentityPrompt();
+    this.updatePromptIdentityUi();
+  }
+
+  private updatePromptIdentityUi(): void {
+    this.promptIdentityButton.textContent = this.currentIdentityPrompt();
+    this.identityDisplayNameInput.value = this.identityDisplayName;
+    this.identityEnvironmentSelect.value = this.identityEnvironment;
+    this.identityModelSelect.value = this.aiModel;
+  }
+
+  private toggleIdentityPopover(): void {
+    if (this.identityPopover.hidden) {
+      this.identityPopover.hidden = false;
+      this.promptIdentityButton.setAttribute('aria-expanded', 'true');
+      this.identityDisplayNameInput.value = this.identityDisplayName;
+      this.identityEnvironmentSelect.value = this.identityEnvironment;
+      this.identityModelSelect.value = this.aiModel;
+      this.closeThemePopover();
+      this.identityDisplayNameInput.focus();
+      this.identityDisplayNameInput.select();
+      return;
+    }
+    this.closeIdentityPopover();
+  }
+
+  private closeIdentityPopover(): void {
+    this.identityPopover.hidden = true;
+    this.promptIdentityButton.setAttribute('aria-expanded', 'false');
+  }
+
+  private toggleThemePopover(): void {
+    if (this.themePopover.hidden) {
+      this.themePopover.hidden = false;
+      this.themeIndicator.setAttribute('aria-expanded', 'true');
+      this.closeIdentityPopover();
+      return;
+    }
+    this.closeThemePopover();
+  }
+
+  private closeThemePopover(): void {
+    this.themePopover.hidden = true;
+    this.themeIndicator.setAttribute('aria-expanded', 'false');
+  }
+
+  private async saveIdentityFromPopover(): Promise<void> {
+    const nextName = this.normalizeIdentityPart(this.identityDisplayNameInput.value, this.identityDisplayName);
+    const nextEnvironment = this.normalizeIdentityPart(
+      this.identityEnvironmentSelect.value || 'pecunies',
+      this.identityEnvironment,
+    );
+    this.identityDisplayName = nextName;
+    this.identityEnvironment = nextEnvironment;
+    this.aiModel = AI_MODEL_OPTIONS.includes(this.identityModelSelect.value as (typeof AI_MODEL_OPTIONS)[number])
+      ? this.identityModelSelect.value
+      : DEFAULT_AI_MODEL;
+    this.setShellPrompt();
+    this.closeIdentityPopover();
+    await this.sendOsCommand(`config set name ${nextName}`);
+    await this.sendOsCommand(`config set environment ${nextEnvironment}`);
+    await this.sendOsCommand(`config set ai_model ${this.aiModel}`);
+    this.persistShellProfile();
+  }
+
+  private parseConfigOutput(output: string): Record<string, unknown> {
+    const parsed: Record<string, unknown> = {};
+    const lines = output.split('\n');
+    for (const line of lines) {
+      const idx = line.indexOf(':');
+      if (idx <= 0) {
+        continue;
+      }
+      const key = line.slice(0, idx).trim();
+      const rawValue = line.slice(idx + 1).trim();
+      if (!key) {
+        continue;
+      }
+      try {
+        parsed[key] = JSON.parse(rawValue);
+      } catch {
+        parsed[key] = rawValue;
+      }
+    }
+    return parsed;
+  }
+
+  private configEditorHtml(config: Record<string, unknown>): string {
+    const theme = String(config.theme ?? 'auto');
+    const fontSize = Number(config.font_size ?? 14);
+    const font = String(config.font ?? 'monospace');
+    const dark = Boolean(config.dark ?? true);
+    const name = String(config.name ?? 'guest');
+    const environment = String(config.environment ?? 'pecunies');
+    const email = String(config.email ?? '');
+    const crt = Boolean(config.crt ?? true);
+    const themeOptions = ['auto', ...Object.keys(terminalThemes)]
+      .map((t) => `<option value="${this.escapeAttribute(t)}"${t === theme ? ' selected' : ''}>${this.escapeHtml(t)}</option>`)
+      .join('');
+    return `
+      <div class="terminal-view is-live config-editor-view">
+        <header class="terminal-view-head">
+          <div class="terminal-view-meta"><span class="terminal-kicker">Session</span><code>./terminal --config</code></div>
+          <h1 class="terminal-title">Configuration</h1>
+          <p class="terminal-copy">Edit and persist terminal session configuration values.</p>
+        </header>
+        <section class="output-block">
+          <div class="config-editor-grid">
+            <label class="config-editor-field"><span>theme</span><select data-config-field="theme">${themeOptions}</select></label>
+            <label class="config-editor-field"><span>font_size</span><input data-config-field="font_size" type="number" min="10" max="28" value="${this.escapeAttribute(String(fontSize))}" /></label>
+            <label class="config-editor-field"><span>font</span><input data-config-field="font" type="text" value="${this.escapeAttribute(font)}" /></label>
+            <label class="config-editor-field"><span>name</span><input data-config-field="name" type="text" value="${this.escapeAttribute(name)}" /></label>
+            <label class="config-editor-field"><span>environment</span><input data-config-field="environment" type="text" value="${this.escapeAttribute(environment)}" /></label>
+            <label class="config-editor-field"><span>email</span><input data-config-field="email" type="email" value="${this.escapeAttribute(email)}" /></label>
+            <label class="config-editor-toggle"><input data-config-field="dark" type="checkbox"${dark ? ' checked' : ''} /><span>dark</span></label>
+            <label class="config-editor-toggle"><input data-config-field="crt" type="checkbox"${crt ? ' checked' : ''} /><span>crt</span></label>
+          </div>
+          <div class="config-editor-actions">
+            <button type="button" class="ghost-button" data-config-action="reset">Reset defaults</button>
+            <button type="button" class="submit-button" data-config-action="save">Save</button>
+          </div>
+        </section>
+      </div>
+    `;
+  }
+
+  private async fetchConfigState(): Promise<Record<string, unknown>> {
+    try {
+      const response = await fetch('/api/os', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: this.sessionId,
+          command: 'config list',
+          visibleContext: this.visibleContext(),
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as OsResponse | null;
+      if (payload?.config && typeof payload.config === 'object') {
+        this.applyOsConfig(payload.config as Record<string, unknown>);
+      }
+      if (!response.ok) {
+        return {};
+      }
+      return this.parseConfigOutput(payload?.output ?? '');
+    } catch {
+      return {};
+    }
+  }
+
+  private async openConfigView(syncHash: boolean): Promise<void> {
+    const config = await this.fetchConfigState();
+    this.chatMode = false;
+    this.gameMode = null;
+    this.pendingPrompt = null;
+    this.setShellPrompt();
+    this.routeIndicator.textContent = 'config';
+    this.highlightNavLink(null);
+    this.lines.push(this.responseLine('Loaded: configuration editor', 'success'));
+    this.lines.push({
+      id: this.makeId(),
+      kind: 'view',
+      html: this.configEditorHtml(config),
+      text: 'Configuration editor',
+    });
+    if (syncHash) {
+      this.writeRoute('config');
+    }
+  }
+
+  private readConfigEditorField(field: string): string {
+    const element = this.root.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-config-field="${field}"]`);
+    return element?.value?.trim() ?? '';
+  }
+
+  private readConfigEditorToggle(field: string): boolean {
+    const element = this.root.querySelector<HTMLInputElement>(`[data-config-field="${field}"]`);
+    return Boolean(element?.checked);
+  }
+
+  private async saveConfigEditorValues(): Promise<void> {
+    const updates: Array<[string, string]> = [
+      ['theme', this.readConfigEditorField('theme') || 'auto'],
+      ['font_size', this.readConfigEditorField('font_size') || '14'],
+      ['font', this.readConfigEditorField('font') || 'monospace'],
+      ['name', this.readConfigEditorField('name') || 'guest'],
+      ['environment', this.readConfigEditorField('environment') || 'pecunies'],
+      ['email', this.readConfigEditorField('email') || ''],
+      ['dark', this.readConfigEditorToggle('dark') ? 'true' : 'false'],
+      ['crt', this.readConfigEditorToggle('crt') ? 'true' : 'false'],
+    ];
+
+    for (const [key, value] of updates) {
+      await this.sendOsCommand(`config set ${key} ${value}`);
+    }
+    if (updates[0]?.[1] === 'auto') {
+      await this.execute('theme auto');
+    } else {
+      await this.execute(`theme set ${updates[0]![1]}`);
+    }
+    const config = await this.fetchConfigState();
+    this.lines.push({
+      id: this.makeId(),
+      kind: 'view',
+      html: this.configEditorHtml(config),
+      text: 'Configuration editor',
+    });
+    this.renderLog();
+  }
+
+  private async resetConfigEditorValues(): Promise<void> {
+    await this.sendOsCommand('config reset');
+    await this.execute('theme auto');
+    const config = await this.fetchConfigState();
+    this.lines.push({
+      id: this.makeId(),
+      kind: 'view',
+      html: this.configEditorHtml(config),
+      text: 'Configuration editor',
+    });
+    this.renderLog();
   }
 
   private applyCrtMode(on: boolean): void {
@@ -910,9 +1334,12 @@ export class TerminalApp {
         this.persistShellProfile();
         return;
       }
-      const p = JSON.parse(raw) as { aliases?: Record<string, string>; env?: Record<string, string> };
+      const p = JSON.parse(raw) as { aliases?: Record<string, string>; env?: Record<string, string>; aiModel?: string };
       this.shellAliases = { ...(p.aliases ?? {}) };
       const t = p.env?.THEME?.toLowerCase();
+      if (p.aiModel && AI_MODEL_OPTIONS.includes(p.aiModel as (typeof AI_MODEL_OPTIONS)[number])) {
+        this.aiModel = p.aiModel;
+      }
       if (t && t in terminalThemes) {
         this.manualTheme = t as ThemeName;
         if (this.activeView) {
@@ -931,6 +1358,7 @@ export class TerminalApp {
         JSON.stringify({
           aliases: this.shellAliases,
           env: { THEME: this.manualTheme ?? 'auto' },
+          aiModel: this.aiModel,
         }),
       );
     } catch {
@@ -1139,7 +1567,7 @@ export class TerminalApp {
     this.editorFile = null;
     this.editorContent = '';
     this.editorTextarea = null;
-    this.promptLabel.textContent = 'chris@pecunies:~$';
+    this.setShellPrompt();
     this.viewElement.innerHTML = '';
     this.routeIndicator.textContent = '';
     this.themeIndicator.textContent = 'palette:auto';
@@ -1645,6 +2073,10 @@ export class TerminalApp {
       return /^(open|flag)\s+[a-h][1-8]$/.test(normalized);
     }
 
+    if (this.gameMode === 'jobquest' && this.jobQuestState) {
+      return jobQuestWouldHandleAsGameInput(this.jobQuestState, normalized);
+    }
+
     return false;
   }
 
@@ -1653,6 +2085,7 @@ export class TerminalApp {
     this.activeView = null;
     this.chatMode = false;
     this.gameMode = null;
+    this.jobQuestState = null;
     this.pendingPrompt = null;
     this.pendingScore = null;
     this.viewElement.innerHTML = '';
@@ -1660,7 +2093,7 @@ export class TerminalApp {
     this.statusScramble.textContent = '';
     this.routeIndicator.textContent = '';
     this.themeIndicator.textContent = 'palette:auto';
-    this.promptLabel.textContent = 'chris@pecunies:~$';
+    this.setShellPrompt();
     this.highlightNavLink(null);
     this.restoreWindow();
   }
@@ -1832,9 +2265,7 @@ export class TerminalApp {
           <div class="post-feed-head">
             <h2 class="output-heading">Published posts</h2>
             <p class="post-feed-rss">
-              <a href="/api/rss" target="_blank" rel="noopener noreferrer" class="rss-subscribe-link">RSS feed (/api/rss)</a>
-              <span aria-hidden="true"> · </span>
-              <span>Add this URL in your feed reader to subscribe.</span>
+              <a href="/api/rss" target="_blank" rel="noopener noreferrer" class="rss-subscribe-link" aria-label="RSS feed">◔</a>
             </p>
           </div>
           <div class="output-records post-feed">
@@ -1922,6 +2353,8 @@ export class TerminalApp {
       kind: 'pretty-response',
       html: renderMarkdownToHtml('_Thinking…_'),
       text: '',
+      model: this.aiModel,
+      copyable: true,
     });
     this.renderLog();
 
@@ -1933,6 +2366,7 @@ export class TerminalApp {
         },
         body: JSON.stringify({
           sessionId: this.sessionId,
+          model: this.aiModel,
           message,
           history: this.lines
             .filter((line) => line.id !== pendingId)
@@ -1944,13 +2378,13 @@ export class TerminalApp {
         }),
       });
 
-      const payload = (await response.json().catch(() => null)) as { answer?: string; error?: string } | null;
+      const payload = (await response.json().catch(() => null)) as ChatResponse | null;
       const text = response.ok
         ? payload?.answer ?? 'No answer returned.'
         : payload?.error ?? `Chat request failed with status ${response.status}.`;
 
       if (response.ok) {
-        await this.streamMarkdownToLine(pendingId, text);
+        await this.streamMarkdownToLine(pendingId, text, payload?.model ?? this.aiModel);
       } else {
         this.replaceLine(pendingId, text, 'warn');
       }
@@ -2007,22 +2441,22 @@ export class TerminalApp {
       }
 
       const cmdTrim = command.trim();
-      const isPrettyCat = /\bcat\b/.test(command) && /--pretty\b/.test(command);
-      const catPrettyPath = this.extractCatPrettyPath(cmdTrim);
-      const mdFromCat = Boolean(
-        isPrettyCat && catPrettyPath && catPrettyPath.toLowerCase().match(/\.(md|markdown)$/),
-      );
-      const isLessMd = /^\s*less\s+\S+\.(md|markdown)\b/i.test(cmdTrim);
+      const catPath = cmdTrim.match(/^cat\s+(?:--pretty\s+)?(\S+)/i)?.[1] ?? null;
+      const lessPath = cmdTrim.match(/^less\s+(\S+)/i)?.[1] ?? null;
+      const targetPath = (catPath ?? lessPath)?.toLowerCase() ?? '';
+      const isMarkdownPath = /\.(md|markdown)$/i.test(targetPath);
+      const isCodePath = /\.(ts|tsx|js|jsx|json|css|html|py|go|rs|zig|sh|bash|yml|yaml|toml)$/i.test(targetPath);
       const isAiMarkdown = /^\s*(ask|explain)\b/i.test(cmdTrim);
 
       if (!response.ok) {
         this.replaceLine(pendingId, output, 'warn');
-      } else if (mdFromCat || isLessMd || isAiMarkdown) {
+      } else if (isMarkdownPath || isAiMarkdown) {
         this.morphLineToPretty(pendingId);
-        await this.streamMarkdownToLine(pendingId, output);
-      } else if (isPrettyCat) {
+        await this.streamMarkdownToLine(pendingId, output, isAiMarkdown ? this.aiModel : undefined);
+      } else if (isCodePath) {
         this.morphLineToPretty(pendingId);
-        this.replaceLinePreBlock(pendingId, output);
+        const lang = targetPath.split('.').pop() || 'text';
+        await this.streamMarkdownToLine(pendingId, `\`\`\`${lang}\n${output}\n\`\`\``);
       } else {
         this.replaceLine(pendingId, output, 'success');
       }
@@ -2136,49 +2570,31 @@ export class TerminalApp {
     );
   }
 
-  private extractCatPrettyPath(cmd: string): string | null {
-    const t = cmd.trim();
-    const a = t.match(/^cat\s+--pretty\s+(\S+)/i);
-    if (a) {
-      return a[1];
-    }
-    const b = t.match(/^cat\s+(\S+)\s+--pretty\b/i);
-    return b ? b[1] : null;
-  }
-
   private morphLineToPretty(id: string): void {
     this.lines = this.lines.map((line) =>
-      line.id === id ? { id, kind: 'pretty-response', html: renderMarkdownToHtml(''), text: '' } : line,
+      line.id === id ? { id, kind: 'pretty-response', html: renderMarkdownToHtml(''), text: '', copyable: false } : line,
     );
   }
 
-  private async streamMarkdownToLine(id: string, text: string): Promise<void> {
+  private async streamMarkdownToLine(id: string, text: string, model?: string): Promise<void> {
     if (!text) {
-      this.replaceLineMarkdown(id, '');
+      this.replaceLineMarkdown(id, '', model);
       return;
     }
     const step = 5;
     for (let end = step; end <= text.length + step; end += step) {
       const acc = text.slice(0, Math.min(end, text.length));
-      this.replaceLineMarkdown(id, acc);
+      this.replaceLineMarkdown(id, acc, model);
       this.renderLog();
       this.outputElement.scrollTop = this.outputElement.scrollHeight;
       await new Promise((r) => window.setTimeout(r, 6));
     }
   }
 
-  private replaceLineMarkdown(id: string, raw: string): void {
+  private replaceLineMarkdown(id: string, raw: string, model?: string): void {
     const html = renderMarkdownToHtml(raw);
     this.lines = this.lines.map((line) =>
-      line.id === id ? { id, kind: 'pretty-response', html, text: raw } : line,
-    );
-  }
-
-  private replaceLinePreBlock(id: string, text: string): void {
-    const escaped = this.escapeHtml(text);
-    const html = `<pre class="terminal-pre-block">${escaped}</pre>`;
-    this.lines = this.lines.map((line) =>
-      line.id === id ? { id, kind: 'pretty-response', html, text } : line,
+      line.id === id ? { id, kind: 'pretty-response', html, text: raw, model, copyable: true } : line,
     );
   }
 
@@ -2232,6 +2648,12 @@ export class TerminalApp {
     this.pendingScore = null;
     this.minesGameOver = false;
 
+    if (game === 'jobquest') {
+      this.jobQuestState = createJobQuestState();
+      return;
+    }
+    this.jobQuestState = null;
+
     if (game === 'chess') {
       this.chessMoves = 0;
       this.chessBoard = [
@@ -2271,7 +2693,8 @@ export class TerminalApp {
 
     if (command === 'q' || command === 'quit') {
       this.gameMode = null;
-      this.promptLabel.textContent = 'chris@pecunies:~$';
+      this.jobQuestState = null;
+      this.setShellPrompt();
       this.lines.push(this.responseLine('Game closed.', 'info'));
       return;
     }
@@ -2280,6 +2703,39 @@ export class TerminalApp {
       const game = this.gameMode ?? '2048';
       this.startGame(game);
       this.lines.push(this.responseLine(this.renderGame(), 'info'));
+      return;
+    }
+
+    if (this.gameMode === 'jobquest' && this.jobQuestState) {
+      const result = processJobQuestInput(this.jobQuestState, input.trim());
+      this.jobQuestState = result.state;
+      const toneFor = (line: string, index: number): LogTone => {
+        if (line.startsWith('Unknown choice')) {
+          return 'warn';
+        }
+        if (line.startsWith('(type a choice')) {
+          return 'warn';
+        }
+        if (index === result.lines.length - 1 && result.gameOver) {
+          return result.won ? 'success' : 'warn';
+        }
+        return 'info';
+      };
+      result.lines.forEach((line, index) => {
+        this.lines.push(this.responseLine(line, toneFor(line, index)));
+      });
+      if (result.gameOver) {
+        const score = jobQuestScore(result.state, result.won);
+        this.pendingScore = { game: 'jobquest', score };
+        this.lines.push(
+          this.responseLine(
+            result.won
+              ? 'Enter a name to save this run, or run another command to leave the game.'
+              : 'Enter a name to save this score, or run another command to leave the game.',
+            'info',
+          ),
+        );
+      }
       return;
     }
 
@@ -2393,6 +2849,10 @@ export class TerminalApp {
 
     if (this.gameMode === 'minesweeper') {
       return this.renderMinesweeper();
+    }
+
+    if (this.gameMode === 'jobquest' && this.jobQuestState) {
+      return formatJobQuestScene(this.jobQuestState);
     }
 
     const divider = '+------+------+------+------+';
@@ -3003,8 +3463,23 @@ export class TerminalApp {
 
     this.shellElement.addEventListener('pointermove', (event) => {
       const bounds = this.shellElement.getBoundingClientRect();
-      const x = (event.clientX - bounds.left) / bounds.width;
-      const y = (event.clientY - bounds.top) / bounds.height;
+      const localX = event.clientX - bounds.left;
+      const localY = event.clientY - bounds.top;
+      const edgeDeadZonePx = 18;
+
+      // Keep a quiet border around the window so resize handles are easier to grab.
+      if (
+        localX < edgeDeadZonePx ||
+        localY < edgeDeadZonePx ||
+        localX > bounds.width - edgeDeadZonePx ||
+        localY > bounds.height - edgeDeadZonePx
+      ) {
+        resetShell();
+        return;
+      }
+
+      const x = localX / bounds.width;
+      const y = localY / bounds.height;
 
       this.shellElement.style.setProperty('--shell-tilt-x', `${(0.5 - y) * 4}deg`);
       this.shellElement.style.setProperty('--shell-tilt-y', `${(x - 0.5) * 5.5}deg`);
