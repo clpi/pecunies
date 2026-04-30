@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+set -eu
+
+if [ -z "${POST_SYNC_ENDPOINT:-}" ] || [ -z "${POST_SYNC_TOKEN:-}" ]; then
+  echo "Skipping post sync: POST_SYNC_ENDPOINT or POST_SYNC_TOKEN is not set."
+  exit 0
+fi
+
+echo "Syncing assets/posts to D1 before push..."
+npm run sync:posts

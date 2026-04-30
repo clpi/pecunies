@@ -1,5 +1,5 @@
-const STATIC_POSTS = {
-  '/posts/2026/04/29/terminal-portfolio-changelog.md': `---
+const STATIC_ASSET_POSTS = {
+  '/assets/posts/2026/04/29/terminal-portfolio-changelog.md': `---
 title: Terminal Portfolio Changelog
 date: 2026-04-29
 tags: writing, content, terminal
@@ -10,6 +10,16 @@ description: Changelog and notes for the terminal-native portfolio writing syste
 
 Initial post placeholder for the terminal-native writing system. Posts are markdown files under \`/posts\`; creating, editing, or removing them requires sudo privileges.`,
 };
+
+export function assetPathToPostPath(path) {
+  const normalized = String(path || '').trim();
+  return normalized.startsWith('/assets/posts/') ? normalized.replace(/^\/assets/, '') : normalized;
+}
+
+export function postPathToAssetPath(path) {
+  const normalized = String(path || '').trim();
+  return normalized.startsWith('/posts/') ? `/assets${normalized}` : normalized;
+}
 
 const jsonHeaders = {
   'Content-Type': 'application/json; charset=utf-8',
@@ -418,29 +428,33 @@ export async function postPayload(path, markdown, env) {
 
 /** @param {any} env */
 export async function collectAllPosts(env) {
-  const posts = [];
+  const byPath = new Map();
 
-  for (const [path, markdown] of Object.entries(STATIC_POSTS)) {
-    posts.push(await postPayload(path, markdown, env));
+  for (const [assetPath, markdown] of Object.entries(STATIC_ASSET_POSTS)) {
+    const path = assetPathToPostPath(assetPath);
+    byPath.set(path, await postPayload(path, markdown, env));
   }
 
   if (env.PORTFOLIO_OS?.list) {
-    let cursor;
-    do {
-      const page = await env.PORTFOLIO_OS.list({ prefix: 'file:/posts/', cursor, limit: 1000 });
-      cursor = page.cursor;
+    for (const prefix of ['file:/posts/', 'file:/assets/posts/']) {
+      let cursor;
+      do {
+        const page = await env.PORTFOLIO_OS.list({ prefix, cursor, limit: 1000 });
+        cursor = page.cursor;
 
-      for (const key of page.keys ?? []) {
-        const path = key.name.replace(/^file:/, '');
-        const markdown = await env.PORTFOLIO_OS.get(key.name);
-
-        if (markdown && !STATIC_POSTS[path]) {
-          posts.push(await postPayload(path, String(markdown), env));
+        for (const key of page.keys ?? []) {
+          const rawPath = key.name.replace(/^file:/, '');
+          const path = assetPathToPostPath(rawPath);
+          const markdown = await env.PORTFOLIO_OS.get(key.name);
+          if (markdown) {
+            byPath.set(path, await postPayload(path, String(markdown), env));
+          }
         }
-      }
-    } while (cursor);
+      } while (cursor);
+    }
   }
 
+  const posts = Array.from(byPath.values());
   posts.sort((a, b) => {
     const da = `${a.published} ${a.path}`;
     const db = `${b.published} ${b.path}`;

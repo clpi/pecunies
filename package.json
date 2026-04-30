@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "build:wasm": "node scripts/build-wasm.mjs",
+    "sync:posts": "node scripts/sync-posts.mjs",
     "test:sanity": "node scripts/sanity-check.mjs",
     "preview": "vite preview",
     "deploy:cloudflare": "npm run build && npx wrangler pages deploy dist --project-name pecunies-chaos-portfolio"

@@ -1,7 +1,9 @@
 import { appendAiLog, readAiLogText } from './ai-log.js';
 import {
+  assetPathToPostPath,
   collectAllPosts,
   deletePostFromStorage,
+  postPathToAssetPath,
   recordBookingEvent,
   recordPostEvent,
   syncAssetToStorage,
@@ -94,6 +96,8 @@ const FILES = {
     '# Contact\n\n- Email: chris@pecunies.com\n- GitHub: https://github.com/clpi\n- GitLab: https://gitlab.com/clpi\n- SourceHut: https://sr.ht/~clp/\n- Codeberg: https://codeberg.org/clp\n- LinkedIn: https://linkedin.com/in/chrispecunies\n- Website: https://pecunies.com\n- Short website: https://clp.is\n- Ko-fi: https://ko-fi.com/clp\n- X: https://x.com/clpif\n- Threads: https://www.threads.com/@chris.pecunies\n- Patreon: https://patreon.com/pecunies\n- Open Collective: https://opencollective.com/clp\n- Cal.com: https://cal.com/chrisp\n- Calendly: https://calendly.com/pecunies\n- Buy Me a Coffee: https://buymeacoffee.com/pecunies\n- Instagram: https://www.instagram.com/chris.pecunies/\n- Facebook: https://www.facebook.com/chris.pecunies/\n- Location: Seattle, WA',
   '/posts/2026/04/29/terminal-portfolio-changelog.md':
     '---\ntitle: Terminal Portfolio Changelog\ndate: 2026-04-29\ntags: writing, content, terminal\ndescription: Changelog and notes for the terminal-native portfolio writing system.\n---\n\n# Terminal Portfolio Changelog\n\nInitial post placeholder for the terminal-native writing system. Posts are markdown files under `/posts`; creating, editing, or removing them requires sudo privileges.',
+  '/assets/posts/2026/04/29/terminal-portfolio-changelog.md':
+    '---\ntitle: Terminal Portfolio Changelog\ndate: 2026-04-29\ntags: writing, content, terminal\ndescription: Changelog and notes for the terminal-native portfolio writing system.\n---\n\n# Terminal Portfolio Changelog\n\nInitial post placeholder for the terminal-native writing system. Posts are markdown files under `/posts`; creating, editing, or removing them requires sudo privileges.',
   '/system/man.txt':
     'Portfolio OS commands: ls, cat, man, whoami, history, ps, top, pwd, echo, cp, tree, find, grep, touch, rm, mkdir, tail, less, source, logs, date, uptime, last, dark, light, rag, ask, explain, curl, ping, traceroute, trace, weather, stock, metrics, leaderboard, internet, fzf, clpsh, email, book, comment, sudo, su, 2048, jobquest, clear, chat, exit, download, theme, maximize, minimize, shutdown.',
   '/bin/clpsh': '#!/bin/clpsh\nPortfolio OS shell. Type commands at the prompt.',
@@ -155,7 +159,7 @@ const FILES = {
 };
 
 const DIRECTORIES = {
-  '/': ['README.md', 'TODO.md', 'app/', 'bin/', 'etc/', 'guest/', 'home/', 'opt/', 'posts/', 'resume/', 'projects/', 'contact.md', 'system/', 'tmp/', 'usr/', 'var/', 'root/'],
+  '/': ['README.md', 'TODO.md', 'app/', 'assets/', 'bin/', 'etc/', 'guest/', 'home/', 'opt/', 'posts/', 'resume/', 'projects/', 'contact.md', 'system/', 'tmp/', 'usr/', 'var/', 'root/'],
   '/app': [],
   '/bin': ['clpsh', 'minesweeper', '2048', 'chess', 'jobquest'],
   '/guest': [],
@@ -167,6 +171,11 @@ const DIRECTORIES = {
   '/posts/2026': ['04/'],
   '/posts/2026/04': ['29/'],
   '/posts/2026/04/29': ['terminal-portfolio-changelog.md'],
+  '/assets': ['posts/'],
+  '/assets/posts': ['2026/'],
+  '/assets/posts/2026': ['04/'],
+  '/assets/posts/2026/04': ['29/'],
+  '/assets/posts/2026/04/29': ['terminal-portfolio-changelog.md'],
   '/resume': ['resume.md', 'skills.md', 'projects.md'],
   '/projects': ['marketplace-aggregator.md', 'webassembly-runtime.md', 'down-nvim.md', 'pi-cluster.md'],
   '/system': ['man.txt'],
@@ -1568,10 +1577,15 @@ async function writeUserFile(env, _state, rawPath, content, options = {}) {
   const previous = options.append ? (await readUserFile(env, path)) ?? '' : '';
   const next = options.append ? `${previous}${previous ? '\n' : ''}${content}` : content;
   await env.PORTFOLIO_OS.put(userFileKey(path), next);
-  if (path.startsWith('/posts/') && path.toLowerCase().endsWith('.md')) {
-    await syncPostToStorage(env, path, next);
-  } else if (path.startsWith('/posts/')) {
-    await syncAssetToStorage(env, path, next);
+  const mirrorPath = postMirrorPath(path);
+  if (mirrorPath) {
+    await env.PORTFOLIO_OS.put(userFileKey(mirrorPath), next);
+  }
+  const canonicalPostPath = canonicalPostPathForStorage(path);
+  if (canonicalPostPath && canonicalPostPath.toLowerCase().endsWith('.md')) {
+    await syncPostToStorage(env, canonicalPostPath, next);
+  } else if (canonicalPostPath) {
+    await syncAssetToStorage(env, canonicalPostPath, next);
   }
   return { output: `${options.createOnly ? 'touched' : 'wrote'} ${path}` };
 }
@@ -1601,8 +1615,15 @@ async function readUserFile(env, path) {
   if (!env.PORTFOLIO_OS) {
     return null;
   }
-
-  return env.PORTFOLIO_OS.get(userFileKey(path));
+  const primary = await env.PORTFOLIO_OS.get(userFileKey(path));
+  if (primary !== null && primary !== undefined) {
+    return primary;
+  }
+  const mirror = postMirrorPath(path);
+  if (!mirror) {
+    return null;
+  }
+  return env.PORTFOLIO_OS.get(userFileKey(mirror));
 }
 
 async function deleteUserFile(env, path) {
@@ -1611,9 +1632,33 @@ async function deleteUserFile(env, path) {
   }
 
   await env.PORTFOLIO_OS.delete(userFileKey(path));
-  if (path.startsWith('/posts/') && path.toLowerCase().endsWith('.md')) {
-    await deletePostFromStorage(env, path);
+  const mirrorPath = postMirrorPath(path);
+  if (mirrorPath) {
+    await env.PORTFOLIO_OS.delete(userFileKey(mirrorPath));
   }
+  const canonicalPostPath = canonicalPostPathForStorage(path);
+  if (canonicalPostPath && canonicalPostPath.toLowerCase().endsWith('.md')) {
+    await deletePostFromStorage(env, canonicalPostPath);
+  }
+}
+
+function canonicalPostPathForStorage(path) {
+  const normalized = normalizePath(path);
+  if (normalized.startsWith('/posts/') || normalized.startsWith('/assets/posts/')) {
+    return assetPathToPostPath(normalized);
+  }
+  return null;
+}
+
+function postMirrorPath(path) {
+  const normalized = normalizePath(path);
+  if (normalized.startsWith('/posts/')) {
+    return postPathToAssetPath(normalized);
+  }
+  if (normalized.startsWith('/assets/posts/')) {
+    return assetPathToPostPath(normalized);
+  }
+  return null;
 }
 
 async function directoryEntries(path, env) {
@@ -1678,7 +1723,7 @@ function canCreatePath(path, elevated) {
     return true;
   }
 
-  if (elevated && (path.startsWith('/posts/') || path.startsWith('/resume/') || path.startsWith('/projects/') || path.startsWith('/system/') || path.startsWith('/bin/') || path.startsWith('/root/') || path.startsWith('/etc/') || path.startsWith('/usr/') || path.startsWith('/opt/'))) {
+  if (elevated && (path.startsWith('/posts/') || path.startsWith('/assets/posts/') || path.startsWith('/resume/') || path.startsWith('/projects/') || path.startsWith('/system/') || path.startsWith('/bin/') || path.startsWith('/root/') || path.startsWith('/etc/') || path.startsWith('/usr/') || path.startsWith('/opt/'))) {
     return true;
   }
 
@@ -1691,6 +1736,7 @@ function isProtectedPath(path) {
     path === '/README.md' ||
     path === '/TODO.md' ||
     path.startsWith('/posts/') ||
+    path.startsWith('/assets/posts/') ||
     path.startsWith('/resume/') ||
     path.startsWith('/projects/') ||
     path.startsWith('/system/') ||
