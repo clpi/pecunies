@@ -19,7 +19,7 @@ export type ParticleFieldOptions = {
 // ─── Tunables ─────────────────────────────────────────────────────────────
 const CONFIG = {
   /** Base multipliers per preset for particle counts */
-  density: { minimal: 1.36, standard: 3.56, enhanced: 4.68 } as const,
+  density: { minimal: 1.42, standard: 3.92, enhanced: 5.12 } as const,
   /** Global flow rotation speed (rad / ms) */
   flowRotate: 0.00000016,
   /** Pointer repulsion: max extra velocity (px/frame at ~60fps scale) */
@@ -191,13 +191,13 @@ function seedParticles(
       let baseAlpha: number;
       if (layer === 0) {
         size = Math.random() < 0.76 ? 1 : Math.random() < 0.94 ? 2 : 3;
-        baseAlpha = 0.032 + Math.random() * 0.07;
+        baseAlpha = 0.04 + Math.random() * 0.076;
       } else if (layer === 1) {
         size = Math.random() < 0.58 ? 1 : Math.random() < 0.88 ? 2 : 3;
-        baseAlpha = 0.046 + Math.random() * 0.09;
+        baseAlpha = 0.056 + Math.random() * 0.1;
       } else {
         size = Math.random() < 0.42 ? 1 : Math.random() < 0.76 ? 2 : Math.random() < 0.94 ? 3 : 4;
-        baseAlpha = 0.055 + Math.random() * 0.105;
+        baseAlpha = 0.068 + Math.random() * 0.118;
       }
 
       if (isSignal || isMidSignal) {

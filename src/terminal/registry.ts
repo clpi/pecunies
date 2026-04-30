@@ -3,8 +3,6 @@ import { renderPostMarkdownToHtml } from './markdown';
 import {
   COMMAND_TAGS,
   TAG_INDEX,
-  findTagsMatching,
-  listTagSummaries,
   type TagContentItem,
 } from '../data/content-tags';
 import { terminalThemes, type ThemeName } from './palette';
@@ -25,15 +23,34 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#39;');
 }
 
-function mergeTagItems(slugs: string[]): { label: string; type: string; command: string }[] {
+function normalizeTagItem(item: TagContentItem): { label: string; type: string; command: string } {
+  if (item.type !== 'command') {
+    return { label: item.label, type: item.type, command: item.command };
+  }
+  const base = String(item.command || '')
+    .trim()
+    .replace(/^\//, '')
+    .split(/\s+/)[0];
+  return {
+    label: item.label,
+    type: item.type,
+    command: base ? `man ${base}` : item.command,
+  };
+}
+
+function mergeTagItems(
+  slugs: string[],
+  tagIndex: Record<string, TagContentItem[]>,
+): { label: string; type: string; command: string }[] {
   const seen = new Set<string>();
   const out: { label: string; type: string; command: string }[] = [];
   for (const slug of slugs) {
-    for (const item of TAG_INDEX[slug] ?? []) {
+    for (const item of tagIndex[slug] ?? []) {
+      const normalized = normalizeTagItem(item);
       const key = `${item.command}\0${item.label}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      out.push({ label: item.label, type: item.type, command: item.command });
+      out.push(normalized);
     }
   }
   return out.sort((a, b) => a.label.localeCompare(b.label));
@@ -45,10 +62,13 @@ function fallbackCommandTags(command: CommandDefinition): string[] {
   return ['terminal', groupTag, surfaceTag];
 }
 
-function intersectTagItems(slugs: string[]): { label: string; type: string; command: string }[] {
+function intersectTagItems(
+  slugs: string[],
+  tagIndex: Record<string, TagContentItem[]>,
+): { label: string; type: string; command: string }[] {
   if (!slugs.length) return [];
   const sets = slugs.map((slug) => {
-    const entries = (TAG_INDEX[slug] ?? []) as TagContentItem[];
+    const entries = (tagIndex[slug] ?? []) as TagContentItem[];
     return new Set(entries.map((item) => `${item.command}\0${item.label}`));
   });
   const [first, ...rest] = sets;
@@ -56,23 +76,39 @@ function intersectTagItems(slugs: string[]): { label: string; type: string; comm
   for (const key of first ?? []) {
     if (!rest.every((set) => set.has(key))) continue;
     const [command, label] = key.split('\0');
-    const base = ((TAG_INDEX[slugs[0]!] ?? []) as TagContentItem[]).find(
+    const base = ((tagIndex[slugs[0]!] ?? []) as TagContentItem[]).find(
       (item) => item.command === command && item.label === label,
     );
     if (!base) continue;
-    out.push({ label: base.label, type: base.type, command: base.command });
+    out.push(normalizeTagItem(base));
   }
   return out.sort((a, b) => a.label.localeCompare(b.label));
 }
 
-function buildTagsView(filter?: string): ViewDefinition {
+function buildTagsView(
+  filter: string | undefined,
+  dynamicTagIndex: Record<string, TagContentItem[]>,
+): ViewDefinition {
   const raw = filter?.trim().toLowerCase();
   const tokens = (raw ?? '')
     .split(/[\s,]+/)
     .map((token) => token.trim())
     .filter(Boolean);
   const selected = Array.from(new Set(tokens));
-  const summaries = listTagSummaries();
+  const tagIndex: Record<string, TagContentItem[]> = { ...TAG_INDEX };
+  for (const [slug, items] of Object.entries(dynamicTagIndex)) {
+    const merged = [...(tagIndex[slug] ?? []), ...items];
+    const seen = new Set<string>();
+    tagIndex[slug] = merged.filter((item) => {
+      const key = `${item.type}\0${item.label}\0${item.command}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+  const summaries = Object.keys(tagIndex)
+    .sort((a, b) => a.localeCompare(b))
+    .map((slug) => ({ slug, count: tagIndex[slug]?.length ?? 0 }));
 
   if (!selected.length) {
     return {
@@ -100,16 +136,12 @@ function buildTagsView(filter?: string): ViewDefinition {
     };
   }
 
-  const allKnownTags = selected.every((tag) => Boolean(TAG_INDEX[tag]));
+  const allKnownTags = selected.every((tag) => Boolean(tagIndex[tag]));
   if (allKnownTags) {
     const items =
       selected.length === 1
-        ? (TAG_INDEX[selected[0]!] as TagContentItem[]).map((item) => ({
-            label: item.label,
-            type: item.type,
-            command: item.command,
-          }))
-        : intersectTagItems(selected);
+        ? (tagIndex[selected[0]!] as TagContentItem[]).map((item) => normalizeTagItem(item))
+        : intersectTagItems(selected, tagIndex);
     const selectedLabel = selected.map((tag) => `#${tag}`).join(' + ');
     return {
       id: 'tags',
@@ -162,9 +194,9 @@ function buildTagsView(filter?: string): ViewDefinition {
   }
 
   const single = selected[0]!;
-  const matches = findTagsMatching(single);
+  const matches = Object.keys(tagIndex).filter((slug) => slug === single || slug.includes(single));
   if (matches.length) {
-    const items = mergeTagItems(matches);
+    const items = mergeTagItems(matches, tagIndex);
     return {
       id: 'tags',
       route: 'tags',
@@ -185,7 +217,7 @@ function buildTagsView(filter?: string): ViewDefinition {
           description: `Tag keys matched: ${matches.map((m) => `#${m}`).join(', ')}`,
           filter: single,
           selectedTags: matches,
-          allTags: matches.map((slug) => ({ slug, count: TAG_INDEX[slug].length })),
+          allTags: matches.map((slug) => ({ slug, count: tagIndex[slug].length })),
           items,
         },
       ],
@@ -199,7 +231,7 @@ function buildTagsView(filter?: string): ViewDefinition {
     eyebrow: 'Discovery',
     title: `No tag “${single}”`,
     description: 'Try another fragment, or pick a tag from the full list below.',
-    theme: 'frost',
+    theme: 'blue',
     logline: `No tag match for “${single}”.`,
     sections: [
       {
@@ -227,7 +259,7 @@ export function createCommandRegistry(): {
     title: 'Home',
     description:
       'A compact terminal portfolio. Type help, run a command, or use the small navigation bar above the shell.',
-    theme: 'orange',
+    theme: 'frost',
     tags: ['terminal', 'portfolio'],
     logline: 'Loaded terminal home.',
     actions: [
@@ -278,7 +310,7 @@ export function createCommandRegistry(): {
     description:
       'A terminal-shaped portfolio backed by the current resume instead of one-off landing page copy.',
     note: resumeData.availability,
-    theme: 'orange',
+    theme: 'green',
     tags: ['resume', 'career', 'portfolio'],
     logline: 'Loaded full resume view with summary, experience, skills, projects, and education.',
     stats: buildSignalStats(),
@@ -351,7 +383,7 @@ export function createCommandRegistry(): {
     title: 'Four roles across blockchain infrastructure, distributed systems, cloud training, and research engineering.',
     description:
       'The work history moves from research-side engineering through AWS consulting into distributed systems and recent blockchain infrastructure work.',
-    theme: 'amber',
+    theme: 'orange',
     tags: ['career', 'chronology'],
     logline: 'Loaded timeline view across consulting, blockchain infra, and platform work.',
     actions: [
@@ -502,7 +534,7 @@ export function createCommandRegistry(): {
     title: 'University of Washington roots, plus research-side engineering work.',
     description:
       'Formal training came through materials science, but the applied work quickly bent toward data systems, APIs, scientific tooling, and software delivery.',
-    theme: 'frost',
+    theme: 'green',
     tags: ['career'],
     logline: 'Loaded education and coursework context.',
     actions: [
@@ -737,26 +769,7 @@ export function createCommandRegistry(): {
       { label: 'About', command: 'about' },
       { label: 'Projects', command: 'projects' },
     ],
-    sections: [
-      {
-        type: 'timeline',
-        heading: 'Published posts',
-        items: [
-          {
-            role: 'Terminal portfolio changelog',
-            company: 'pecunies.com',
-            location: '/posts',
-            period: '2026-04-29',
-            summary:
-              'Initial placeholder for terminal-native posts, RSS entries, and future technical writing.',
-            bullets: [
-              'Posts are listed chronologically from newest to oldest.',
-              'The RSS feed is available at /rss.xml for readers and automation.',
-            ],
-          },
-        ],
-      },
-    ],
+    sections: [],
   };
 
   const aboutView: ViewDefinition = {
@@ -852,6 +865,22 @@ export function createCommandRegistry(): {
     return tags.length ? tags : ['terminal', 'command'];
   };
 
+  const buildCommandTagIndex = (): Record<string, TagContentItem[]> => {
+    const out: Record<string, TagContentItem[]> = {};
+    for (const command of commands) {
+      const entry: TagContentItem = {
+        label: `/${command.name}`,
+        type: 'command',
+        command: command.name,
+      };
+      for (const tag of getCommandTags(command)) {
+        if (!out[tag]) out[tag] = [];
+        out[tag]!.push(entry);
+      }
+    }
+    return out;
+  };
+
   const buildManView = (command: CommandDefinition): ViewDefinition => {
     const tags = getCommandTags(command);
     const aliases = command.aliases.length ? command.aliases.map((alias) => `/${alias}`).join(', ') : 'none';
@@ -927,7 +956,7 @@ export function createCommandRegistry(): {
             label: item.label,
             value: 'related command',
             detail: 'same group or overlapping tags',
-            command: item.command,
+            command: `man ${item.command}`,
           })),
         },
       ],
@@ -2339,11 +2368,12 @@ export function createCommandRegistry(): {
     usage: 'tags [tag|prefix|tag1 tag2 ...]',
     group: 'Utility',
     route: 'tags',
+    fullPageView: true,
     featured: false,
     description: 'Browse content tags, filter by tag name/prefix, or select multiple tags (AND filter).',
     tags: ['portfolio', 'tooling', 'terminal'],
     execute(_context, args) {
-      return { kind: 'view', view: buildTagsView(args.join(' ')) };
+      return { kind: 'view', view: buildTagsView(args.join(' '), buildCommandTagIndex()) };
     },
   });
 

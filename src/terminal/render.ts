@@ -80,10 +80,13 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
       <section class="terminal-shell" id="terminal-shell">
         <div class="terminal-crt-scan" aria-hidden="true"></div>
         <header class="terminal-header">
-          <div class="terminal-controls">
-            <button class="window-button is-close" type="button" data-window-action="shutdown" aria-label="Shutdown terminal"></button>
-            <button class="window-button is-minimize" type="button" data-window-action="minimize" aria-label="Minimize terminal"></button>
-            <button class="window-button is-maximize" type="button" data-window-action="maximize" aria-label="Maximize terminal"></button>
+          <div class="terminal-left-controls">
+            <div class="terminal-controls">
+              <button class="window-button is-close" type="button" data-window-action="shutdown" aria-label="Shutdown terminal"></button>
+              <button class="window-button is-minimize" type="button" data-window-action="minimize" aria-label="Minimize terminal"></button>
+              <button class="window-button is-maximize" type="button" data-window-action="maximize" aria-label="Maximize terminal"></button>
+            </div>
+            <button class="ghost-button" id="terminal-back-button" type="button" data-nav-action="back" aria-label="Go back to previous view">back</button>
           </div>
           <div class="terminal-state">
             <span id="route-indicator">resume</span>
@@ -231,7 +234,7 @@ export function renderLog(lines: SessionLine[]): string {
     .map((line) => {
       if (line.kind === 'command') {
         return `
-          <li class="log-line log-line-command">
+          <li class="log-line log-line-command" data-line-id="${escapeAttribute(line.id)}">
             <span class="log-prefix">guest@pecunies:~$</span>
             <span class="log-copy">${escapeHtml(line.text)}</span>
           </li>
@@ -240,7 +243,7 @@ export function renderLog(lines: SessionLine[]): string {
 
       if (line.kind === 'system') {
         return `
-          <li class="log-line log-line-system is-${escapeAttribute(line.tone)}">
+          <li class="log-line log-line-system is-${escapeAttribute(line.tone)}" data-line-id="${escapeAttribute(line.id)}">
             <span class="log-label">[${escapeHtml(line.label)}]</span>
             <span class="log-copy">${escapeHtml(line.text)}</span>
           </li>
@@ -251,21 +254,24 @@ export function renderLog(lines: SessionLine[]): string {
         const copyButton = line.copyable
           ? `<button class="pretty-copy-button" type="button" data-copy-pretty-id="${escapeAttribute(line.id)}" aria-label="Copy response"></button>`
           : '';
-        const modelHeader =
+        const metaHeader =
           line.model || copyButton
             ? `<div class="pretty-output-meta">
                  <span class="pretty-output-model">${line.model ? escapeHtml(line.model) : ''}</span>
                  ${copyButton}
-               </div>
-               <details class="pretty-thinking">
-                 <summary><span class="pretty-thinking-chevron">&gt;</span> <span class="pretty-thinking-label">Thinking...</span></summary>
-                 <p>Using portfolio profile, app command registry, visible terminal buffer, session history, RAG notes, metrics, leaderboard state, and files read in this session.</p>
-               </details>`
+               </div>`
             : '';
+        const thinkingSection = line.model
+          ? `<details class="pretty-thinking">
+               <summary><span class="pretty-thinking-chevron">&gt;</span> <span class="pretty-thinking-label">Thinking...</span></summary>
+               <p>Using portfolio profile, app command registry, visible terminal buffer, session history, RAG notes, metrics, leaderboard state, and files read in this session.</p>
+             </details>`
+          : '';
         return `
-          <li class="log-line log-line-pretty">
+          <li class="log-line log-line-pretty" data-line-id="${escapeAttribute(line.id)}">
             <div class="pretty-output-shell">
-              ${modelHeader}
+              ${metaHeader}
+              ${thinkingSection}
               <div class="pretty-output markdown-body">${line.html}</div>
             </div>
           </li>
@@ -274,14 +280,14 @@ export function renderLog(lines: SessionLine[]): string {
 
       if (line.kind === 'view') {
         return `
-          <li class="log-line log-line-view">
+          <li class="log-line log-line-view" data-line-id="${escapeAttribute(line.id)}">
             ${line.html}
           </li>
         `;
       }
 
       return `
-        <li class="log-line log-line-response is-${escapeAttribute(line.tone)}">
+        <li class="log-line log-line-response is-${escapeAttribute(line.tone)}" data-line-id="${escapeAttribute(line.id)}">
           <span class="log-label">&gt;</span>
           <span class="log-copy">${escapeHtml(line.text)}</span>
         </li>
@@ -639,14 +645,6 @@ function renderCommandHelpItem(item: CommandHelpItem): string {
       </div>
       <div class="command-meta">
         <code>${escapeHtml(item.usage)}</code>
-        <button
-          class="ghost-button"
-          type="button"
-          data-command="man ${escapeAttribute(item.name)}"
-          data-prepopulate-command="${escapeAttribute(item.name)}"
-        >
-          man
-        </button>
       </div>
     </article>
   `;

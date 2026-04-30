@@ -284,12 +284,14 @@ export class TerminalApp {
   private readonly identityCancelButton: HTMLButtonElement;
   private readonly dockElement: HTMLButtonElement;
   private readonly siteShellElement: HTMLElement;
+  private readonly backButton: HTMLButtonElement;
 
   private fieldHandle: AmbientFieldHandle | null = null;
   private manualTheme: ThemeName | null = null;
   private activeView: ViewDefinition | null = null;
   private lines: SessionLine[] = [];
   private suppressHashChange = false;
+  private isNavigatingBack = false;
   private scrambleFrames = new WeakMap<HTMLElement, number>();
   private suggestions: Suggestion[] = [];
   private suggestionIndex = 0;
@@ -323,6 +325,8 @@ export class TerminalApp {
   private darkMode = true;
   private suppressNextFocusAutocomplete = false;
   private typingIdleTimer: ReturnType<typeof setTimeout> | null = null;
+  private viewHistory: string[] = [];
+  private lastRenderedLineCount = 0;
 
   constructor({ root, commands, featuredCommands }: TerminalAppOptions) {
     this.root = root;
@@ -358,6 +362,7 @@ export class TerminalApp {
     this.identitySaveButton = this.requireElement<HTMLButtonElement>('#identity-save');
     this.identityCancelButton = this.requireElement<HTMLButtonElement>('#identity-cancel');
     this.dockElement = this.requireElement<HTMLButtonElement>('#terminal-dock');
+    this.backButton = this.requireElement<HTMLButtonElement>('#terminal-back-button');
 
     for (const command of this.commands) {
       if (command.route) {
@@ -447,7 +452,7 @@ export class TerminalApp {
       if (this.activeView) {
         this.applyTheme(this.effectiveTheme(this.activeView));
       } else {
-        this.applyTheme(this.manualTheme ?? 'orange');
+        this.applyTheme(this.manualTheme ?? 'blue');
       }
     });
     document.addEventListener('click', (event) => {
@@ -564,6 +569,12 @@ export class TerminalApp {
       }
 
       const windowAction = target.closest<HTMLElement>('[data-window-action]')?.dataset.windowAction;
+      const navAction = target.closest<HTMLElement>('[data-nav-action]')?.dataset.navAction;
+
+      if (navAction === 'back') {
+        void this.goBackToPreviousView();
+        return;
+      }
 
       if (windowAction === 'shutdown' || windowAction === 'minimize' || windowAction === 'maximize') {
         this.execute(windowAction);
@@ -608,6 +619,25 @@ export class TerminalApp {
             copyButton.classList.remove('is-copied');
             copyButton.setAttribute('aria-label', 'Copy response');
           }, 1400);
+        }
+        return;
+      }
+
+      const codeCopyButton = target.closest<HTMLButtonElement>('[data-copy-code]');
+      if (codeCopyButton) {
+        const codeBlock = codeCopyButton.closest<HTMLElement>('.md-code-block');
+        const code = codeBlock?.querySelector<HTMLElement>('code');
+        const codeText = code?.innerText;
+        if (codeText) {
+          void navigator.clipboard?.writeText(codeText).catch(() => undefined);
+          codeCopyButton.classList.add('is-copied');
+          codeCopyButton.setAttribute('aria-label', 'Copied');
+          codeCopyButton.textContent = 'Copied';
+          window.setTimeout(() => {
+            codeCopyButton.classList.remove('is-copied');
+            codeCopyButton.setAttribute('aria-label', 'Copy code');
+            codeCopyButton.textContent = 'Copy';
+          }, 1200);
         }
         return;
       }
@@ -674,6 +704,7 @@ export class TerminalApp {
     this.setupPointerDepth();
     this.setupShellWindowing();
     this.updateDockState();
+    this.updateBackButtonState();
   }
 
   boot(): void {
@@ -973,7 +1004,7 @@ export class TerminalApp {
       this.themeIndicator.textContent = 'workers-ai';
       this.highlightNavLink('chat');
       this.lines.push(this.responseLine(outcome.text, outcome.tone ?? 'success'));
-      this.applyTheme(this.manualTheme ?? 'red');
+      this.applyTheme(this.manualTheme ?? 'blue');
 
       if (syncHash) {
         this.writeRoute(command.route ?? 'chat');
@@ -1037,6 +1068,11 @@ export class TerminalApp {
       return;
     }
 
+    const previousRoute = this.activeView?.route ?? '';
+    const nextRoute = outcome.view.route ?? '';
+    if (!this.isNavigatingBack && previousRoute !== nextRoute) {
+      this.viewHistory.push(previousRoute);
+    }
     this.activeView = outcome.view;
     this.chatMode = false;
     this.gameMode = null;
@@ -1048,7 +1084,7 @@ export class TerminalApp {
       html: viewHtml,
       text: this.viewText(outcome.view),
     });
-    this.triggerViewSwitchFeedback(outcome.view.route || 'Home');
+    this.triggerViewSwitchFeedback(outcome.view.route || 'home');
     this.highlightNavLink(outcome.view.id);
     this.scrambleText(this.promptScramble, outcome.view.prompt);
     this.scrambleText(this.statusScramble, outcome.view.description);
@@ -1062,6 +1098,7 @@ export class TerminalApp {
     if (syncHash) {
       this.writeRoute(command.route ?? outcome.view.route);
     }
+    this.updateBackButtonState();
   }
 
   private applyTheme(themeName: ThemeName): void {
@@ -1112,7 +1149,7 @@ export class TerminalApp {
       if (this.activeView) {
         this.applyTheme(this.effectiveTheme(this.activeView));
       } else {
-        this.applyTheme(this.manualTheme ?? 'orange');
+        this.applyTheme(this.manualTheme ?? 'blue');
       }
     }
     if ('dark' in config) {
@@ -1237,12 +1274,12 @@ export class TerminalApp {
       : DEFAULT_AI_MODEL;
     this.identityEmail = this.identityEmailInput.value.trim().slice(0, 120);
     const nextThemeRaw = this.identityThemeSelect.value.trim().toLowerCase();
-    const nextTheme = nextThemeRaw === 'auto' ? null : nextThemeRaw in terminalThemes ? (nextThemeRaw as ThemeName) : 'orange';
+    const nextTheme = nextThemeRaw === 'auto' ? null : nextThemeRaw in terminalThemes ? (nextThemeRaw as ThemeName) : null;
     this.manualTheme = nextTheme;
     this.darkMode = this.identityDarkModeInput.checked;
     this.systemPromptInjection = this.identitySystemPromptInput.value.trim().slice(0, 1200);
     this.applyDarkMode(this.darkMode);
-    this.applyTheme(this.manualTheme ?? (this.activeView ? this.activeView.theme : 'orange'));
+    this.applyTheme(this.manualTheme ?? (this.activeView ? this.activeView.theme : 'blue'));
     this.setShellPrompt();
     this.closeIdentityPopover();
     await this.setConfigQuiet('name', nextName);
@@ -1472,7 +1509,7 @@ export class TerminalApp {
       const raw = localStorage.getItem(SHELL_PROFILE_STORAGE);
       if (!raw) {
         this.shellAliases = {};
-        this.manualTheme = 'orange';
+        this.manualTheme = 'blue';
         this.applyDarkMode(localStorage.getItem('pecunies.dark') !== 'false');
         this.persistShellProfile();
         return;
@@ -1501,16 +1538,16 @@ export class TerminalApp {
       } else if (t === 'auto') {
         this.manualTheme = null;
       } else {
-        this.manualTheme = 'orange';
+        this.manualTheme = 'blue';
       }
       if (this.activeView) {
         this.applyTheme(this.effectiveTheme(this.activeView));
       } else {
-        this.applyTheme(this.manualTheme ?? 'orange');
+        this.applyTheme(this.manualTheme ?? 'blue');
       }
     } catch {
       this.shellAliases = {};
-      this.manualTheme = 'orange';
+      this.manualTheme = 'blue';
       this.applyDarkMode(true);
     }
   }
@@ -1611,8 +1648,20 @@ export class TerminalApp {
 
   private renderLog(): void {
     const pinTop = this.outputElement.dataset.pinTop === 'true';
+    const anchorLineId =
+      !pinTop && this.lines.length > this.lastRenderedLineCount
+        ? this.lines[this.lastRenderedLineCount]?.id ?? null
+        : null;
     this.logElement.innerHTML = renderLog(this.lines);
-    this.outputElement.scrollTop = pinTop ? 0 : this.outputElement.scrollHeight;
+    if (pinTop) {
+      this.outputElement.scrollTop = 0;
+    } else if (anchorLineId) {
+      const anchor = this.logElement.querySelector<HTMLElement>(`[data-line-id="${anchorLineId}"]`);
+      this.outputElement.scrollTop = anchor ? Math.max(0, anchor.offsetTop - 6) : this.outputElement.scrollHeight;
+    } else {
+      this.outputElement.scrollTop = this.outputElement.scrollHeight;
+    }
+    this.lastRenderedLineCount = this.lines.length;
     delete this.outputElement.dataset.pinTop;
   }
 
@@ -1652,7 +1701,7 @@ export class TerminalApp {
         if (this.activeView) {
           this.applyTheme(this.effectiveTheme(this.activeView));
         } else {
-          this.applyTheme(this.manualTheme ?? 'orange');
+          this.applyTheme(this.manualTheme ?? 'blue');
         }
       },
       getDarkMode: () => this.darkMode,
@@ -2244,10 +2293,41 @@ export class TerminalApp {
     this.promptScramble.textContent = '';
     this.statusScramble.textContent = '';
     this.routeIndicator.textContent = '';
-    this.applyTheme(this.manualTheme ?? 'orange');
+    this.applyTheme(this.manualTheme ?? 'blue');
     this.setShellPrompt();
     this.highlightNavLink(null);
     this.restoreWindow();
+    this.updateBackButtonState();
+  }
+
+  private updateBackButtonState(): void {
+    this.backButton.setAttribute('aria-disabled', this.viewHistory.length === 0 ? 'true' : 'false');
+  }
+
+  private async goBackToPreviousView(): Promise<void> {
+    if (!this.viewHistory.length) {
+      this.updateBackButtonState();
+      return;
+    }
+    const currentRoute = this.activeView?.route ?? '';
+    let targetRoute = this.viewHistory.pop();
+    while (targetRoute !== undefined && targetRoute === currentRoute) {
+      targetRoute = this.viewHistory.pop();
+    }
+    this.updateBackButtonState();
+    const targetCommand = targetRoute
+      ? this.routeMap.get(targetRoute)
+      : this.commands.find((command) => command.name === 'home') ?? null;
+    if (!targetCommand) {
+      return;
+    }
+    this.isNavigatingBack = true;
+    try {
+      await this.execute(targetCommand.name, { echo: false, syncHash: true, focus: false });
+    } finally {
+      this.isNavigatingBack = false;
+      this.updateBackButtonState();
+    }
   }
 
   private applyWindowAction(action: 'shutdown' | 'minimize' | 'maximize'): void {
@@ -2422,6 +2502,20 @@ export class TerminalApp {
               <a href="/api/rss" target="_blank" rel="noopener noreferrer" class="rss-subscribe-link" aria-label="RSS feed">RSS</a>
             </p>
           </div>
+          <article class="output-record timeline-item post-timeline-item">
+            <div class="timeline-marker" aria-hidden="true"></div>
+            <div class="timeline-content">
+              <p class="timeline-topline"><strong>Terminal portfolio changelog</strong> · pecunies.com · /posts</p>
+              <p class="timeline-period">2026-04-29</p>
+              <p class="record-summary">
+                Initial placeholder for terminal-native posts, RSS entries, and future technical writing.
+              </p>
+              <ul class="record-bullets">
+                <li>Posts are listed chronologically from newest to oldest.</li>
+                <li>The RSS feed is available at <code>/rss.xml</code> for readers and automation.</li>
+              </ul>
+            </div>
+          </article>
           <div class="output-records post-feed">
             ${posts
               .map((post) => {
@@ -2439,16 +2533,16 @@ export class TerminalApp {
                       <p class="post-card-titleline">
                         <strong>${this.escapeHtml(post.title)}</strong>
                       </p>
-                      <div class="post-card-status">
-                        <span class="post-path-line"><code>${this.escapeHtml(post.path)}</code></span>
-                        <span class="post-comment-count" aria-label="${this.escapeAttribute(commentCountLabel(comments))}">
-                          ${this.escapeHtml(commentCountLabel(comments))}
-                        </span>
-                      </div>
                     </div>
                     <p class="post-date-line">
                       <time class="post-date" datetime="${this.escapeAttribute(post.published ?? '')}">${this.escapeHtml(post.published ?? '—')}</time>
                     </p>
+                    <div class="post-card-status">
+                      <span class="post-path-line"><code>${this.escapeHtml(post.path)}</code></span>
+                      <span class="post-comment-count" aria-label="${this.escapeAttribute(commentCountLabel(comments))}">
+                        ${this.escapeHtml(commentCountLabel(comments))}
+                      </span>
+                    </div>
                     <div class="post-tag-row" aria-label="Post tags">
                       ${(post.tags ?? [])
                         .map(

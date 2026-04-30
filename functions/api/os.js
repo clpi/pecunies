@@ -513,6 +513,19 @@ export async function onRequest() {
 }
 
 async function executeCommandText(commandText, state, env, visibleContext, request, options = {}) {
+  const chained = splitAndAnd(commandText);
+  if (chained.length > 1) {
+    let last = { output: '' };
+    for (const segment of chained) {
+      const result = await executeCommandText(segment, state, env, visibleContext, request, options);
+      if (result.status && result.status >= 400) {
+        return result;
+      }
+      last = result;
+    }
+    return last;
+  }
+
   /* Pipelines: split on first bare | so `ls|grep` and `a | b | c` work (left-associative chain). */
   const pipeIndex = commandText.indexOf('|');
   if (pipeIndex > 0) {
@@ -602,6 +615,48 @@ async function executeCommandText(commandText, state, env, visibleContext, reque
   }
 
   return { output: '' };
+}
+
+function splitAndAnd(commandText) {
+  const parts = [];
+  let quote = null;
+  let escape = false;
+  let start = 0;
+
+  for (let i = 0; i < commandText.length; i++) {
+    const ch = commandText[i];
+
+    if (escape) {
+      escape = false;
+      continue;
+    }
+
+    if (ch === '\\' && quote !== "'") {
+      escape = true;
+      continue;
+    }
+
+    if (quote) {
+      if (ch === quote) quote = null;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+
+    if (ch === '&' && commandText[i + 1] === '&') {
+      const segment = commandText.slice(start, i).trim();
+      if (segment) parts.push(segment);
+      start = i + 2;
+      i += 1;
+    }
+  }
+
+  const tail = commandText.slice(start).trim();
+  if (tail) parts.push(tail);
+  return parts;
 }
 
 async function runCommand(parsed, state, env, visibleContext, request, options = {}) {

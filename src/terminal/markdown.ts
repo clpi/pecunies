@@ -38,7 +38,8 @@ function renderMarkdownCore(markdown: string): string {
   renderer.code = ({ text, lang }) => {
     const language = (lang || 'text').toLowerCase();
     const highlighted = highlightCode(text, language);
-    return `<pre class="md-code-block" data-lang="${escapeHtml(language)}"><div class="md-code-block-head">${escapeHtml(language)}</div><code class="language-${escapeHtml(language)}">${highlighted}</code></pre>`;
+    const lineNumbers = buildLineNumbers(text);
+    return `<pre class="md-code-block" data-lang="${escapeHtml(language)}"><div class="md-code-block-head"><span class="md-code-block-language">${escapeHtml(language)}</span><button type="button" class="md-code-copy-button" aria-label="Copy code" data-copy-code>Copy</button></div><div class="md-code-block-body"><span class="md-code-line-numbers" aria-hidden="true">${lineNumbers}</span><code class="language-${escapeHtml(language)}">${highlighted}</code></div></pre>`;
   };
   const raw = marked.parse(markdown, { async: false, renderer }) as string;
   return DOMPurify.sanitize(raw, PURIFY) as string;
@@ -165,6 +166,15 @@ function highlightCode(source: string, language: string): string {
   // Restore preserved comments/strings.
   raw = raw.replace(/\u0000(\d+)\u0000/g, (_m, i) => placeholders[Number(i)] ?? '');
   return raw;
+}
+
+function buildLineNumbers(source: string): string {
+  const total = Math.max(1, String(source).split('\n').length);
+  const lines: string[] = [];
+  for (let i = 1; i <= total; i += 1) {
+    lines.push(String(i));
+  }
+  return escapeHtml(lines.join('\n'));
 }
 
 function escapeHtml(value: string): string {
