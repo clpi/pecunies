@@ -223,7 +223,7 @@ export const terminalThemes = {
     accentDim: "#9f6bac",
     muted: "#9a92a3",
     depth: "#030205",
-    backgroundA: "rgba  (255, 102, 179, 0.014)",
+    backgroundA: "rgba(255, 102, 179, 0.014)",
     backgroundB: "rgba(255, 51, 166, 0.011)",
     mode: 0,
   },

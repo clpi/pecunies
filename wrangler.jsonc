@@ -11,12 +11,6 @@
 		"AI_GATEWAY_ID": "pecunies",
 		"AI_SEARCH_INSTANCE": "pecunies-knowledge"
 	},
-	"pipelines": [
-		{
-			"pipeline": "6b533e8c6fb14fb99997e3c32c6c2fae",
-			"binding": "PECUNIESPL_STREAM"
-		}
-	],
 	"vectorize": [
 		{
 			"binding": "VECTORIZE",
@@ -63,7 +57,7 @@
 			"database_id": "a65bd06c-16c0-446d-a047-605ad1e6abc2",
 			"remote": true
 		}
-	],
+	]
 	// "migrations": [
 	//   {
 	//     "tag": "v1",

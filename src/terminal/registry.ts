@@ -297,7 +297,7 @@ export function createCommandRegistry(): {
         heading: "neofetch",
         lines: [
           "guest@pecunies",
-          "os: pecuOS / Cloudflare Pages",
+          "os: pecuOS version 0.1",
           "shell: /bin/clpsh",
           "focus: cloud systems, DevOps automation, distributed systems, runtime engineering",
           "try: help, resume, projects, timeline, cat /README.md, ask <question>",
@@ -1602,7 +1602,7 @@ export function createCommandRegistry(): {
   commands.push({
     name: "themes",
     aliases: ["palette", "palettes"],
-    usage: "themes",
+    usage: "Get themes selection view",
     group: "Utility",
     route: "themes",
     fullPageView: true,

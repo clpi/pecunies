@@ -1147,16 +1147,14 @@ export class TerminalApp {
   private applyOsConfig(config: Record<string, unknown>): void {
     if ('theme' in config) {
       const rawTheme = String(config.theme || '').trim().toLowerCase();
-      if (rawTheme === 'auto') {
+      if (rawTheme === 'auto')
         this.manualTheme = null;
-      } else if (rawTheme in terminalThemes) {
+      else if (rawTheme in terminalThemes)
         this.manualTheme = rawTheme as ThemeName;
-      }
-      if (this.activeView) {
+      if (this.activeView)
         this.applyTheme(this.effectiveTheme(this.activeView));
-      } else {
+       else
         this.applyTheme(this.manualTheme ?? 'orange');
-      }
     }
     if ('dark' in config) {
       const raw = config.dark;
@@ -1165,31 +1163,26 @@ export class TerminalApp {
     if ('crt' in config) {
       const raw = config.crt;
       let on = true;
-      if (raw === false || raw === 'false' || raw === 'off') {
+      if (raw === false || raw === 'false' || raw === 'off')
         on = false;
-      } else if (raw === true || raw === 'true' || raw === 'on') {
+       else if (raw === true || raw === 'true' || raw === 'on')
         on = true;
-      } else if (typeof raw === 'string') {
+       else if (typeof raw === 'string')
         on = raw.toLowerCase() !== 'off' && raw.toLowerCase() !== 'false';
-      }
       this.applyCrtMode(on);
     }
-    if ('name' in config) {
+    if ('name' in config)
       this.identityDisplayName = this.normalizeIdentityPart(config.name, 'guest');
-    }
-    if ('environment' in config) {
+    if ('environment' in config)
       this.identityEnvironment = this.normalizeIdentityPart(config.environment, 'pecunies');
-    }
     if ('ai_model' in config) {
       const rawModel = String(config.ai_model || '').trim();
       this.aiModel = AI_MODEL_OPTIONS.includes(rawModel as (typeof AI_MODEL_OPTIONS)[number]) ? rawModel : DEFAULT_AI_MODEL;
     }
-    if ('email' in config) {
+    if ('email' in config)
       this.identityEmail = String(config.email ?? '').trim().slice(0, 120);
-    }
-    if ('system_prompt' in config) {
+    if ('system_prompt' in config)
       this.systemPromptInjection = String(config.system_prompt ?? '').slice(0, 1200);
-    }
     if ('syntax_scheme' in config) {
       const raw = String(config.syntax_scheme ?? '').trim().toLowerCase();
       this.applySyntaxScheme(raw === 'contrast' || raw === 'pastel' ? raw : 'default');
@@ -1316,14 +1309,12 @@ export class TerminalApp {
     const lines = output.split('\n');
     for (const line of lines) {
       const idx = line.indexOf(':');
-      if (idx <= 0) {
+      if (idx <= 0)
         continue;
-      }
       const key = line.slice(0, idx).trim();
       const rawValue = line.slice(idx + 1).trim();
-      if (!key) {
+      if (!key)
         continue;
-      }
       try {
         parsed[key] = JSON.parse(rawValue);
       } catch {
@@ -1402,13 +1393,11 @@ export class TerminalApp {
       }
       if (typeof payload?.cwd === 'string' && payload.cwd.trim()) {
         this.osCurrentDir = payload.cwd.trim();
-        if (!this.chatMode && !this.gameMode) {
+        if (!this.chatMode && !this.gameMode)
           this.setShellPrompt();
-        }
       }
-      if (!response.ok) {
+      if (!response.ok)
         return {};
-      }
       return this.parseConfigOutput(payload?.output ?? '');
     } catch {
       return {};
@@ -1525,9 +1514,8 @@ export class TerminalApp {
         }),
       });
       const payload = (await response.json().catch(() => null)) as OsResponse | null;
-      if (payload?.config && typeof payload.config === 'object') {
+      if (payload?.config && typeof payload.config === 'object')
         this.applyOsConfig(payload.config as Record<string, unknown>);
-      }
     } catch {
       /* Config persistence is best-effort. */
     }
@@ -1552,31 +1540,26 @@ export class TerminalApp {
         darkMode?: boolean;
       };
       this.shellAliases = { ...(p.aliases ?? {}) };
-      if (this.shellAliases.ls === 'timeline') {
+      if (this.shellAliases.ls === 'timeline')
         delete this.shellAliases.ls;
-      }
       const t = p.env?.THEME?.toLowerCase();
       const syntaxRaw = String(p.env?.SYNTAX_SCHEME ?? '').toLowerCase();
-      if (p.aiModel && AI_MODEL_OPTIONS.includes(p.aiModel as (typeof AI_MODEL_OPTIONS)[number])) {
+      if (p.aiModel && AI_MODEL_OPTIONS.includes(p.aiModel as (typeof AI_MODEL_OPTIONS)[number]))
         this.aiModel = p.aiModel;
-      }
-      if (typeof p.systemPrompt === 'string') {
+      if (typeof p.systemPrompt === 'string')
         this.systemPromptInjection = p.systemPrompt.slice(0, 1200);
-      }
       this.applyDarkMode(typeof p.darkMode === 'boolean' ? p.darkMode : localStorage.getItem('pecunies.dark') !== 'false');
-      if (t && t in terminalThemes) {
+      if (t && t in terminalThemes)
         this.manualTheme = t as ThemeName;
-      } else if (t === 'auto') {
+       else if (t === 'auto')
         this.manualTheme = null;
-      } else {
+       else
         this.manualTheme = 'orange';
-      }
       this.applySyntaxScheme(syntaxRaw === 'contrast' || syntaxRaw === 'pastel' ? syntaxRaw : 'default');
-      if (this.activeView) {
+      if (this.activeView)
         this.applyTheme(this.effectiveTheme(this.activeView));
-      } else {
+       else
         this.applyTheme(this.manualTheme ?? 'orange');
-      }
     } catch {
       this.shellAliases = {};
       this.manualTheme = 'orange';
@@ -1605,14 +1588,12 @@ export class TerminalApp {
 
   private expandShellAliases(line: string): string {
     const trimmed = line.trim();
-    if (!trimmed) {
+    if (!trimmed)
       return line;
-    }
     const [first, ...rest] = trimmed.split(/\s+/);
     const mapped = this.shellAliases[first.toLowerCase()];
-    if (!mapped) {
+    if (!mapped)
       return line;
-    }
     return [mapped, ...rest].join(' ').trim();
   }
 
@@ -1645,9 +1626,8 @@ export class TerminalApp {
   }
 
   private startParallaxLoop(): void {
-    if (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    if (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
       return;
-    }
     let lastFrame = 0;
     const step = (t: number): void => {
       if (document.hidden) {
@@ -1697,14 +1677,13 @@ export class TerminalApp {
         ? this.lines[this.lastRenderedLineCount]?.id ?? null
         : null;
     this.logElement.innerHTML = renderLog(this.lines);
-    if (pinTop) {
+    if (pinTop)
       this.outputElement.scrollTop = 0;
-    } else if (anchorLineId) {
+    else if (anchorLineId) {
       const anchor = this.logElement.querySelector<HTMLElement>(`[data-line-id="${anchorLineId}"]`);
       this.outputElement.scrollTop = anchor ? Math.max(0, anchor.offsetTop - 6) : this.outputElement.scrollHeight;
-    } else {
+    } else
       this.outputElement.scrollTop = this.outputElement.scrollHeight;
-    }
     this.lastRenderedLineCount = this.lines.length;
     delete this.outputElement.dataset.pinTop;
   }
@@ -1763,9 +1742,8 @@ export class TerminalApp {
     });
     if (!route) return;
     const navLink = this.root.querySelector(`.nav-link[data-nav="${route}"]`);
-    if (navLink) {
+    if (navLink)
       navLink.classList.add('is-active');
-    }
   }
 
   private parseCommand(rawInput: string): { name: string; args: string[] } {
@@ -1794,11 +1772,10 @@ export class TerminalApp {
         continue;
       }
       if (quote) {
-        if (ch === quote) {
+        if (ch === quote)
           quote = null;
-        } else {
+         else
           current += ch;
-        }
         continue;
       }
       if (ch === '"' || ch === "'") {
@@ -1814,9 +1791,8 @@ export class TerminalApp {
       }
       current += ch;
     }
-    if (current) {
+    if (current)
       tokens.push(current);
-    }
     return tokens;
   }
 
@@ -1849,9 +1825,8 @@ export class TerminalApp {
   }
 
   private closestCommands(fragment: string): string[] {
-    if (!fragment) {
+    if (!fragment)
       return ['help'];
-    }
 
     return this.commands
       .filter(
@@ -1880,9 +1855,8 @@ export class TerminalApp {
     const [currentName = '', ...argTokens] = commandLine.trimStart().split(/\s+/);
     const activeCommand = currentName.toLowerCase();
 
-    if (this.chatMode && normalized && !explicitCommand) {
+    if (this.chatMode && normalized && !explicitCommand)
       return [];
-    }
 
     if (!normalized) {
       const freq = readCommandFrequency();
@@ -1902,11 +1876,10 @@ export class TerminalApp {
 
     const argSuggestions = this.argumentSuggestions(activeCommand, argTokens, trailingSpace);
 
-    if (argSuggestions.length) {
+    if (argSuggestions.length)
       return argSuggestions.slice(0, MAX_AUTOCOMPLETE_RESULTS);
-    }
 
-    if (normalized === 'ask') {
+    if (normalized === 'ask')
       return [
         {
           completion: 'ask ',
@@ -1915,9 +1888,8 @@ export class TerminalApp {
           commandName: 'ask',
         },
       ];
-    }
 
-    if (normalized === 'explain') {
+    if (normalized === 'explain')
       return [
         {
           completion: 'explain ',
@@ -1926,7 +1898,6 @@ export class TerminalApp {
           commandName: 'explain',
         },
       ];
-    }
 
     if (normalized.startsWith('explain ')) {
       const explainTargets = [
@@ -2091,7 +2062,7 @@ export class TerminalApp {
         description: 'Read this file from the portfolio OS.',
         commandName: 'cat',
       }));
-      if (!args.includes('--pretty') && (args.length === 0 || fragment === '')) {
+      if (!args.includes('--pretty') && (args.length === 0 || fragment === ''))
         return [
           {
             completion: 'cat --pretty ',
@@ -2101,13 +2072,12 @@ export class TerminalApp {
           },
           ...ranked,
         ];
-      }
       return ranked;
     }
 
     if (commandName === 'post') {
       const sub = (args[0] || '').toLowerCase();
-      if (!args.length || (sub !== 'open' && sub !== 'view')) {
+      if (!args.length || (sub !== 'open' && sub !== 'view'))
         return [
           {
             completion: 'post open ',
@@ -2116,7 +2086,6 @@ export class TerminalApp {
             commandName: 'post',
           },
         ];
-      }
       const slugFrag =
         sub === 'open' || sub === 'view'
           ? trailingSpace
@@ -2135,7 +2104,7 @@ export class TerminalApp {
     }
 
     if (commandName === 'new') {
-      if (!args.length || args[0].toLowerCase() !== 'post') {
+      if (!args.length || args[0].toLowerCase() !== 'post')
         return [
           {
             completion: 'new post ',
@@ -2144,7 +2113,6 @@ export class TerminalApp {
             commandName: 'new',
           },
         ];
-      }
       const flagCompletions = [
         'new post --title="',
         'new post --tags=',
@@ -2267,16 +2235,14 @@ export class TerminalApp {
 
     const hints = ARG_HINTS[commandName];
 
-    if (!hints || (!trailingSpace && args.length === 0)) {
+    if (!hints || (!trailingSpace && args.length === 0))
       return [];
-    }
 
     const index = trailingSpace ? args.length : Math.max(0, args.length - 1);
     const hint = hints[index] ?? hints.at(-1);
 
-    if (!hint) {
+    if (!hint)
       return [];
-    }
 
     const prefix = [commandName, ...args.slice(0, trailingSpace ? args.length : Math.max(0, args.length - 1))]
       .filter(Boolean)
@@ -2318,19 +2284,17 @@ export class TerminalApp {
   private shouldRunCommandInChat(input: string): boolean {
     const normalized = input.trim();
 
-    if (normalized.startsWith('/')) {
+    if (normalized.startsWith('/'))
       return true;
-    }
 
-    if (normalized.includes('|')) {
+
+    if (normalized.includes('|'))
       return true;
-    }
 
     const { name } = this.parseCommand(normalized);
 
-    if (name === 'exit' || name === 'clear') {
+    if (name === 'exit' || name === 'clear')
       return true;
-    }
 
     return Boolean(this.resolveCommand(name));
   }
@@ -2338,33 +2302,27 @@ export class TerminalApp {
   private shouldHandleAsGameInput(input: string): boolean {
     const normalized = input.trim().replace(/^\//, '').toLowerCase();
 
-    if (!this.gameMode) {
+    if (!this.gameMode)
       return false;
-    }
 
-    if (['q', 'quit', 'n', 'new'].includes(normalized)) {
+    if (['q', 'quit', 'n', 'new'].includes(normalized))
       return true;
-    }
 
-    if (this.pendingScore && !this.resolveCommand(this.parseCommand(normalized).name)) {
+
+    if (this.pendingScore && !this.resolveCommand(this.parseCommand(normalized).name))
       return true;
-    }
 
-    if (this.gameMode === '2048') {
+    if (this.gameMode === '2048')
       return ['w', 'a', 's', 'd', 'up', 'down', 'left', 'right'].includes(normalized);
-    }
 
-    if (this.gameMode === 'chess') {
+    if (this.gameMode === 'chess')
       return /^[a-h][1-8][a-h][1-8]$/.test(normalized);
-    }
 
-    if (this.gameMode === 'minesweeper') {
+    if (this.gameMode === 'minesweeper')
       return /^(open|flag)\s+[a-h][1-8]$/.test(normalized);
-    }
 
-    if (this.gameMode === 'jobquest' && this.jobQuestState) {
+    if (this.gameMode === 'jobquest' && this.jobQuestState)
       return jobQuestWouldHandleAsGameInput(this.jobQuestState, normalized);
-    }
 
     return false;
   }
@@ -2399,16 +2357,14 @@ export class TerminalApp {
     }
     const currentRoute = this.activeView?.route ?? '';
     let targetRoute = this.viewHistory.pop();
-    while (targetRoute !== undefined && targetRoute === currentRoute) {
+    while (targetRoute !== undefined && targetRoute === currentRoute)
       targetRoute = this.viewHistory.pop();
-    }
     this.updateBackButtonState();
     const targetCommand = targetRoute
       ? this.routeMap.get(targetRoute)
       : this.commands.find((command) => command.name === 'home') ?? null;
-    if (!targetCommand) {
+    if (!targetCommand)
       return;
-    }
     this.isNavigatingBack = true;
     try {
       await this.execute(targetCommand.name, { echo: false, syncHash: true, focus: false });
@@ -2439,11 +2395,10 @@ export class TerminalApp {
     if (wasMaximized) {
       shell.classList.remove('is-maximized');
       if (this.isShellFrameMode()) {
-        if (this.preMaximizeFrame) {
+        if (this.preMaximizeFrame)
           this.applyShellFrame(this.preMaximizeFrame);
-        } else {
+        else
           this.centerShell();
-        }
         this.preMaximizeFrame = null;
       }
       shell.classList.remove('is-minimized', 'is-shutdown');
@@ -2451,11 +2406,10 @@ export class TerminalApp {
       return;
     }
 
-    if (this.isShellFrameMode() && this.shellWindowingActive) {
+    if (this.isShellFrameMode() && this.shellWindowingActive)
       this.preMaximizeFrame = this.readFrameFromDom();
-    } else {
+     else
       this.preMaximizeFrame = null;
-    }
 
     shell.classList.add('is-maximized');
     shell.classList.remove('is-minimized', 'is-shutdown');
@@ -2510,9 +2464,8 @@ export class TerminalApp {
   private copyIfClipboardCommand(command: string): void {
     const normalized = command.replace(/^\//, '').trim();
 
-    if (!normalized.startsWith('cp ')) {
+    if (!normalized.startsWith('cp '))
       return;
-    }
 
     const text = normalized.slice(3);
     void navigator.clipboard?.writeText(text).catch(() => undefined);
@@ -2551,9 +2504,8 @@ export class TerminalApp {
         }>;
       };
 
-      if (!response.ok || !payload.posts?.length) {
+      if (!response.ok || !payload.posts?.length)
         return;
-      }
 
       this.lines.push({
         id: this.makeId(),
@@ -2719,11 +2671,10 @@ export class TerminalApp {
         ? payload?.answer ?? 'No answer returned.'
         : payload?.error ?? `Chat request failed with status ${response.status}.`;
 
-      if (response.ok) {
+      if (response.ok)
         await this.streamMarkdownToLine(pendingId, text, payload?.model ?? this.aiModel);
-      } else {
+       else
         this.replaceLine(pendingId, text, 'warn');
-      }
     } catch {
       this.replaceLine(pendingId, 'Chat request failed before reaching the Cloudflare AI worker.', 'warn');
     } finally {
@@ -2762,9 +2713,8 @@ export class TerminalApp {
         ? payload?.output ?? 'OK'
         : payload?.output ?? payload?.error ?? `OS command failed with status ${response.status}.`;
 
-      if (payload?.config && typeof payload.config === 'object') {
+      if (payload?.config && typeof payload.config === 'object')
         this.applyOsConfig(payload.config as Record<string, unknown>);
-      }
 
       if (payload?.mode === 'chat') {
         this.chatMode = true;
@@ -2775,9 +2725,8 @@ export class TerminalApp {
         this.applyTheme(this.manualTheme ?? 'red');
       }
 
-      if (output.startsWith('[sudo]') || output.startsWith('Password:')) {
+      if (output.startsWith('[sudo]') || output.startsWith('Password:'))
         this.sensitiveNextInput = true;
-      }
 
       const cmdTrim = command.trim();
       const catPath = cmdTrim.match(/^cat\s+(?:--pretty\s+)?(\S+)/i)?.[1] ?? null;
@@ -2799,9 +2748,8 @@ export class TerminalApp {
       } else if (isCodePath) {
         this.morphLineToPretty(pendingId);
         await this.streamMarkdownToLine(pendingId, this.normalizeCodeMarkdown(output, targetPath));
-      } else {
+      } else
         this.replaceLine(pendingId, output, 'success');
-      }
     } catch {
       this.replaceLine(pendingId, 'OS command failed before reaching the Cloudflare worker.', 'warn');
     } finally {
@@ -2848,61 +2796,40 @@ export class TerminalApp {
   }
 
   private lineText(line: SessionLine): string {
-    if (line.kind === 'view') {
+    if (line.kind === 'view')
       return line.text;
-    }
-
     return line.text;
   }
 
   private viewText(view: ViewDefinition): string {
     const sections = view.sections
       .map((section) => {
-        if (section.type === 'paragraphs') {
+        if (section.type === 'paragraphs')
           return `${section.heading}\n${section.body.join('\n')}`;
-        }
-
-        if (section.type === 'note') {
+        if (section.type === 'note')
           return `${section.heading}\n${section.lines.join('\n')}`;
-        }
-
-        if (section.type === 'timeline') {
+        if (section.type === 'timeline')
           return `${section.heading}\n${section.items
             .map((item) => `${item.period} ${item.role} ${item.company}: ${item.summary}`)
             .join('\n')}`;
-        }
-
-        if (section.type === 'projects') {
+        if (section.type === 'projects')
           return `${section.heading}\n${section.items
             .map((item) => `${item.name}: ${item.summary}`)
             .join('\n')}`;
-        }
-
-        if (section.type === 'tag-groups') {
+        if (section.type === 'tag-groups')
           return `${section.heading}\n${section.groups
             .map((group) => `${group.title}: ${group.items.join(', ')}`)
             .join('\n')}`;
-        }
-
-        if (section.type === 'contact') {
+        if (section.type === 'contact')
           return `${section.heading}\n${section.items.map((item) => `${item.label}: ${item.value}`).join('\n')}`;
-        }
-
-        if (section.type === 'education') {
+        if (section.type === 'education')
           return `${section.heading}\n${section.item.school}: ${section.item.degree}`;
-        }
-
-        if (section.type === 'command-list') {
+        if (section.type === 'command-list')
           return `${section.heading}\n${section.items.map((item) => item.usage).join('\n')}`;
-        }
-
-        if (section.type === 'pdf') {
+        if (section.type === 'pdf')
           return `${section.heading}\n${section.summary}`;
-        }
-
-        if (section.type === 'tag-index') {
+        if (section.type === 'tag-index')
           return `${section.heading}\n${section.items.map((i) => `${i.type}: ${i.label} (${i.command})`).join('\n')}`;
-        }
 
         return '';
       })
@@ -2974,14 +2901,10 @@ export class TerminalApp {
   }
 
   private pushHistory(command: string): void {
-    if (this.history.at(-1) !== command) {
+    if (this.history.at(-1) !== command)
       this.history.push(command);
-    }
-
-    if (this.history.length > 40) {
+    if (this.history.length > 40)
       this.history.shift();
-    }
-
     window.localStorage.setItem('pecunies-terminal-command-history', JSON.stringify(this.history));
   }
 
@@ -2995,25 +2918,18 @@ export class TerminalApp {
   }
 
   private restoreHistory(direction: -1 | 1): void {
-    if (!this.history.length) {
+    if (!this.history.length)
       return;
-    }
-
-    if (this.historyIndex === null) {
+    if (this.historyIndex === null)
       this.historyIndex = direction === -1 ? this.history.length - 1 : 0;
-    } else {
+     else
       this.historyIndex = Math.min(
         this.history.length - 1,
         Math.max(0, this.historyIndex + direction),
       );
-    }
-
     const command = this.history[this.historyIndex];
-
-    if (!command) {
+    if (!command)
       return;
-    }
-
     this.inputElement.value = command;
     this.inputElement.setSelectionRange(command.length, command.length);
   }
@@ -3085,15 +3001,12 @@ export class TerminalApp {
       const result = processJobQuestInput(this.jobQuestState, input.trim());
       this.jobQuestState = result.state;
       const toneFor = (line: string, index: number): LogTone => {
-        if (line.startsWith('Unknown choice')) {
+        if (line.startsWith('Unknown choice'))
           return 'warn';
-        }
-        if (line.startsWith('(type a choice')) {
+        if (line.startsWith('(type a choice'))
           return 'warn';
-        }
-        if (index === result.lines.length - 1 && result.gameOver) {
+        if (index === result.lines.length - 1 && result.gameOver)
           return result.won ? 'success' : 'warn';
-        }
         return 'info';
       };
       result.lines.forEach((line, index) => {
@@ -3169,29 +3082,25 @@ export class TerminalApp {
       return next;
     };
 
-    if (direction === 'a' || direction === 'left') {
+    if (direction === 'a' || direction === 'left')
       this.gameBoard = this.gameBoard.map(mergeLeft);
-    } else if (direction === 'd' || direction === 'right') {
+     else if (direction === 'd' || direction === 'right')
       this.gameBoard = reverseRows(reverseRows(this.gameBoard).map(mergeLeft));
-    } else if (direction === 'w' || direction === 'up') {
+     else if (direction === 'w' || direction === 'up')
       this.gameBoard = transpose(transpose(this.gameBoard).map(mergeLeft));
-    } else if (direction === 's' || direction === 'down') {
+     else if (direction === 's' || direction === 'down')
       this.gameBoard = transpose(reverseRows(reverseRows(transpose(this.gameBoard)).map(mergeLeft)));
-    }
 
     return before !== JSON.stringify(this.gameBoard);
   }
 
   private canMoveGame(): boolean {
-    for (let y = 0; y < 4; y += 1) {
+    for (let y = 0; y < 4; y += 1)
       for (let x = 0; x < 4; x += 1) {
         const cell = this.gameBoard[y]?.[x] ?? 0;
-
-        if (!cell || cell === this.gameBoard[y]?.[x + 1] || cell === this.gameBoard[y + 1]?.[x]) {
+        if (!cell || cell === this.gameBoard[y]?.[x + 1] || cell === this.gameBoard[y + 1]?.[x])
           return true;
-        }
       }
-    }
 
     return false;
   }
@@ -3199,37 +3108,24 @@ export class TerminalApp {
   private spawnTile(): void {
     const empty: Array<[number, number]> = [];
 
-    for (let y = 0; y < 4; y += 1) {
-      for (let x = 0; x < 4; x += 1) {
-        if (!this.gameBoard[y]?.[x]) {
+    for (let y = 0; y < 4; y += 1)
+      for (let x = 0; x < 4; x += 1)
+        if (!this.gameBoard[y]?.[x])
           empty.push([y, x]);
-        }
-      }
-    }
-
     const slot = empty[Math.floor(Math.random() * empty.length)];
-
-    if (!slot) {
+    if (!slot)
       return;
-    }
-
     const [y, x] = slot;
     this.gameBoard[y]![x] = Math.random() > 0.88 ? 4 : 2;
   }
 
   private renderGame(): string {
-    if (this.gameMode === 'chess') {
+    if (this.gameMode === 'chess')
       return this.renderChess();
-    }
-
-    if (this.gameMode === 'minesweeper') {
+    if (this.gameMode === 'minesweeper')
       return this.renderMinesweeper();
-    }
-
-    if (this.gameMode === 'jobquest' && this.jobQuestState) {
+    if (this.gameMode === 'jobquest' && this.jobQuestState)
       return formatJobQuestScene(this.jobQuestState);
-    }
-
     const divider = '+------+------+------+------+';
     const rows = this.gameBoard.map((row) => {
       const cells = row.map((cell) => String(cell || '.').padStart(4, ' ')).join(' | ');
@@ -3295,11 +3191,9 @@ export class TerminalApp {
       }
     }
 
-    for (let row = 0; row < size; row += 1) {
-      for (let col = 0; col < size; col += 1) {
+    for (let row = 0; row < size; row += 1)
+      for (let col = 0; col < size; col += 1)
         this.minesBoard[row]![col]!.count = this.countAdjacentMines(row, col);
-      }
-    }
   }
 
   private handleMinesInput(command: string): void {
@@ -3361,22 +3255,15 @@ export class TerminalApp {
     const rows = this.minesBoard.map((row, rowIndex) => {
       const cells = row
         .map((cell) => {
-          if (reveal && cell.mine) {
+          if (reveal && cell.mine)
             return '*';
-          }
-
-          if (cell.flag) {
+          if (cell.flag)
             return 'F';
-          }
-
-          if (!cell.open) {
+          if (!cell.open)
             return '.';
-          }
-
           return cell.count ? String(cell.count) : ' ';
         })
         .join(' ');
-
       return `${8 - rowIndex}  ${cells}`;
     });
 
@@ -3386,18 +3273,13 @@ export class TerminalApp {
   private countAdjacentMines(row: number, col: number): number {
     let count = 0;
 
-    for (let dy = -1; dy <= 1; dy += 1) {
+    for (let dy = -1; dy <= 1; dy += 1)
       for (let dx = -1; dx <= 1; dx += 1) {
-        if (dy === 0 && dx === 0) {
+        if (dy === 0 && dx === 0)
           continue;
-        }
-
-        if (this.minesBoard[row + dy]?.[col + dx]?.mine) {
+        if (this.minesBoard[row + dy]?.[col + dx]?.mine)
           count += 1;
-        }
       }
-    }
-
     return count;
   }
 
@@ -3434,11 +3316,8 @@ export class TerminalApp {
     }
 
     const next = `#/${route}`;
-
-    if (window.location.hash === next) {
+    if (window.location.hash === next)
       return;
-    }
-
     this.suppressHashChange = true;
     window.location.hash = next;
     window.setTimeout(() => {
@@ -3454,10 +3333,8 @@ export class TerminalApp {
 
     const previous = this.scrambleFrames.get(element);
 
-    if (previous) {
+    if (previous)
       window.cancelAnimationFrame(previous);
-    }
-
     const chars = '<>[]{}/*+?#$%&=';
     const current = element.textContent ?? '';
     const length = Math.max(current.length, nextText.length);
@@ -3483,14 +3360,11 @@ export class TerminalApp {
         }
 
         if (frame >= item.start) {
-          if (!item.char || Math.random() < 0.26) {
+          if (!item.char || Math.random() < 0.26)
             item.char = chars[Math.floor(Math.random() * chars.length)] ?? '#';
-          }
-
           output += item.char;
           continue;
         }
-
         output += item.from;
       }
 
@@ -3534,10 +3408,8 @@ export class TerminalApp {
     const key = 'pecunies-terminal-session';
     const existing = window.localStorage.getItem(key);
 
-    if (existing) {
+    if (existing)
       return existing;
-    }
-
     const next =
       window.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
     window.localStorage.setItem(key, next);
@@ -3546,11 +3418,8 @@ export class TerminalApp {
 
   private requireElement<T extends HTMLElement>(selector: string): T {
     const element = this.root.querySelector<T>(selector);
-
-    if (!element) {
+    if (!element)
       throw new Error(`Expected to find ${selector}.`);
-    }
-
     return element;
   }
 
@@ -3578,26 +3447,21 @@ export class TerminalApp {
   private syncShellLayoutWithViewport(): void {
     const frameMode = this.isShellFrameMode();
     const shell = this.shellElement;
-
     if (!frameMode) {
       this.shellWindowingActive = false;
       shell.classList.remove('shell-frame-mode');
-      if (!shell.classList.contains('is-maximized')) {
+      if (!shell.classList.contains('is-maximized'))
         this.clearShellInlineLayout();
-      }
       return;
     }
 
-    if (shell.classList.contains('is-maximized')) {
+    if (shell.classList.contains('is-maximized'))
       return;
-    }
-
     if (!this.shellWindowingActive) {
       this.shellWindowingActive = true;
       shell.classList.add('shell-frame-mode');
-      if (!this.tryRestoreShellFrame()) {
+      if (!this.tryRestoreShellFrame())
         this.centerShell();
-      }
       if (!this.shellBindingsDone) {
         this.bindShellDrag();
         this.bindShellResize();
@@ -3616,13 +3480,11 @@ export class TerminalApp {
   private tryRestoreShellFrame(): boolean {
     try {
       const raw = localStorage.getItem(SHELL_FRAME_STORAGE);
-      if (!raw) {
+      if (!raw)
         return false;
-      }
       const f = JSON.parse(raw) as ShellFrame;
-      if (![f.left, f.top, f.width, f.height].every((n) => typeof n === 'number' && Number.isFinite(n))) {
+      if (![f.left, f.top, f.width, f.height].every((n) => typeof n === 'number' && Number.isFinite(n)))
         return false;
-      }
       const p = this.siteShellElement;
       const minW = Math.min(MIN_SHELL_W, p.clientWidth);
       const minH = Math.min(MIN_SHELL_H, p.clientHeight);
@@ -3689,25 +3551,20 @@ export class TerminalApp {
 
   private bindShellDrag(): void {
     const header = this.shellElement.querySelector<HTMLElement>('.terminal-header');
-    if (!header) {
+    if (!header)
       return;
-    }
 
     header.addEventListener('pointerdown', (event: Event) => {
       const ev = event as PointerEvent;
-      if (!this.shellWindowingActive) {
+      if (!this.shellWindowingActive)
         return;
-      }
-      if (this.shellElement.classList.contains('is-maximized')) {
+      if (this.shellElement.classList.contains('is-maximized'))
         return;
-      }
-      if (ev.button !== 0) {
+      if (ev.button !== 0)
         return;
-      }
       const t = ev.target;
-      if (t instanceof Element && t.closest('button, a, input, [data-command]')) {
+      if (t instanceof Element && t.closest('button, a, input, [data-command]'))
         return;
-      }
 
       ev.preventDefault();
       const shell = this.shellElement;
@@ -3750,15 +3607,12 @@ export class TerminalApp {
     this.shellElement.querySelectorAll<HTMLElement>('[data-resize]').forEach((handle) => {
       handle.addEventListener('pointerdown', (event: Event) => {
         const ev = event as PointerEvent;
-        if (!this.shellWindowingActive) {
+        if (!this.shellWindowingActive)
           return;
-        }
-        if (this.shellElement.classList.contains('is-maximized')) {
+        if (this.shellElement.classList.contains('is-maximized'))
           return;
-        }
-        if (ev.button !== 0) {
+        if (ev.button !== 0)
           return;
-        }
         ev.preventDefault();
         ev.stopPropagation();
 
@@ -3773,12 +3627,10 @@ export class TerminalApp {
           const dy = e.clientY - startY;
           let { left, top, width, height } = startFrame;
 
-          if (edge.includes('e')) {
+          if (edge.includes('e'))
             width = Math.max(Math.min(MIN_SHELL_W, this.siteShellElement.clientWidth), startFrame.width + dx);
-          }
-          if (edge.includes('s')) {
+          if (edge.includes('s'))
             height = Math.max(Math.min(MIN_SHELL_H, this.siteShellElement.clientHeight), startFrame.height + dy);
-          }
           if (edge.includes('w')) {
             const nw = Math.max(Math.min(MIN_SHELL_W, this.siteShellElement.clientWidth), startFrame.width - dx);
             left = startFrame.left + (startFrame.width - nw);
@@ -3822,9 +3674,8 @@ export class TerminalApp {
   }
 
   private setupPointerDepth(): void {
-    if (window.matchMedia('(pointer: coarse)').matches) {
+    if (window.matchMedia('(pointer: coarse)').matches)
       return;
-    }
 
     window.addEventListener('pointermove', (event) => {
       const driftX = (event.clientX / window.innerWidth - 0.5) * 108;
@@ -3881,16 +3732,11 @@ export class TerminalApp {
     this.root.addEventListener('pointermove', (event) => {
       const target = event.target;
 
-      if (!(target instanceof HTMLElement)) {
+      if (!(target instanceof HTMLElement))
         return;
-      }
-
       const card = target.closest<HTMLElement>('.terminal-stat, .output-record, .command-card, .pdf-thumb, .action-chip');
-
-      if (!card) {
+      if (!card)
         return;
-      }
-
       const bounds = card.getBoundingClientRect();
       const x = ((event.clientX - bounds.left) / bounds.width) * 100;
       const y = ((event.clientY - bounds.top) / bounds.height) * 100;

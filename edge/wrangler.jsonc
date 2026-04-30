@@ -1,23 +1,29 @@
 {
-  "name": "pecunies-portfolio-edge",
-  "main": "src/index.ts",
-  "compatibility_date": "2026-03-23",
-  "routes": [
-    {
-      "pattern": "pecunies.com/*",
-      "zone_name": "pecunies.com"
-    },
-    {
-      "pattern": "www.pecunies.com/*",
-      "zone_name": "pecunies.com"
-    },
-    {
-      "pattern": "api.pecunies.com/*",
-      "zone_name": "pecunies.com"
-    },
-    {
-      "pattern": "mcp.pecunies.com/*",
-      "zone_name": "pecunies.com"
-    }
-  ]
+	"name": "pecunies-portfolio-edge",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-03-23",
+	"pipelines": [
+		{
+			"pipeline": "6b533e8c6fb14fb99997e3c32c6c2fae",
+			"binding": "PECUNIESPL_STREAM"
+		}
+	],
+	"routes": [
+		{
+			"pattern": "pecunies.com/*",
+			"zone_name": "pecunies.com"
+		},
+		{
+			"pattern": "www.pecunies.com/*",
+			"zone_name": "pecunies.com"
+		},
+		{
+			"pattern": "api.pecunies.com/*",
+			"zone_name": "pecunies.com"
+		},
+		{
+			"pattern": "mcp.pecunies.com/*",
+			"zone_name": "pecunies.com"
+		}
+	]
 }

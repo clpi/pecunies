@@ -89,7 +89,7 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
           </div>
           <div class="terminal-state">
             <span id="route-indicator">resume</span>
-            <button id="theme-indicator" type="button" aria-haspopup="dialog" aria-expanded="false">theme</button>
+            <button id="theme-indicator" type="button" aria-haspopup="dialog" aria-expanded="false" hidden></button>
             <div class="theme-popover" id="theme-popover" hidden>
               <div class="theme-popover-title">Choose palette</div>
               <div class="theme-popover-grid">
