@@ -8,6 +8,7 @@ import {
   recordPostEvent,
   syncAssetToStorage,
   syncPostToStorage,
+  upsertTagWithItems,
 } from './posts.js';
 
 const MODEL = '@cf/meta/llama-3.1-8b-instruct';
@@ -1461,6 +1462,7 @@ async function doctorDiagnostics(env, request) {
   record('KV binding (PORTFOLIO_OS)', Boolean(env.PORTFOLIO_OS), env.PORTFOLIO_OS ? 'configured' : 'missing');
   record('D1 binding', Boolean(env.DB || env.POSTS_DB), env.DB || env.POSTS_DB ? 'configured' : 'missing');
   record('R2 posts bucket', Boolean(env.POSTS || env.POSTS_BUCKET), env.POSTS || env.POSTS_BUCKET ? 'configured' : 'missing');
+  record('R2 static bucket', Boolean(env.STATIC), env.STATIC ? 'configured' : 'missing');
   record('Vectorize binding', Boolean(getVectorIndex(env)), getVectorIndex(env) ? 'configured' : 'missing');
 
   try {
@@ -1665,26 +1667,30 @@ async function addComment(args, env) {
     return { output: `comment: no post matching "${post}"`, status: 404 };
   }
 
-  if (!env.PORTFOLIO_OS) {
-    return { output: 'comment: KV binding unavailable', status: 500 };
-  }
-
-  const key = `comments:${path}`;
-  const comments = (await env.PORTFOLIO_OS.get(key, { type: 'json' })) ?? [];
+  const db = env.POSTS_DB || env.DB || null;
   const savedComment = {
     name: name.slice(0, 60),
     message: message.slice(0, 1200),
     at: new Date().toISOString(),
   };
-  comments.push({
-    ...savedComment,
-  });
+
+  if (db) {
+    await recordPostEvent(env, path, 'message', {
+      name: savedComment.name,
+      message: savedComment.message,
+      kind: 'comment',
+    });
+    return { output: `comment added to ${path}` };
+  }
+
+  if (!env.PORTFOLIO_OS) {
+    return { output: 'comment: storage unavailable', status: 500 };
+  }
+
+  const key = `comments:${path}`;
+  const comments = (await env.PORTFOLIO_OS.get(key, { type: 'json' })) ?? [];
+  comments.push({ ...savedComment });
   await env.PORTFOLIO_OS.put(key, JSON.stringify(comments.slice(-100)));
-  await recordPostEvent(env, path, 'message', {
-    name: savedComment.name,
-    message: savedComment.message,
-    kind: 'comment',
-  });
 
   return { output: `comment added to ${path}` };
 }
@@ -1720,6 +1726,14 @@ async function writeUserFile(env, _state, rawPath, content, options = {}) {
     await syncPostToStorage(env, canonicalPostPath, next);
   } else if (canonicalPostPath) {
     await syncAssetToStorage(env, canonicalPostPath, next);
+  } else {
+    const staticBucket = env.STATIC || null;
+    if (staticBucket) {
+      await staticBucket.put(`fs${path}`, next, {
+        httpMetadata: { contentType: 'text/plain; charset=utf-8' },
+        customMetadata: { path },
+      });
+    }
   }
   return { output: `${options.createOnly ? 'touched' : 'wrote'} ${path}` };
 }
@@ -1754,10 +1768,20 @@ async function readUserFile(env, path) {
     return primary;
   }
   const mirror = postMirrorPath(path);
-  if (!mirror) {
-    return null;
+  if (mirror) {
+    const mirrored = await env.PORTFOLIO_OS.get(userFileKey(mirror));
+    if (mirrored !== null && mirrored !== undefined) {
+      return mirrored;
+    }
   }
-  return env.PORTFOLIO_OS.get(userFileKey(mirror));
+  const staticBucket = env.STATIC || null;
+  if (staticBucket) {
+    const obj = await staticBucket.get(`fs${path}`);
+    if (obj) {
+      return await obj.text();
+    }
+  }
+  return null;
 }
 
 async function deleteUserFile(env, path) {
@@ -1773,6 +1797,11 @@ async function deleteUserFile(env, path) {
   const canonicalPostPath = canonicalPostPathForStorage(path);
   if (canonicalPostPath && canonicalPostPath.toLowerCase().endsWith('.md')) {
     await deletePostFromStorage(env, canonicalPostPath);
+  } else {
+    const staticBucket = env.STATIC || null;
+    if (staticBucket) {
+      await staticBucket.delete(`fs${path}`);
+    }
   }
 }
 
@@ -2126,8 +2155,40 @@ function fzf(query) {
   return { output: scored.map((entry) => `${entry.label} - ${entry.detail}`).join('\n') || '(empty)' };
 }
 
+async function seedTagsToDb(env) {
+  const db = env.POSTS_DB || env.DB || null;
+  if (!db) {
+    return;
+  }
+  for (const [slug, items] of Object.entries(TAGS)) {
+    await upsertTagWithItems(db, slug, items, 'system');
+  }
+}
+
 async function mergeTagRegistryWithPosts(env) {
   const merged = { ...TAGS };
+  const db = env.POSTS_DB || env.DB || null;
+  if (db) {
+    try {
+      const rows = await db.prepare('SELECT t.slug, ti.label, ti.type, ti.command FROM tags t JOIN tag_items ti ON t.slug = ti.tag_slug').all();
+      for (const row of rows?.results ?? []) {
+        const slug = String(row?.slug || '').toLowerCase().trim();
+        if (!slug) {
+          continue;
+        }
+        if (!merged[slug]) {
+          merged[slug] = [];
+        }
+        const item = { label: String(row.label || ''), type: String(row.type || ''), command: String(row.command || '') };
+        const exists = merged[slug].some((e) => e.command === item.command);
+        if (!exists) {
+          merged[slug].push(item);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
   try {
     const posts = await collectAllPosts(env);
     for (const p of posts) {
@@ -2139,11 +2200,11 @@ async function mergeTagRegistryWithPosts(env) {
         if (!merged[t]) {
           merged[t] = [];
         }
-        merged[t].push({
-          label: p.title,
-          type: 'post',
-          command: `post open ${p.slug}`,
-        });
+        const item = { label: p.title, type: 'post', command: `post open ${p.slug}` };
+        const exists = merged[t].some((e) => e.command === item.command);
+        if (!exists) {
+          merged[t].push(item);
+        }
       }
     }
   } catch {
@@ -2462,6 +2523,7 @@ async function syncPostsAndAssets(env, options = {}) {
 }
 
 async function tagsOutput(tagFilter, env) {
+  await seedTagsToDb(env).catch(() => {});
   const REG = await mergeTagRegistryWithPosts(env);
   const keys = Object.keys(REG);
   if (!tagFilter) {

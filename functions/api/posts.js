@@ -174,9 +174,51 @@ export async function ensureContentInfra(env) {
       meet_link TEXT NOT NULL,
       created_at TEXT NOT NULL
     )`,
+    `CREATE TABLE IF NOT EXISTS tags (
+      slug TEXT PRIMARY KEY,
+      description TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT 'post',
+      created_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS tag_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tag_slug TEXT NOT NULL,
+      label TEXT NOT NULL,
+      type TEXT NOT NULL,
+      command TEXT NOT NULL,
+      UNIQUE(tag_slug, command)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_tag_items_slug ON tag_items(tag_slug)`,
   ];
   for (const sql of stmts) {
     await db.prepare(sql).run();
+  }
+}
+
+/**
+ * Upsert a tag slug and its associated item into D1.
+ * @param {any} db
+ * @param {string} slug
+ * @param {{ label: string, type: string, command: string }[]} items
+ * @param {string} [source]
+ */
+export async function upsertTagWithItems(db, slug, items, source = 'post') {
+  const now = new Date().toISOString();
+  await db
+    .prepare(
+      `INSERT INTO tags (slug, description, source, created_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(slug) DO NOTHING`,
+    )
+    .bind(slug, '', source, now)
+    .run();
+  for (const item of items) {
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO tag_items (tag_slug, label, type, command)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .bind(slug, String(item.label || ''), String(item.type || ''), String(item.command || ''))
+      .run();
   }
 }
 
@@ -257,6 +299,12 @@ export async function syncPostToStorage(env, path, markdown) {
   await db.prepare('DELETE FROM post_tags WHERE post_path = ?').bind(path).run();
   for (const tag of payload.tags) {
     await db.prepare('INSERT OR IGNORE INTO post_tags (post_path, tag) VALUES (?, ?)').bind(path, tag).run();
+    await upsertTagWithItems(
+      db,
+      tag,
+      [{ label: payload.title, type: 'post', command: `post open ${payload.slug}` }],
+      'post',
+    );
   }
   await db.prepare(
     `INSERT INTO post_search (post_path, searchable_text, updated_at)
@@ -423,9 +471,23 @@ export async function postPayload(path, markdown, env) {
   const description =
     (meta.description && meta.description.trim()) || plain.slice(0, 360).trim() || title;
 
-  const comments = env.PORTFOLIO_OS
-    ? (await env.PORTFOLIO_OS.get(`comments:${path}`, { type: 'json' })) ?? []
-    : [];
+  let comments = [];
+  const db = postsDb(env);
+  if (db) {
+    const rows = await db
+      .prepare(
+        `SELECT name, message, created_at as at
+         FROM post_messages
+         WHERE post_path = ? AND kind = 'comment'
+         ORDER BY created_at ASC
+         LIMIT 100`,
+      )
+      .bind(path)
+      .all();
+    comments = Array.isArray(rows?.results) ? rows.results : [];
+  } else if (env.PORTFOLIO_OS) {
+    comments = (await env.PORTFOLIO_OS.get(`comments:${path}`, { type: 'json' })) ?? [];
+  }
 
   return {
     path,
@@ -451,7 +513,32 @@ export async function collectAllPosts(env) {
     byPath.set(path, await postPayload(path, markdown, env));
   }
 
-  if (env.PORTFOLIO_OS?.list) {
+  const db = postsDb(env);
+  const bucket = postsBucket(env);
+
+  if (db) {
+    const rows = await db.prepare('SELECT path, r2_markdown_key FROM posts').all();
+    for (const row of rows?.results ?? []) {
+      const postPath = String(row?.path || '');
+      const r2Key = String(row?.r2_markdown_key || '');
+      if (!postPath.startsWith('/posts/')) {
+        continue;
+      }
+      let markdown = null;
+      if (bucket && r2Key) {
+        const obj = await bucket.get(r2Key);
+        if (obj) {
+          markdown = await obj.text();
+        }
+      }
+      if (!markdown && env.PORTFOLIO_OS) {
+        markdown = await env.PORTFOLIO_OS.get(`file:${postPath}`);
+      }
+      if (markdown) {
+        byPath.set(postPath, await postPayload(postPath, String(markdown), env));
+      }
+    }
+  } else if (env.PORTFOLIO_OS?.list) {
     for (const prefix of ['file:/posts/', 'file:/assets/posts/']) {
       let cursor;
       do {
