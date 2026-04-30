@@ -27,6 +27,11 @@ export type TimelineItem = {
   period: string;
   summary: string;
   bullets: string[];
+  link?: {
+    label: string;
+    href?: string;
+    command?: string;
+  };
 };
 
 export type TagGroup = {
@@ -190,6 +195,8 @@ export type CommandContext = {
   resume: ResumeData;
   getTheme: () => ThemeName | null;
   setTheme: (theme: ThemeName | null) => void;
+  getDarkMode: () => boolean;
+  setDarkMode: (dark: boolean) => void;
 };
 
 export type CommandOutcome =
@@ -208,7 +215,6 @@ export type CommandOutcome =
   | { kind: 'download'; format: 'pdf' | 'markdown'; text?: string; tone?: LogTone }
   | { kind: 'os'; command: string; tone?: LogTone }
   | { kind: 'game'; game: '2048' | 'chess' | 'minesweeper' | 'jobquest'; text: string; tone?: LogTone }
-  | { kind: 'editor'; file: string; content: string; tone?: LogTone }
   | { kind: 'url'; url: string; text: string; tone?: LogTone }
   | { kind: 'clear' };
 

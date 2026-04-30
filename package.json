@@ -29,5 +29,8 @@
     "codemirror": "^6.0.2",
     "dompurify": "^3.4.1",
     "marked": "^18.0.2"
+  },
+  "optionalDependencies": {
+    "@rolldown/binding-darwin-universal": "npm:null@*"
   }
 }

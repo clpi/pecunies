@@ -24,6 +24,7 @@ check('shell closes terminal containers', renderSource.includes('</section>') &&
 check('no visible combobox status copy', !/Use arrow keys|\\d+ results|cmdk|combobox/i.test(`${renderSource}\n${appSource}\n${cssSource}`));
 check('autocomplete has filtering and tab completion', appSource.includes('buildSuggestions') && appSource.includes("event.key === 'Tab'"));
 check('history handles arrow navigation', appSource.includes("event.key === 'ArrowUp'") && appSource.includes("event.key === 'ArrowDown'"));
+check('ls is not shadowed by timeline alias', !/ls:\s*['"]timeline['"]/.test(appSource));
 check('particles canvas mounted', renderSource.includes('id="field-canvas"') && mainSource.includes('mountParticleField'));
 check('particles cannot intercept input', cssSource.includes('pointer-events: none') && cssSource.includes('.field-canvas'));
 
@@ -69,7 +70,13 @@ async function os(command) {
 }
 
 const pwd = await os('pwd');
-check('command execution works', pwd.status === 200 && pwd.body.output === '/');
+check('command execution works', pwd.status === 200 && pwd.body.output === '/home/guest');
+
+const ls = await os('ls');
+check('ls lists current directory', ls.status === 200 && String(ls.body.output).includes('README.txt'));
+
+const top = await os('top');
+check('top command dispatches', top.status === 200 && String(top.body.output).includes('portfolio-os top'));
 
 const write = await os('echo hello > /guest/sanity.md');
 const read = await os('cat /guest/sanity.md');
@@ -83,6 +90,10 @@ check('unknown OS command returns helpful error', unknown.status === 404 && /Unk
 
 const piped = await os('echo one|echo two');
 check('pipe without spaces chains commands', piped.status === 200 && String(piped.body.output).includes('two'));
+
+await os('echo echo sourced > /guest/source.sh');
+const sourced = await os('source /guest/source.sh');
+check('source runs shell commands from files', sourced.status === 200 && String(sourced.body.output).includes('sourced'));
 
 const failed = checks.filter((entry) => !entry.ok);
 

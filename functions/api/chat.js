@@ -87,6 +87,7 @@ export async function onRequestPost({ request, env }) {
   const sessionId = sanitizeSessionId(body?.sessionId);
   const requestedModel = typeof body?.model === 'string' ? body.model.trim() : '';
   const activeModel = ALLOWED_MODELS.has(requestedModel) ? requestedModel : MODEL;
+  const systemPrompt = typeof body?.systemPrompt === 'string' ? body.systemPrompt.trim().slice(0, 1200) : '';
 
   if (!message) {
     return Response.json({ error: 'Message is required.' }, { status: 400, headers: jsonHeaders });
@@ -115,8 +116,17 @@ export async function onRequestPost({ request, env }) {
     .slice(-16)
     .map((entry) => `${entry.at}: ${entry.command}`)
     .join('\n');
+  const ragContext = Array.isArray(state.ragContext)
+    ? state.ragContext.slice(-20).map((entry) => `${entry.at}: ${entry.text}`).join('\n')
+    : '';
 
-  const userContent = `Portfolio context:\n${PROFILE_CONTEXT}\n\nMetrics state:\n${JSON.stringify(metrics).slice(0, 3000)}\n\nLeaderboard state:\n${JSON.stringify(leaderboard).slice(0, 2000)}\n\nPersisted terminal history:\n${persistedHistory || '(empty)'}\n\nQuestion: ${message}`;
+  const sessionState = JSON.stringify({
+    config: state.config ?? {},
+    cwd: state.cwd,
+    reads: state.reads ?? [],
+  }).slice(0, 2400);
+
+  const userContent = `Portfolio context:\n${PROFILE_CONTEXT}\n\nPersistent session/app state:\n${sessionState}\n\nPersistent RAG/session context notes:\n${ragContext || '(none)'}\n\nMetrics state:\n${JSON.stringify(metrics).slice(0, 3000)}\n\nLeaderboard state:\n${JSON.stringify(leaderboard).slice(0, 2000)}\n\nPersisted terminal history:\n${persistedHistory || '(empty)'}\n\nQuestion: ${message}`;
   const contextExcerpt = `chat_history_json:\n${JSON.stringify(history).slice(0, 3500)}\n\n---\n${userContent}`;
 
   let result;
@@ -127,7 +137,7 @@ export async function onRequestPost({ request, env }) {
         {
           role: 'system',
           content:
-            'You are the AI help mode for Chris Pecunies terminal portfolio. Answer only from the provided context. Be concise and factual.',
+            `You are the AI help mode for Chris Pecunies terminal portfolio. Answer only from the provided context. Be concise and factual.${systemPrompt ? `\n\nSession system prompt injection:\n${systemPrompt}` : ''}`,
         },
         ...history,
         {
@@ -190,6 +200,7 @@ async function readState(env, sessionId) {
     ...state,
     history: Array.isArray(state.history) ? state.history : [],
     reads: Array.isArray(state.reads) ? state.reads : [],
+    ragContext: Array.isArray(state.ragContext) ? state.ragContext : [],
   };
 }
 

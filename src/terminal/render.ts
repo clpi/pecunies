@@ -40,7 +40,6 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
     'posts',
     'links',
     'contact',
-    'pdf',
     'chat',
   ] as const;
   const featuredByName = new Map(featuredCommands.map((command) => [command.name, command]));
@@ -112,16 +111,15 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
 
         <div class="terminal-body crt-text">
           <div class="terminal-output terminal-text">
-            <div class="banner-line">
+            <div class="terminal-ambient-summary" hidden>
               <span class="prompt-prefix" id="terminal-prompt-label">guest@pecunies:~$</span>
               <span class="banner-command" id="prompt-scramble" data-scramble>${escapeHtml(resumeData.commandBanner)}</span>
+              <span class="terminal-status" id="status-scramble" data-scramble>
+                ${escapeHtml(resumeData.statement)}
+              </span>
             </div>
 
-            <div class="terminal-status" id="status-scramble" data-scramble>
-              ${escapeHtml(resumeData.statement)}
-            </div>
-
-            <article class="viewer-panel" id="active-view"></article>
+            <article class="viewer-panel" id="active-view" hidden></article>
             <ol class="terminal-log" id="terminal-log" aria-live="polite"></ol>
           </div>
 
@@ -175,6 +173,31 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
                 <option value="@cf/meta/llama-3.1-70b-instruct">@cf/meta/llama-3.1-70b-instruct</option>
                 <option value="@cf/qwen/qwen1.5-14b-chat-awq">@cf/qwen/qwen1.5-14b-chat-awq</option>
               </select>
+              <label class="identity-popover-label" for="identity-theme">Theme</label>
+              <select class="identity-popover-select" id="identity-theme">
+                <option value="orange">orange</option>
+                <option value="red">red</option>
+                <option value="amber">amber</option>
+                <option value="frost">frost</option>
+                <option value="ivory">ivory</option>
+                <option value="green">green</option>
+                <option value="magenta">magenta</option>
+                <option value="blue">blue</option>
+                <option value="purple">purple</option>
+                <option value="auto">auto</option>
+              </select>
+              <label class="identity-popover-toggle" for="identity-dark-mode">
+                <input id="identity-dark-mode" type="checkbox" checked />
+                <span>dark mode</span>
+              </label>
+              <label class="identity-popover-label" for="identity-system-prompt">System prompt injection</label>
+              <textarea
+                class="identity-popover-textarea"
+                id="identity-system-prompt"
+                rows="4"
+                maxlength="1200"
+                placeholder="Append temporary instructions to the default AI context..."
+              ></textarea>
               <div class="identity-popover-actions">
                 <button class="ghost-button" id="identity-cancel" type="button">Cancel</button>
                 <button class="submit-button" id="identity-save" type="button">Save</button>
@@ -222,10 +245,14 @@ export function renderLog(lines: SessionLine[]): string {
 
       if (line.kind === 'pretty-response') {
         const modelHeader = line.model
-          ? `<div class="pretty-output-meta"><span class="pretty-output-model">${escapeHtml(line.model)}</span></div>`
+          ? `<div class="pretty-output-meta"><span class="pretty-output-model">${escapeHtml(line.model)}</span></div>
+             <details class="pretty-thinking">
+               <summary>thinking / context</summary>
+               <p>Using portfolio profile, app command registry, visible terminal buffer, session history, RAG notes, metrics, leaderboard state, and files read in this session.</p>
+             </details>`
           : '';
         const copyButton = line.copyable
-          ? `<button class="pretty-copy-button" type="button" data-copy-pretty-id="${escapeAttribute(line.id)}" aria-label="Copy AI response">Copy</button>`
+          ? `<button class="pretty-copy-button" type="button" data-copy-pretty-id="${escapeAttribute(line.id)}" aria-label="Copy response">copy</button>`
           : '';
         return `
           <li class="log-line log-line-pretty">
@@ -318,7 +345,7 @@ function renderSection(section: TerminalSection): string {
       return `
         <section class="output-block">
           <h2 class="output-heading">${escapeHtml(section.heading)}</h2>
-          <div class="output-records">
+          <div class="timeline-rail">
             ${section.items.map(renderTimelineItem).join('')}
           </div>
         </section>
@@ -482,8 +509,16 @@ function renderStat(stat: ViewStat): string {
 }
 
 function renderTimelineItem(item: TimelineItem): string {
+  const link = item.link
+    ? item.link.command
+      ? `<button class="inline-link timeline-link" type="button" data-command="${escapeAttribute(item.link.command)}">${escapeHtml(item.link.label)}</button>`
+      : item.link.href
+        ? `<a class="inline-link timeline-link" href="${escapeAttribute(item.link.href)}" target="_blank" rel="noreferrer">${escapeHtml(item.link.label)}</a>`
+        : ''
+    : '';
   return `
-    <article class="output-record">
+    <article class="timeline-item">
+      <div class="timeline-marker" aria-hidden="true"></div>
       <div class="record-topline">
         <p>
           <strong>${escapeHtml(item.role)}</strong>
@@ -495,6 +530,7 @@ function renderTimelineItem(item: TimelineItem): string {
         </div>
       </div>
       <p class="record-summary">${escapeHtml(item.summary)}</p>
+      ${link}
       <ul class="output-list">
         ${item.bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join('')}
       </ul>
@@ -633,25 +669,6 @@ function renderAction(action: ViewAction): string {
   }
 
   return '';
-}
-
-/** Shell for CodeMirror + vim (mounted from TerminalApp). */
-export function renderEditor({ file, content }: { file: string; content: string }): string {
-  const lines = content.split('\n').length;
-  return `
-    <div class="editor-container">
-      <div class="editor-header">
-        <span class="editor-file">${escapeHtml(file)}</span>
-        <span class="editor-hints">Vim keys &middot; Ctrl+S save &middot; Esc close</span>
-      </div>
-      <div
-        class="editor-codemirror-root"
-        aria-label="Edit ${escapeHtml(file)}"
-        data-initial-lines="${lines}"
-      ></div>
-      <div class="editor-status">${lines} lines</div>
-    </div>
-  `;
 }
 
 function escapeHtml(value: string): string {

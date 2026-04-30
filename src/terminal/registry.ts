@@ -142,6 +142,38 @@ export function createCommandRegistry(): {
   commands: CommandDefinition[];
   featuredCommands: CommandDefinition[];
 } {
+  const homeView: ViewDefinition = {
+    id: 'home',
+    route: '',
+    prompt: './neofetch --compact',
+    eyebrow: 'pecunies.com',
+    title: 'Chris Pecunies',
+    description:
+      'A compact terminal portfolio. Type help, run a command, or use the small navigation bar above the shell.',
+    theme: 'orange',
+    tags: ['terminal', 'portfolio'],
+    logline: 'Loaded terminal home.',
+    actions: [
+      { label: 'help', command: 'help' },
+      { label: 'resume', command: 'resume' },
+      { label: 'projects', command: 'projects' },
+      { label: 'neofetch', command: 'neofetch' },
+    ],
+    sections: [
+      {
+        type: 'note',
+        heading: 'neofetch',
+        lines: [
+          'guest@pecunies',
+          'os: pecuOS / Cloudflare Pages',
+          'shell: clpsh',
+          'focus: cloud systems, DevOps automation, distributed systems, runtime engineering',
+          'try: help, resume, projects, timeline, cat /README.md, ask <question>',
+        ],
+      },
+    ],
+  };
+
   const overviewView: ViewDefinition = {
     id: 'resume',
     route: 'resume',
@@ -151,7 +183,7 @@ export function createCommandRegistry(): {
     description:
       'A terminal-shaped portfolio backed by the current resume instead of one-off landing page copy.',
     note: resumeData.availability,
-    theme: 'green',
+    theme: 'orange',
     tags: ['resume', 'career', 'portfolio'],
     logline: 'Loaded overview, resume signals, and current availability.',
     stats: buildSignalStats(),
@@ -419,6 +451,9 @@ export function createCommandRegistry(): {
             period: project.period,
             summary: project.summary,
             bullets: project.details.slice(0, 2),
+            link: project.link
+              ? { label: project.link.label, href: project.link.href }
+              : { label: `explain ${project.slug}`, command: `explain project ${project.slug}` },
           })),
           {
             role: resumeData.education.degree,
@@ -517,12 +552,11 @@ export function createCommandRegistry(): {
     title: 'Chronological notes and essays.',
     description:
       'A lightweight post index for writing that will stay terminal-native and RSS-addressable.',
-    note: 'RSS feed: /api/rss (subscribe in any feed reader)',
     theme: 'red',
     tags: ['writing', 'content'],
     logline: 'Loaded post index and RSS location.',
     actions: [
-      { label: 'RSS', href: '/api/rss', external: true },
+      { label: '◔', href: '/api/rss', external: true },
       { label: 'About', command: 'about' },
       { label: 'Projects', command: 'projects' },
     ],
@@ -587,6 +621,7 @@ export function createCommandRegistry(): {
   };
 
   const staticViews = {
+    home: homeView,
     about: aboutView,
     resume: overviewView,
     experience: experienceView,
@@ -821,8 +856,15 @@ export function createCommandRegistry(): {
     description: 'Explain the terminal app, design, and architecture.',
   });
 
+  addViewCommand('home', {
+    aliases: ['start', 'landing'],
+    usage: 'home',
+    group: 'Core',
+    description: 'Return to the compact terminal landing screen.',
+  });
+
   addViewCommand('resume', {
-    aliases: ['home'],
+    aliases: [],
     usage: 'resume',
     group: 'Core',
     featured: true,
@@ -952,9 +994,19 @@ export function createCommandRegistry(): {
       if (!sub) {
         return {
           kind: 'system',
-          text: 'Usage: theme <set <name>|list|random|auto|palette>. Try theme list.',
+          text: 'Usage: theme <set <name>|list|random|auto|--dark|--light|palette>. Try theme list.',
           tone: 'warn',
         };
+      }
+
+      if (sub === '--dark' || sub === 'dark') {
+        context.setDarkMode(true);
+        return { kind: 'system', text: 'Dark mode enabled.', tone: 'success' };
+      }
+
+      if (sub === '--light' || sub === 'light') {
+        context.setDarkMode(false);
+        return { kind: 'system', text: 'Light mode enabled.', tone: 'success' };
       }
 
       /* theme list */
@@ -1314,6 +1366,30 @@ export function createCommandRegistry(): {
     usage: 'date',
     group: 'OS',
     description: 'Print current edge time.',
+  });
+
+  addOsCommand('dark', {
+    usage: 'dark',
+    group: 'Utility',
+    description: 'Enable dark mode and persist it to shell config.',
+  });
+
+  addOsCommand('light', {
+    usage: 'light',
+    group: 'Utility',
+    description: 'Enable light mode and persist it to shell config.',
+  });
+
+  addOsCommand('source', {
+    usage: 'source <path>',
+    group: 'OS',
+    description: 'Read shell commands from a file and run them in order.',
+  });
+
+  addOsCommand('rag', {
+    usage: 'rag <add|list|clear> [context]',
+    group: 'AI',
+    description: 'Persist session context notes that are injected into ask, explain, chat, and agentic AI calls.',
   });
 
   addOsCommand('uptime', {
@@ -1713,22 +1789,6 @@ export function createCommandRegistry(): {
   });
 
   commands.push({
-    name: 'edit',
-    aliases: ['vim', 'vi', 'nvim', 'nano'],
-    usage: 'edit <path>',
-    group: 'Utility',
-    featured: false,
-    description: 'Open a text editor for a portfolio OS file. Ctrl+S to save, Esc to close.',
-    execute(_context, args) {
-      const file = args[0];
-      if (!file) {
-        return { kind: 'system', text: 'Usage: edit <path>', tone: 'warn' };
-      }
-      return { kind: 'editor', file: file.startsWith('/') ? file : '/' + file, content: '', tone: 'info' };
-    },
-  });
-
-  commands.push({
     name: 'open',
     aliases: ['xdg-open', 'launch'],
     usage: 'open <path|url>',
@@ -1752,7 +1812,7 @@ export function createCommandRegistry(): {
       }
       if (target.startsWith('/posts/') || target.startsWith('posts/')) {
         const normalized = target.startsWith('/') ? target : '/' + target;
-        return { kind: 'editor', file: normalized, content: '', tone: 'info' };
+        return { kind: 'os', command: 'cat ' + normalized };
       }
       if (target.endsWith('.md')) {
         return { kind: 'os', command: 'cat --pretty ' + target };
@@ -1760,7 +1820,7 @@ export function createCommandRegistry(): {
       const codeExts = ['.ts', '.js', '.py', '.go', '.rs', '.zig', '.sh', '.json', '.css', '.html', '.c', '.cpp'];
       if (codeExts.some(function(ext) { return target.endsWith(ext); })) {
         const normalized = target.startsWith('/') ? target : '/' + target;
-        return { kind: 'editor', file: normalized, content: '', tone: 'info' };
+        return { kind: 'os', command: 'cat ' + normalized };
       }
       return { kind: 'os', command: 'cat --pretty ' + target };
     },
@@ -1773,35 +1833,24 @@ export function createCommandRegistry(): {
     group: 'System',
     description: 'Display pecuOS system information with ASCII art.',
     execute() {
-      const ascii = `            .-:::::-.
-         .:+ooooooooo+:
-       .:ooooooooooooooo:.
-      :ooooooooooooooooooo:
-     :ooooooooooooooooooooo:
-    .ooooooooooooooooooooooo.
-    :ooooooooooooooooooooooo:
-    :ooooooooooooooooooooooo:
-    .ooooooooooooooooooooooo.
-     :ooooooooooooooooooooo:
-      :ooooooooooooooooooo:
-       .:ooooooooooooooo:.
-         .:+ooooooooo+:
-            .-:::::-.`;
+      const ascii = `        ____ _     ____
+       / ___| |   |  _ \\
+      | |   | |   | |_) |
+      | |___| |___|  __/
+       \\____|_____|_|`;
       const info = [
-        '                   chris@pecunies.com',
-        '                   ------------------',
-        `                   OS: pecuOS 1.2.0 (chaos-edge)`,
-        `                   Kernel: Cloudflare Workers 2026.04`,
-        `                   Shell: clpsh 1.0.0`,
-        `                   Uptime: ${Math.floor(Math.random() * 90 + 1)} days, ${Math.floor(Math.random() * 24)} hours`,
-        `                   CPU: Cloudflare Edge Worker (${Math.floor(Math.random() * 64 + 32)}ms cold)`,
-        `                   Memory: 128 MB / 128 MB (edge runtime)`,
-        `                   Resolution: your terminal, rendered`,
-        `                   DE: glass-shell + ambient-dust`,
-        `                   Theme: ${Math.random() > 0.5 ? 'red signal' : 'amber phosphor'}`,
-        `                   Packages: ${Math.floor(Math.random() * 8 + 3)} (ai, games, network, os, chat)`,
+        '        guest@pecunies',
+        '        --------------',
+        `        OS: pecuOS terminal portfolio`,
+        `        Kernel: Cloudflare Pages + Workers`,
+        `        Shell: clpsh`,
+        `        Focus: cloud systems / DevOps / runtimes`,
+        `        Resume: resume | pdf | download`,
+        `        Projects: projects | timeline | explain project <name>`,
+        `        AI: chat | ask <question>`,
+        `        Theme: orange signal`,
         '',
-        `                   ── pecuOS // portfolio operating system ──`,
+        `        type help for commands`,
       ];
       return { kind: 'system', text: ascii + '\n' + info.join('\n'), tone: 'info' };
     },

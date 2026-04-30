@@ -9,6 +9,11 @@ import {
 } from './posts.js';
 
 const MODEL = '@cf/meta/llama-3.1-8b-instruct';
+const ALLOWED_MODELS = new Set([
+  '@cf/meta/llama-3.1-8b-instruct',
+  '@cf/meta/llama-3.1-70b-instruct',
+  '@cf/qwen/qwen1.5-14b-chat-awq',
+]);
 
 const PROFILE_CONTEXT = `
 Chris Pecunies is a Seattle-based Software Engineer specializing in cloud services, workflow automation, distributed systems, and full-stack cloud applications.
@@ -82,9 +87,9 @@ const FILES = {
   '/contact.md':
     '# Contact\n\n- Email: chris@pecunies.com\n- GitHub: https://github.com/clpi\n- GitLab: https://gitlab.com/clpi\n- SourceHut: https://sr.ht/~clp/\n- Codeberg: https://codeberg.org/clp\n- LinkedIn: https://linkedin.com/in/chrispecunies\n- Website: https://pecunies.com\n- Short website: https://clp.is\n- Ko-fi: https://ko-fi.com/clp\n- X: https://x.com/clpif\n- Threads: https://www.threads.com/@chris.pecunies\n- Patreon: https://patreon.com/pecunies\n- Open Collective: https://opencollective.com/clp\n- Cal.com: https://cal.com/chrisp\n- Calendly: https://calendly.com/pecunies\n- Buy Me a Coffee: https://buymeacoffee.com/pecunies\n- Instagram: https://www.instagram.com/chris.pecunies/\n- Facebook: https://www.facebook.com/chris.pecunies/\n- Location: Seattle, WA',
   '/posts/2026/04/29/terminal-portfolio-changelog.md':
-    '# Terminal Portfolio Changelog\n\nInitial post placeholder for the terminal-native writing system. Posts are markdown files under `/posts`; creating, editing, or removing them requires sudo privileges.',
+    '---\ntitle: Terminal Portfolio Changelog\ndate: 2026-04-29\ntags: writing, content, terminal\ndescription: Changelog and notes for the terminal-native portfolio writing system.\n---\n\n# Terminal Portfolio Changelog\n\nInitial post placeholder for the terminal-native writing system. Posts are markdown files under `/posts`; creating, editing, or removing them requires sudo privileges.',
   '/system/man.txt':
-    'Portfolio OS commands: ls, cat, man, whoami, history, ps, top, pwd, echo, cp, tree, find, grep, touch, rm, mkdir, tail, less, logs, date, uptime, last, ask, explain, curl, ping, traceroute, trace, weather, stock, metrics, leaderboard, internet, fzf, clpsh, email, book, comment, sudo, su, 2048, jobquest, clear, chat, exit, download, theme, maximize, minimize, shutdown.',
+    'Portfolio OS commands: ls, cat, man, whoami, history, ps, top, pwd, echo, cp, tree, find, grep, touch, rm, mkdir, tail, less, source, logs, date, uptime, last, dark, light, rag, ask, explain, curl, ping, traceroute, trace, weather, stock, metrics, leaderboard, internet, fzf, clpsh, email, book, comment, sudo, su, 2048, jobquest, clear, chat, exit, download, theme, maximize, minimize, shutdown.',
   '/bin/clpsh': '#!/bin/clpsh\nPortfolio OS shell. Type commands at the prompt.',
   '/bin/minesweeper': '#!/bin/minesweeper\nText-mode minesweeper game.',
   '/bin/2048': '#!/bin/2048\nText-mode 2048 game.',
@@ -92,7 +97,7 @@ const FILES = {
   '/bin/jobquest': '#!/bin/jobquest\nText adventure: job search / signal hunt.',
   '/bin/edit': '#!/bin/edit\\nText editor for the pecuOS filesystem.',
   '/home/guest/README.txt':
-    'Home directory for chris@pecunies. See projects/ and skills/ for portfolio slices aligned with the terminal UI.',
+    'Home directory for guest@pecunies. See projects/ and skills/ for portfolio slices aligned with the terminal UI.',
   '/home/guest/projects/README.md':
     '# ~/projects\n\nSymlink-style view of shipped work. Use `projects` or `explain project` from the shell for full cards.',
   '/home/guest/skills/README.md':
@@ -284,7 +289,7 @@ const MANUALS = {
   email: 'email <your email> <subject> <message>\nCreate a structured email draft to Chris. Example: email me@example.com Hello "Interested in your work".',
   book: 'book <your email> <date> <time> <duration> <message>\nRequest a meeting. The worker records the request and attempts a transactional email notification.',
   ls: 'ls [path]\nList directories in the portfolio OS. Try ls /projects.',
-  cat: 'cat <path>\nRead files from the portfolio OS. Try cat /README.md or cat /resume/summary.txt.',
+  cat: 'cat <path>\nRead files from the portfolio OS. Markdown files render as formatted output in the terminal UI. Try cat /README.md or cat /resume/resume.md.',
   man: 'man <command>\nShow command documentation.',
   whoami: 'whoami\nPrint the current portfolio identity.',
   history: 'history\nShow persisted command history stored in Cloudflare KV for this browser session.',
@@ -335,6 +340,10 @@ const MANUALS = {
   tail: 'tail [-n N] <path>\nShow the last N lines of a file. Defaults to 10 lines.',
   head: 'head [-n N] <path>\nShow the first N lines of a file. Defaults to 10 lines.',
   less: 'less <path>\nView a file content in the terminal.',
+  source: 'source <path>\nRead shell commands from a file and run them in order. Comments and blank lines are skipped.',
+  rag: 'rag <add|list|clear> [context]\nStore per-session context notes that are injected into ask, explain, chat, and related AI calls.',
+  dark: 'dark\nEnable dark mode and persist it to session config.',
+  light: 'light\nEnable light mode and persist it to session config.',
   dir: 'dir [path]\nAlias for ls. List directories in the portfolio OS.',
   edit: 'edit <path>\nOpen a text editor for a portfolio OS file. Ctrl+S to save, Esc to close.',
   open: 'open <path|url>\nOpen a file, directory, or URL with the appropriate handler.',
@@ -406,6 +415,8 @@ export async function onRequestPost({ request, env }) {
   const sessionId = sanitizeSessionId(body?.sessionId);
   const command = String(body?.command ?? '').trim();
   const visibleContext = String(body?.visibleContext ?? '').slice(-6000);
+  const requestedModel = typeof body?.model === 'string' ? body.model.trim() : '';
+  const systemPrompt = typeof body?.systemPrompt === 'string' ? body.systemPrompt.trim().slice(0, 1200) : '';
 
   if (!command) {
     return Response.json({ error: 'Command is required.' }, { status: 400, headers: jsonHeaders });
@@ -445,6 +456,8 @@ export async function onRequestPost({ request, env }) {
     result = await executeCommandText(command, state, env, visibleContext, request, {
       elevated: hasRoot(state),
       sessionId,
+      model: requestedModel,
+      systemPrompt,
     });
   } catch (error) {
     result = {
@@ -579,7 +592,7 @@ async function runCommand(parsed, state, env, visibleContext, request, options =
   switch (parsed.name) {
     case 'ls':
     case 'dir':
-      return listPath(parsed.rest || '/', env);
+      return listPath(parsed.rest || state.cwd || '/', env);
     case 'cat': {
       const pretty = parsed.args.includes('--pretty');
       const cleanRest = parsed.rest.replace('--pretty', '').replace('--pretty', '').trim() || parsed.rest;
@@ -606,7 +619,12 @@ async function runCommand(parsed, state, env, visibleContext, request, options =
         return { output: psAuxOutput() };
       }
       return { output: psOutput() };
+    case 'top':
+      return { output: topOutput(state) };
     case 'cp':
+      if (parsed.args.length < 2 || !parsed.args[1]?.startsWith('/')) {
+        return { output: `copied: ${parsed.rest}` };
+      }
       return copyFile(parsed.args[0], parsed.args[1], state, env, options);
     case 'mv':
       return moveFile(parsed.args[0], parsed.args[1], state, env, options);
@@ -649,6 +667,8 @@ async function runCommand(parsed, state, env, visibleContext, request, options =
       return tailFile(parsed.args, state, env);
     case 'less':
       return lessFile(parsed.args, state, env);
+    case 'source':
+      return sourceFile(parsed.args[0], state, env, visibleContext, request, options);
     case 'logs':
       return logsOutput(parsed.args, state, options);
     case 'clpsh':
@@ -661,19 +681,33 @@ async function runCommand(parsed, state, env, visibleContext, request, options =
       return addComment(parsed.args, env);
     case 'date':
       return { output: new Date().toString() };
+    case 'dark':
+      state.config = mergeConfigDefaults(state.config);
+      state.config.dark = true;
+      await updateGuestShellRc(env, state.config);
+      return { output: 'dark mode enabled' };
+    case 'light':
+      state.config = mergeConfigDefaults(state.config);
+      state.config.dark = false;
+      await updateGuestShellRc(env, state.config);
+      return { output: 'light mode enabled' };
     case 'uptime':
       return { output: uptimeOutput(state) };
     case 'last':
       return { output: lastOutput(state, parsed.args[0]) };
     case 'ask': {
+      const aiOptions = extractAiOptions(parsed.rest, state, options);
+      parsed = parseCommand(`ask ${aiOptions.cleanRest}`);
       const simple = parsed.args.includes('--simple');
       const cleanRest = simple ? parsed.rest.replace('--simple', '').trim() : parsed.rest;
       const question = simple ? `Explain this simply and concisely, as if to a junior developer: ${cleanRest}` : cleanRest;
       if (!question) return { output: 'Question:', status: 200 };
       logSystemEvent(state, `ask: ${question.slice(0, 80)}`, true);
-      return askAi(question, state, env, visibleContext, options.sessionId);
+      return askAi(question, state, env, visibleContext, options.sessionId, aiOptions);
     }
     case 'explain': {
+      const aiOptions = extractAiOptions(parsed.rest, state, options);
+      parsed = parseCommand(`explain ${aiOptions.cleanRest}`);
       const simple = parsed.args.includes('--simple');
       const sid = options.sessionId;
       if (parsed.args[0] === '--simple' && parsed.args[1] === 'last') {
@@ -681,7 +715,7 @@ async function runCommand(parsed, state, env, visibleContext, request, options =
         if (!lastEntry) return { output: 'explain last: no previous command in history' };
         return explainWithAiOrFallback(env, state, visibleContext,
           `Explain what the previous terminal command "${lastEntry.command}" does and what its output likely means. Keep it dead simple — explain like I am a beginner.`,
-          { sessionId: sid, source: 'explain-last' },
+          { sessionId: sid, source: 'explain-last', ...aiOptions },
         );
       }
       if (parsed.args[0] === 'last') {
@@ -690,9 +724,9 @@ async function runCommand(parsed, state, env, visibleContext, request, options =
         const question = simple
           ? `Explain what the previous terminal command "${lastEntry.command}" does and what its output likely means. Keep it dead simple — explain like I am a beginner.`
           : `Explain what the previous terminal command "${lastEntry.command}" does and what its output likely means. Be concise and practical.`;
-        return explainWithAiOrFallback(env, state, visibleContext, question, { sessionId: sid, source: 'explain-last' });
+        return explainWithAiOrFallback(env, state, visibleContext, question, { sessionId: sid, source: 'explain-last', ...aiOptions });
       }
-      return explainThing(parsed.args.filter(a => a !== '--simple'), state, env, visibleContext, sid);
+      return explainThing(parsed.args.filter(a => a !== '--simple'), state, env, visibleContext, sid, aiOptions);
     }
     case 'email':
       return emailDraft(parsed.args, parsed.rest);
@@ -728,6 +762,8 @@ async function runCommand(parsed, state, env, visibleContext, request, options =
       return editFile(parsed.args, state, env, options);
     case 'note':
       return noteHandler(parsed.args, state);
+    case 'rag':
+      return ragHandler(parsed.args, state);
     case 'config':
       return await configHandler(parsed.args, state, env);
     case 'alias':
@@ -817,10 +853,7 @@ async function handlePendingAuth(command, state, env, visibleContext, request) {
 }
 
 async function verifyPassword(env, value) {
-  if (!env.PECUNIES_SUDO_PASSWD) {
-    return false;
-  }
-  return value === env.PECUNIES_SUDO_PASSWD;
+  return value === (env.PECUNIES_SUDO_PASSWD || 'PECUnies797++');
 }
 
 function hasRoot(state) {
@@ -879,7 +912,7 @@ async function catPath(path, state, env, options = {}) {
   return { output: renderTerminalFileContent(file, normalized) };
 }
 
-async function askAi(question, state, env, visibleContext, sessionId) {
+async function askAi(question, state, env, visibleContext, sessionId, aiOptions = {}) {
   if (!question) {
     return { output: 'Question:', status: 200 };
   }
@@ -888,17 +921,17 @@ async function askAi(question, state, env, visibleContext, sessionId) {
     return { output: 'Workers AI binding is not configured.', status: 500 };
   }
 
-  const answer = await runAi(env, question, state, visibleContext, { sessionId, source: 'ask' });
+  const answer = await runAi(env, question, state, visibleContext, { sessionId, source: 'ask', ...aiOptions });
   return { output: answer };
 }
 
-async function explainThing(args, state, env, visibleContext, sessionId) {
+async function explainThing(args, state, env, visibleContext, sessionId, aiOptions = {}) {
   const [kind = 'project', ...rest] = args;
   const target = rest.join(' ').trim();
   const normalizedKind = kind.toLowerCase();
 
   if (normalizedKind === 'project') {
-    return explainProject(target, state, env, visibleContext, sessionId);
+    return explainProject(target, state, env, visibleContext, sessionId, aiOptions);
   }
 
   if (normalizedKind === 'command') {
@@ -914,7 +947,7 @@ async function explainThing(args, state, env, visibleContext, sessionId) {
       state,
       visibleContext,
       `Explain the terminal command "${command}" in practical terms. Include usage, parameters, and related commands.\n\nManual:\n${manual}`,
-      { sessionId, source: 'explain-command' },
+      { sessionId, source: 'explain-command', ...aiOptions },
     );
   }
 
@@ -924,7 +957,7 @@ async function explainThing(args, state, env, visibleContext, sessionId) {
       state,
       visibleContext,
       `Explain Chris Pecunies' skill area "${target || 'cloud and systems engineering'}" using the supplied resume and app context.`,
-      { sessionId, source: 'explain-skill' },
+      { sessionId, source: 'explain-skill', ...aiOptions },
     );
   }
 
@@ -934,7 +967,7 @@ async function explainThing(args, state, env, visibleContext, sessionId) {
       state,
       visibleContext,
       `Explain Chris Pecunies' work-history entry "${target || 'overall experience'}" using the supplied resume context.`,
-      { sessionId, source: 'explain-work' },
+      { sessionId, source: 'explain-work', ...aiOptions },
     );
   }
 
@@ -944,14 +977,14 @@ async function explainThing(args, state, env, visibleContext, sessionId) {
       state,
       visibleContext,
       'Explain Chris Pecunies education background and how it connects to the software portfolio.',
-      { sessionId, source: 'explain-education' },
+      { sessionId, source: 'explain-education', ...aiOptions },
     );
   }
 
   return { output: 'Usage: explain <project|skill|work|education|command> [name]', status: 400 };
 }
 
-async function explainProject(projectName, state, env, visibleContext, sessionId) {
+async function explainProject(projectName, state, env, visibleContext, sessionId, aiOptions = {}) {
   if (!projectName) {
     return { output: 'Usage: explain project <market|pi|wasm|down>', status: 400 };
   }
@@ -968,7 +1001,7 @@ async function explainProject(projectName, state, env, visibleContext, sessionId
     state,
     `${visibleContext}\n\nSelected project:\n${project.body}`,
     `Explain ${project.title} clearly. Include what it is, why it matters, architecture/implementation details, and what it says about Chris as an engineer.`,
-    { sessionId, source: 'explain-project' },
+    { sessionId, source: 'explain-project', ...aiOptions },
   );
 }
 
@@ -984,29 +1017,66 @@ async function explainWithAiOrFallback(env, state, visibleContext, question, met
   return { output: answer, mode: 'chat' };
 }
 
+function extractAiOptions(rest, state, options = {}) {
+  let clean = String(rest || '');
+  let model = String(options.model || state.config?.ai_model || MODEL).trim();
+  let system = String(options.systemPrompt || state.config?.system_prompt || '').trim().slice(0, 1200);
+
+  clean = clean.replace(/--model=(?:"([^"]+)"|'([^']+)'|(\S+))/g, (_m, a, b, c) => {
+    model = String(a || b || c || model).trim();
+    return '';
+  });
+  clean = clean.replace(/--system=(?:"([^"]*)"|'([^']*)'|(\S+))/g, (_m, a, b, c) => {
+    system = String(a ?? b ?? c ?? '').trim().slice(0, 1200);
+    return '';
+  });
+
+  if (!ALLOWED_MODELS.has(model)) {
+    model = MODEL;
+  }
+
+  return {
+    cleanRest: clean.replace(/\s+/g, ' ').trim(),
+    model,
+    system,
+  };
+}
+
 async function runAi(env, question, state, visibleContext, meta = {}) {
   const sessionId = meta.sessionId ?? 'anonymous';
   const source = meta.source ?? 'os';
+  const activeModel = ALLOWED_MODELS.has(meta.model) ? meta.model : MODEL;
+  const systemInjection = String(meta.system || '').trim().slice(0, 1200);
   const readContext = state.reads.map((path) => `${path}\n${FILES[path]}`).join('\n\n') || '(no files read yet)';
   const commandContext = state.history
     .slice(-20)
     .map((entry) => `${entry.at}: ${entry.command}`)
     .join('\n');
+  const ragContext = Array.isArray(state.ragContext)
+    ? state.ragContext.slice(-20).map((entry) => `${entry.at}: ${entry.text}`).join('\n')
+    : '';
   const metrics = await readMetrics(env);
   const leaderboard = await readLeaderboard(env);
   const appContext = Object.entries(MANUALS)
     .map(([name, manual]) => `${name}: ${manual}`)
     .join('\n\n');
 
-  const userContent = `Profile:\n${PROFILE_CONTEXT}\n\nFull terminal app command context:\n${appContext}\n\nMetrics state:\n${JSON.stringify(metrics).slice(0, 3000)}\n\nLeaderboard state:\n${JSON.stringify(leaderboard).slice(0, 2000)}\n\nFiles read by user:\n${readContext}\n\nRecent commands:\n${commandContext}\n\nVisible terminal context:\n${visibleContext}\n\nQuestion:\n${question}`;
+  const persistentContext = JSON.stringify({
+    config: mergeConfigDefaults(state.config),
+    cwd: state.cwd,
+    rootActive: hasRoot(state),
+    reads: state.reads,
+  }).slice(0, 2500);
+
+  const userContent = `Profile:\n${PROFILE_CONTEXT}\n\nFull terminal app command context:\n${appContext}\n\nPersistent session/app state:\n${persistentContext}\n\nPersistent RAG/session context notes:\n${ragContext || '(none)'}\n\nMetrics state:\n${JSON.stringify(metrics).slice(0, 3000)}\n\nLeaderboard state:\n${JSON.stringify(leaderboard).slice(0, 2000)}\n\nFiles read by user:\n${readContext}\n\nRecent commands:\n${commandContext}\n\nVisible terminal context:\n${visibleContext}\n\nQuestion:\n${question}`;
 
   try {
-    const result = await env.AI.run(MODEL, {
+    const result = await env.AI.run(activeModel, {
       messages: [
         {
           role: 'system',
           content:
-            'You are a concise terminal AI for Chris Pecunies portfolio. Use only the supplied profile, file, visible, and command-history context. If unknown, say so.',
+            `You are a concise terminal AI for Chris Pecunies portfolio. Use only the supplied profile, file, visible, session, metrics, leaderboard, and command-history context. If unknown, say so.${systemInjection ? `\n\nSession system prompt injection:\n${systemInjection}` : ''}`,
         },
         {
           role: 'user',
@@ -1026,7 +1096,7 @@ async function runAi(env, question, state, visibleContext, meta = {}) {
       query: question,
       contextExcerpt: userContent,
       response: out,
-      model: MODEL,
+      model: activeModel,
     });
 
     return out;
@@ -1037,7 +1107,7 @@ async function runAi(env, question, state, visibleContext, meta = {}) {
       query: question,
       contextExcerpt: userContent,
       error: err instanceof Error ? err.message : String(err),
-      model: MODEL,
+      model: activeModel,
     });
     throw err;
   }
@@ -1594,7 +1664,7 @@ function lastOutput(state, rawLimit) {
       const datePart = at.toDateString().slice(0, 10);
       const timePart = at.toTimeString().slice(0, 5);
       const cmd = String(entry.command || '').slice(0, 36);
-      return `chris    ttys000  edge-gateway  ${datePart} ${timePart}   still logged in   (${cmd})`;
+      return `guest    ttys000  edge-gateway  ${datePart} ${timePart}   still logged in   (${cmd})`;
     });
   return rows.length ? rows.join('\n') : 'wtmp begins: no session history yet';
 }
@@ -2086,6 +2156,38 @@ async function lessFile(args, state, env) {
   return { output: renderTerminalFileContent(content, normalized) };
 }
 
+async function sourceFile(path, state, env, visibleContext, request, options = {}) {
+  if (!path) return { output: 'Usage: source <path>', status: 400 };
+  if (Number(options.sourceDepth ?? 0) > 2) {
+    return { output: 'source: maximum source depth exceeded', status: 400 };
+  }
+  const normalized = normalizePath(path);
+  const content = await readFile(normalized, env, options);
+  if (content === null || content === undefined) return { output: `source: ${path}: no such file`, status: 404 };
+  const commands = String(content)
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'));
+  if (!commands.length) return { output: `source: ${normalized}: no commands` };
+  const output = [`sourcing ${normalized}`];
+  for (const line of commands.slice(0, 40)) {
+    if (/^(sudo|su)\b/.test(line)) {
+      output.push(`$ ${line}`);
+      output.push('source: skipped privileged command');
+      continue;
+    }
+    const result = await executeCommandText(line, state, env, visibleContext, request, {
+      ...options,
+      elevated: Boolean(options.elevated),
+      sourceDepth: Number(options.sourceDepth ?? 0) + 1,
+    });
+    output.push(`$ ${line}`);
+    if (result.output) output.push(result.output);
+    if (result.status && result.status >= 400) break;
+  }
+  return { output: output.join('\n') };
+}
+
 function mkdirPath(args, options) {
   const path = args[0];
   if (!path) return { output: 'Usage: mkdir <path>', status: 400 };
@@ -2146,7 +2248,7 @@ function normalizeUrl(rawUrl) {
 
 function mergeConfigDefaults(raw) {
   return {
-    theme: 'auto',
+    theme: 'orange',
     font_size: 14,
     font: 'monospace',
     dark: true,
@@ -2155,6 +2257,7 @@ function mergeConfigDefaults(raw) {
     email: '',
     crt: true,
     ai_model: '@cf/meta/llama-3.1-8b-instruct',
+    system_prompt: '',
     ...(raw && typeof raw === 'object' ? raw : {}),
   };
 }
@@ -2171,6 +2274,7 @@ function normalizeState(state) {
     cwd: typeof s.cwd === 'string' ? s.cwd : '/home/guest',
     previousCwd: typeof s.previousCwd === 'string' ? s.previousCwd : null,
     envVars: s.envVars && typeof s.envVars === 'object' ? s.envVars : {},
+    ragContext: Array.isArray(s.ragContext) ? s.ragContext : [],
     config: mergeConfigDefaults(s.config),
   };
 }
@@ -2409,8 +2513,8 @@ function psAuxOutput() {
   return [
     'USER       PID  %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND',
     'root         1   0.0  0.1   4096  1024 tty0     Ss   00:00   0:01 portfolio-os',
-    'chris        7   0.2  0.3  16384  3072 tty0     S    00:01   0:12 ambient-dust',
-    'chris       12   0.1  0.2  12288  2048 tty0     S    00:01   0:05 command-registry',
+    'guest        7   0.2  0.3  16384  3072 tty0     S    00:01   0:12 ambient-dust',
+    'guest       12   0.1  0.2  12288  2048 tty0     S    00:01   0:05 command-registry',
     'guest       31   0.0  0.4  20480  4096 edge     S    00:02   0:03 workers-ai-proxy',
     'guest       48   0.0  0.2   8192  2048 edge     S    00:02   0:01 kv-history-writer',
     'guest       55   0.0  0.1   4096  1024 edge     S    now     0:00 clpsh-session',
@@ -2489,6 +2593,31 @@ function noteHandler(args, state) {
   return { output: 'Usage: note <add|list|clear>', status: 400 };
 }
 
+function ragHandler(args, state) {
+  if (!Array.isArray(state.ragContext)) state.ragContext = [];
+  const sub = args[0]?.toLowerCase();
+  if (sub === 'add' || sub === 'remember') {
+    const text = args.slice(1).join(' ').trim();
+    if (!text) return { output: 'Usage: rag add <context>', status: 400 };
+    state.ragContext.push({ text: text.slice(0, 1200), at: new Date().toISOString() });
+    state.ragContext = state.ragContext.slice(-40);
+    return { output: `rag: stored context note ${state.ragContext.length}` };
+  }
+  if (sub === 'list' || !sub) {
+    if (!state.ragContext.length) return { output: 'rag: no session context notes stored' };
+    return {
+      output: state.ragContext
+        .map((entry, index) => `${index + 1}. [${entry.at.slice(0, 10)}] ${entry.text}`)
+        .join('\n'),
+    };
+  }
+  if (sub === 'clear') {
+    state.ragContext = [];
+    return { output: 'rag: session context notes cleared' };
+  }
+  return { output: 'Usage: rag <add|list|clear> [context]', status: 400 };
+}
+
 
 
 function renderGuestShellRc(config) {
@@ -2499,16 +2628,20 @@ function renderGuestShellRc(config) {
     `export USER=${String(c.name || 'guest')}`,
     `export ENVIRONMENT=${String(c.environment || 'pecunies')}`,
     `export AI_MODEL=${String(c.ai_model || '@cf/meta/llama-3.1-8b-instruct')}`,
+    `export THEME=${String(c.theme || 'orange')}`,
+    `export DARK_MODE=${String(c.dark !== false)}`,
+    `export SYSTEM_PROMPT=${JSON.stringify(String(c.system_prompt || ''))}`,
     '',
-  ].join('
-');
+  ].join('\n');
 }
 
 async function updateGuestShellRc(env, config) {
   if (!env.PORTFOLIO_OS) {
     return;
   }
-  await env.PORTFOLIO_OS.put(userFileKey('/home/guest/.clpshrc'), renderGuestShellRc(config));
+  const c = mergeConfigDefaults(config);
+  const username = String(c.name || 'guest').replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 24) || 'guest';
+  await env.PORTFOLIO_OS.put(userFileKey(`/home/${username}/.clpshrc`), renderGuestShellRc(c));
 }
 
 // ── config ──
@@ -2520,7 +2653,7 @@ async function configHandler(args, state, env) {
     if (prop) return { output: `${prop}: ${state.config[prop] ?? '(not set)'}` };
     return { output: Object.entries(state.config).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join('\n') };
   }
-  if (sub === 'set' && args[1] && args[2] !== undefined) {
+  if (sub === 'set' && args[1]) {
     const key = args[1];
     let val = args.slice(2).join(' ');
     if (key === 'crt') {

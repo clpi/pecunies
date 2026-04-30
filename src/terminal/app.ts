@@ -1,8 +1,7 @@
 import { resumeData } from '../data/resume';
 import type { AmbientFieldHandle } from '../wasm';
-import type { CodeMirrorMount } from './editor-codemirror';
 import { bumpCommandFrequency, fuzzyScore, rankByFuzzyAndFrequency, readCommandFrequency } from './fuzzy-rank';
-import { renderMarkdownToHtml } from './markdown';
+import { renderMarkdownToHtml, renderPostMarkdownToHtml } from './markdown';
 import { terminalThemes, type ThemeName } from './palette';
 import {
   createJobQuestState,
@@ -12,7 +11,7 @@ import {
   processJobQuestInput,
   type JobQuestState,
 } from './jobquest-game';
-import { renderEditor, renderLog, renderShell, renderView } from './render';
+import { renderLog, renderShell, renderView } from './render';
 import type {
   CommandContext,
   CommandDefinition,
@@ -70,6 +69,7 @@ const ARG_COMMANDS = new Set([
   'config',
   'cp',
   'curl',
+  'dark',
   'download',
   'echo',
   'email',
@@ -81,12 +81,15 @@ const ARG_COMMANDS = new Set([
   'internet',
   'leaderboard',
   'less',
+  'light',
   'ls',
   'man',
   'mkdir',
   'new',
   'ping',
   'post',
+  'rag',
+  'source',
   'stock',
   'tail',
   'tags',
@@ -155,7 +158,11 @@ const DIRECTORY_PATHS = [
   '/var/log',
 ];
 const ARG_HINTS: Record<string, Array<{ token: string; description: string }>> = {
-  ask: [{ token: '<question>', description: 'question to answer with Workers AI' }],
+  ask: [
+    { token: '--model=<model>', description: 'optional Workers AI model override' },
+    { token: '--system=<prompt>', description: 'optional prompt injection for this request' },
+    { token: '<question>', description: 'question to answer with Workers AI' },
+  ],
   book: [
     { token: '<your email>', description: 'where the booking confirmation should go' },
     { token: '<date>', description: 'requested date, for example 2026-05-18' },
@@ -169,8 +176,14 @@ const ARG_HINTS: Record<string, Array<{ token: string; description: string }>> =
     { token: '<message>', description: 'message body' },
   ],
   explain: [
+    { token: '--model=<model>', description: 'optional Workers AI model override' },
+    { token: '--system=<prompt>', description: 'optional prompt injection for this request' },
     { token: '<project|skill|work|education|command>', description: 'category to explain' },
     { token: '<name>', description: 'specific target, for example market, pi, wasm, or ask' },
+  ],
+  chat: [
+    { token: '--model=<model>', description: 'optional Workers AI model for chat' },
+    { token: '--system=<prompt>', description: 'optional session prompt injection' },
   ],
   trace: [{ token: '<website>', description: 'site to trace' }],
   weather: [{ token: '<location>', description: 'optional city; defaults to Seattle, WA' }],
@@ -193,6 +206,11 @@ const ARG_HINTS: Record<string, Array<{ token: string; description: string }>> =
   ],
   sudo: [{ token: '<command>', description: 'command to run after password prompt' }],
   su: [{ token: '<password>', description: 'optional password to become root for 5 minutes' }],
+  source: [{ token: '<path>', description: 'shell script or rc file to source' }],
+  rag: [
+    { token: '<add|list|clear>', description: 'manage persistent session context notes' },
+    { token: '<context>', description: 'context text injected into AI calls' },
+  ],
   comment: [
     { token: '<post>', description: 'post slug, for example terminal-portfolio-changelog' },
     { token: '<name>', description: 'display name' },
@@ -258,6 +276,9 @@ export class TerminalApp {
   private readonly identityDisplayNameInput: HTMLInputElement;
   private readonly identityEnvironmentSelect: HTMLSelectElement;
   private readonly identityModelSelect: HTMLSelectElement;
+  private readonly identityThemeSelect: HTMLSelectElement;
+  private readonly identityDarkModeInput: HTMLInputElement;
+  private readonly identitySystemPromptInput: HTMLTextAreaElement;
   private readonly identitySaveButton: HTMLButtonElement;
   private readonly identityCancelButton: HTMLButtonElement;
   private readonly dockElement: HTMLButtonElement;
@@ -276,10 +297,6 @@ export class TerminalApp {
   private chatMode = false;
   private chatPending = false;
   private gameMode: GameKind | null = null;
-  private editorFile: string | null = null;
-  private editorContent = '';
-  private editorTextarea: HTMLTextAreaElement | null = null;
-  private editorMount: CodeMirrorMount | null = null;
   private debugMode = true;
   private pendingPrompt: 'ask' | null = null;
   private sensitiveNextInput = false;
@@ -296,10 +313,12 @@ export class TerminalApp {
   private preMaximizeFrame: ShellFrame | null = null;
   private shellWindowingActive = false;
   private shellBindingsDone = false;
-  private shellAliases: Record<string, string> = { ls: 'timeline' };
+  private shellAliases: Record<string, string> = {};
   private identityDisplayName = 'guest';
   private identityEnvironment = 'pecunies';
   private aiModel = DEFAULT_AI_MODEL;
+  private systemPromptInjection = '';
+  private darkMode = true;
   private suppressNextFocusAutocomplete = false;
   private typingIdleTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -330,6 +349,9 @@ export class TerminalApp {
     this.identityDisplayNameInput = this.requireElement<HTMLInputElement>('#identity-display-name');
     this.identityEnvironmentSelect = this.requireElement<HTMLSelectElement>('#identity-environment');
     this.identityModelSelect = this.requireElement<HTMLSelectElement>('#identity-model');
+    this.identityThemeSelect = this.requireElement<HTMLSelectElement>('#identity-theme');
+    this.identityDarkModeInput = this.requireElement<HTMLInputElement>('#identity-dark-mode');
+    this.identitySystemPromptInput = this.requireElement<HTMLTextAreaElement>('#identity-system-prompt');
     this.identitySaveButton = this.requireElement<HTMLButtonElement>('#identity-save');
     this.identityCancelButton = this.requireElement<HTMLButtonElement>('#identity-cancel');
     this.dockElement = this.requireElement<HTMLButtonElement>('#terminal-dock');
@@ -639,7 +661,7 @@ export class TerminalApp {
       return;
     }
 
-    this.execute('resume', {
+    this.execute('home', {
       echo: false,
       syncHash: true,
       focus: false,
@@ -741,7 +763,7 @@ export class TerminalApp {
     const { name, args } = this.parseCommand(expandedLine);
 
     if (name === 'chat' && args.length > 0) {
-      const firstPrompt = args.join(' ').trim();
+      const firstPrompt = this.applyAiCliFlags(args).join(' ').trim();
       if (echo) {
         this.lines.push(this.commandLine(normalized));
       }
@@ -755,7 +777,9 @@ export class TerminalApp {
         syncHash,
       );
       this.renderLog();
-      await this.sendChat(firstPrompt);
+      if (firstPrompt) {
+        await this.sendChat(firstPrompt);
+      }
       if (focus) {
         this.inputElement.focus();
       }
@@ -847,6 +871,10 @@ export class TerminalApp {
       return;
     }
 
+    if ((name === 'ask' || name === 'explain') && args.length) {
+      this.applyAiCliFlags(args);
+    }
+
     const outcome = await Promise.resolve(command.execute(this.commandContext(), args, normalized));
     bumpCommandFrequency(name);
     if (outcome.kind === 'os') {
@@ -888,7 +916,6 @@ export class TerminalApp {
       this.chatMode = false;
       this.gameMode = null;
       this.setShellPrompt();
-      this.lines.push(this.responseLine(`Loaded: ${outcome.title}`, outcome.tone ?? 'success'));
       this.lines.push({
         id: this.makeId(),
         kind: 'pretty-response',
@@ -916,7 +943,7 @@ export class TerminalApp {
       this.themeIndicator.textContent = 'workers-ai';
       this.highlightNavLink('chat');
       this.lines.push(this.responseLine(outcome.text, outcome.tone ?? 'success'));
-      this.applyTheme(this.manualTheme ?? 'green');
+      this.applyTheme(this.manualTheme ?? 'red');
 
       if (syncHash) {
         this.writeRoute(command.route ?? 'chat');
@@ -952,20 +979,6 @@ export class TerminalApp {
       return;
     }
 
-    if (outcome.kind === 'editor') {
-      this.chatMode = false;
-      this.gameMode = null;
-      this.pendingPrompt = null;
-      this.editorFile = outcome.file;
-      this.promptLabel.textContent = 'edit:' + outcome.file + '>';
-      this.routeIndicator.textContent = 'edit ' + outcome.file;
-      this.themeIndicator.textContent = 'editor';
-      this.highlightNavLink(null);
-      this.lines.push(this.responseLine('Editing ' + outcome.file + '. Ctrl+S to save, Esc to close.', outcome.tone ?? 'info'));
-      void this.loadEditorContent(outcome.file);
-      return;
-    }
-
     if (outcome.kind === 'system') {
       this.lines.push(this.responseLine(outcome.text, outcome.tone ?? 'info'));
 
@@ -998,7 +1011,6 @@ export class TerminalApp {
     this.chatMode = false;
     this.gameMode = null;
     this.setShellPrompt();
-    this.lines.push(this.responseLine(outcome.view.logline, outcome.tone ?? 'success'));
     const viewHtml = renderView(outcome.view);
     this.lines.push({
       id: this.makeId(),
@@ -1058,6 +1070,23 @@ export class TerminalApp {
   }
 
   private applyOsConfig(config: Record<string, unknown>): void {
+    if ('theme' in config) {
+      const rawTheme = String(config.theme || '').trim().toLowerCase();
+      if (rawTheme === 'auto') {
+        this.manualTheme = null;
+      } else if (rawTheme in terminalThemes) {
+        this.manualTheme = rawTheme as ThemeName;
+      }
+      if (this.activeView) {
+        this.applyTheme(this.effectiveTheme(this.activeView));
+      } else {
+        this.applyTheme(this.manualTheme ?? 'orange');
+      }
+    }
+    if ('dark' in config) {
+      const raw = config.dark;
+      this.applyDarkMode(!(raw === false || raw === 'false' || raw === 'off' || raw === 'light'));
+    }
     if ('crt' in config) {
       const raw = config.crt;
       let on = true;
@@ -1079,6 +1108,9 @@ export class TerminalApp {
     if ('ai_model' in config) {
       const rawModel = String(config.ai_model || '').trim();
       this.aiModel = AI_MODEL_OPTIONS.includes(rawModel as (typeof AI_MODEL_OPTIONS)[number]) ? rawModel : DEFAULT_AI_MODEL;
+    }
+    if ('system_prompt' in config) {
+      this.systemPromptInjection = String(config.system_prompt ?? '').slice(0, 1200);
     }
     this.updatePromptIdentityUi();
   }
@@ -1102,6 +1134,9 @@ export class TerminalApp {
     this.identityDisplayNameInput.value = this.identityDisplayName;
     this.identityEnvironmentSelect.value = this.identityEnvironment;
     this.identityModelSelect.value = this.aiModel;
+    this.identityThemeSelect.value = this.manualTheme ?? 'auto';
+    this.identityDarkModeInput.checked = this.darkMode;
+    this.identitySystemPromptInput.value = this.systemPromptInjection;
   }
 
   private toggleIdentityPopover(): void {
@@ -1111,6 +1146,9 @@ export class TerminalApp {
       this.identityDisplayNameInput.value = this.identityDisplayName;
       this.identityEnvironmentSelect.value = this.identityEnvironment;
       this.identityModelSelect.value = this.aiModel;
+      this.identityThemeSelect.value = this.manualTheme ?? 'auto';
+      this.identityDarkModeInput.checked = this.darkMode;
+      this.identitySystemPromptInput.value = this.systemPromptInjection;
       this.closeThemePopover();
       this.identityDisplayNameInput.focus();
       this.identityDisplayNameInput.select();
@@ -1150,11 +1188,21 @@ export class TerminalApp {
     this.aiModel = AI_MODEL_OPTIONS.includes(this.identityModelSelect.value as (typeof AI_MODEL_OPTIONS)[number])
       ? this.identityModelSelect.value
       : DEFAULT_AI_MODEL;
+    const nextThemeRaw = this.identityThemeSelect.value.trim().toLowerCase();
+    const nextTheme = nextThemeRaw === 'auto' ? null : nextThemeRaw in terminalThemes ? (nextThemeRaw as ThemeName) : 'orange';
+    this.manualTheme = nextTheme;
+    this.darkMode = this.identityDarkModeInput.checked;
+    this.systemPromptInjection = this.identitySystemPromptInput.value.trim().slice(0, 1200);
+    this.applyDarkMode(this.darkMode);
+    this.applyTheme(this.manualTheme ?? (this.activeView ? this.activeView.theme : 'orange'));
     this.setShellPrompt();
     this.closeIdentityPopover();
-    await this.sendOsCommand(`config set name ${nextName}`);
-    await this.sendOsCommand(`config set environment ${nextEnvironment}`);
-    await this.sendOsCommand(`config set ai_model ${this.aiModel}`);
+    await this.setConfigQuiet('name', nextName);
+    await this.setConfigQuiet('environment', nextEnvironment);
+    await this.setConfigQuiet('ai_model', this.aiModel);
+    await this.setConfigQuiet('theme', nextTheme ?? 'auto');
+    await this.setConfigQuiet('dark', String(this.darkMode));
+    await this.setConfigQuiet('system_prompt', this.systemPromptInjection);
     this.persistShellProfile();
   }
 
@@ -1189,8 +1237,13 @@ export class TerminalApp {
     const environment = String(config.environment ?? 'pecunies');
     const email = String(config.email ?? '');
     const crt = Boolean(config.crt ?? true);
+    const aiModel = String(config.ai_model ?? this.aiModel);
+    const systemPrompt = String(config.system_prompt ?? '');
     const themeOptions = ['auto', ...Object.keys(terminalThemes)]
       .map((t) => `<option value="${this.escapeAttribute(t)}"${t === theme ? ' selected' : ''}>${this.escapeHtml(t)}</option>`)
+      .join('');
+    const modelOptions = AI_MODEL_OPTIONS
+      .map((m) => `<option value="${this.escapeAttribute(m)}"${m === aiModel ? ' selected' : ''}>${this.escapeHtml(m)}</option>`)
       .join('');
     return `
       <div class="terminal-view is-live config-editor-view">
@@ -1207,9 +1260,14 @@ export class TerminalApp {
             <label class="config-editor-field"><span>name</span><input data-config-field="name" type="text" value="${this.escapeAttribute(name)}" /></label>
             <label class="config-editor-field"><span>environment</span><input data-config-field="environment" type="text" value="${this.escapeAttribute(environment)}" /></label>
             <label class="config-editor-field"><span>email</span><input data-config-field="email" type="email" value="${this.escapeAttribute(email)}" /></label>
+            <label class="config-editor-field"><span>ai_model</span><select data-config-field="ai_model">${modelOptions}</select></label>
             <label class="config-editor-toggle"><input data-config-field="dark" type="checkbox"${dark ? ' checked' : ''} /><span>dark</span></label>
             <label class="config-editor-toggle"><input data-config-field="crt" type="checkbox"${crt ? ' checked' : ''} /><span>crt</span></label>
           </div>
+          <label class="config-editor-field config-editor-field-wide">
+            <span>system_prompt</span>
+            <textarea data-config-field="system_prompt" rows="4">${this.escapeHtml(systemPrompt)}</textarea>
+          </label>
           <div class="config-editor-actions">
             <button type="button" class="ghost-button" data-config-action="reset">Reset defaults</button>
             <button type="button" class="submit-button" data-config-action="save">Save</button>
@@ -1264,7 +1322,7 @@ export class TerminalApp {
   }
 
   private readConfigEditorField(field: string): string {
-    const element = this.root.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-config-field="${field}"]`);
+    const element = this.root.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(`[data-config-field="${field}"]`);
     return element?.value?.trim() ?? '';
   }
 
@@ -1281,6 +1339,8 @@ export class TerminalApp {
       ['name', this.readConfigEditorField('name') || 'guest'],
       ['environment', this.readConfigEditorField('environment') || 'pecunies'],
       ['email', this.readConfigEditorField('email') || ''],
+      ['ai_model', this.readConfigEditorField('ai_model') || DEFAULT_AI_MODEL],
+      ['system_prompt', this.readConfigEditorField('system_prompt') || ''],
       ['dark', this.readConfigEditorToggle('dark') ? 'true' : 'false'],
       ['crt', this.readConfigEditorToggle('crt') ? 'true' : 'false'],
     ];
@@ -1326,28 +1386,83 @@ export class TerminalApp {
     }
   }
 
+  private applyDarkMode(on: boolean): void {
+    this.darkMode = on;
+    document.documentElement.classList.toggle('dark-mode', on);
+    document.documentElement.classList.toggle('light-mode', !on);
+    try {
+      localStorage.setItem('pecunies.dark', on ? 'true' : 'false');
+    } catch {
+      /* ignore */
+    }
+    this.updatePromptIdentityUi();
+  }
+
+  private async setConfigQuiet(key: string, value: string): Promise<void> {
+    try {
+      const response = await fetch('/api/os', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: this.sessionId,
+          command: `config set ${key} ${value}`,
+          visibleContext: this.visibleContext(),
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as OsResponse | null;
+      if (payload?.config && typeof payload.config === 'object') {
+        this.applyOsConfig(payload.config as Record<string, unknown>);
+      }
+    } catch {
+      /* Config persistence is best-effort. */
+    }
+  }
+
   private loadShellProfile(): void {
     try {
       const raw = localStorage.getItem(SHELL_PROFILE_STORAGE);
       if (!raw) {
-        this.shellAliases = { ls: 'timeline' };
+        this.shellAliases = {};
+        this.manualTheme = 'orange';
+        this.applyDarkMode(localStorage.getItem('pecunies.dark') !== 'false');
         this.persistShellProfile();
         return;
       }
-      const p = JSON.parse(raw) as { aliases?: Record<string, string>; env?: Record<string, string>; aiModel?: string };
+      const p = JSON.parse(raw) as {
+        aliases?: Record<string, string>;
+        env?: Record<string, string>;
+        aiModel?: string;
+        systemPrompt?: string;
+        darkMode?: boolean;
+      };
       this.shellAliases = { ...(p.aliases ?? {}) };
+      if (this.shellAliases.ls === 'timeline') {
+        delete this.shellAliases.ls;
+      }
       const t = p.env?.THEME?.toLowerCase();
       if (p.aiModel && AI_MODEL_OPTIONS.includes(p.aiModel as (typeof AI_MODEL_OPTIONS)[number])) {
         this.aiModel = p.aiModel;
       }
+      if (typeof p.systemPrompt === 'string') {
+        this.systemPromptInjection = p.systemPrompt.slice(0, 1200);
+      }
+      this.applyDarkMode(typeof p.darkMode === 'boolean' ? p.darkMode : localStorage.getItem('pecunies.dark') !== 'false');
       if (t && t in terminalThemes) {
         this.manualTheme = t as ThemeName;
-        if (this.activeView) {
-          this.applyTheme(this.effectiveTheme(this.activeView));
-        }
+      } else if (t === 'auto') {
+        this.manualTheme = null;
+      } else {
+        this.manualTheme = 'orange';
+      }
+      if (this.activeView) {
+        this.applyTheme(this.effectiveTheme(this.activeView));
+      } else {
+        this.applyTheme(this.manualTheme ?? 'orange');
       }
     } catch {
-      this.shellAliases = { ls: 'timeline' };
+      this.shellAliases = {};
+      this.manualTheme = 'orange';
+      this.applyDarkMode(true);
     }
   }
 
@@ -1359,6 +1474,8 @@ export class TerminalApp {
           aliases: this.shellAliases,
           env: { THEME: this.manualTheme ?? 'auto' },
           aiModel: this.aiModel,
+          systemPrompt: this.systemPromptInjection,
+          darkMode: this.darkMode,
         }),
       );
     } catch {
@@ -1392,11 +1509,11 @@ export class TerminalApp {
       '[    0.018881] Mounting root at / (overlayfs + KV)',
       '[    0.034204] modprobe virtio-terminal … ok',
       '[    0.051112] modprobe workers-ai-bridge … ok',
-      '[    0.066430] pecunies-fs: mounting /home/chris/{projects,skills}',
+      '[    0.066430] pecunies-fs: mounting /home/guest/{projects,skills}',
       '[    0.081902] systemd[1]: graphical-session.target — active',
       '[    0.095441] pecunies-ui: launching glass terminal',
       '',
-      'login: chris    session ok',
+      'login: guest    session ok',
       '— UI ready —',
     ];
     for (const text of lines) {
@@ -1465,10 +1582,19 @@ export class TerminalApp {
       setTheme: (theme) => {
         this.manualTheme = theme;
         this.persistShellProfile();
+        void this.setConfigQuiet('theme', theme ?? 'auto');
 
         if (this.activeView) {
           this.applyTheme(this.effectiveTheme(this.activeView));
+        } else {
+          this.applyTheme(this.manualTheme ?? 'orange');
         }
+      },
+      getDarkMode: () => this.darkMode,
+      setDarkMode: (dark) => {
+        this.applyDarkMode(dark);
+        this.persistShellProfile();
+        void this.setConfigQuiet('dark', String(dark));
       },
     };
   }
@@ -1484,104 +1610,36 @@ export class TerminalApp {
     }
   }
 
-  private async loadEditorContent(file: string): Promise<void> {
-    try {
-      const response = await fetch('/api/os', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: this.sessionId, command: 'cat ' + file }),
-      });
-      const payload = (await response.json()) as OsResponse;
-      this.editorContent = payload.output ?? '';
-    } catch {
-      this.editorContent = '';
-    }
-    await this.renderEditor();
-  }
-
-  private async renderEditor(): Promise<void> {
-    if (this.editorMount) {
-      this.editorMount.destroy();
-      this.editorMount = null;
-    }
-    this.editorTextarea = null;
-    this.viewElement.innerHTML = renderEditor({
-      file: this.editorFile ?? '',
-      content: this.editorContent,
-    });
-    const host = this.viewElement.querySelector<HTMLElement>('.editor-codemirror-root');
-    if (!host || !this.editorFile) {
-      return;
-    }
-    const { mountVimEditor, getEditorText } = await import('./editor-codemirror');
-    const statusEl = this.viewElement.querySelector('.editor-status');
-    this.editorMount = mountVimEditor(host, this.editorFile, this.editorContent, () => {
-      if (statusEl && this.editorMount) {
-        statusEl.textContent = `${getEditorText(this.editorMount).split('\n').length} lines`;
-      }
-    });
-    this.editorMount.view.focus();
-    host.addEventListener('keydown', (e) => {
-      if (e.ctrlKey && e.key === 's') {
-        e.preventDefault();
-        void this.saveEditor();
-      }
-      if (e.key === 'Escape') {
-        this.closeEditor();
-      }
-    });
-  }
-
-  private async saveEditor(): Promise<void> {
-    if (!this.editorFile) return;
-    const { getEditorText } = await import('./editor-codemirror');
-    const content = this.editorMount ? getEditorText(this.editorMount) : (this.editorTextarea?.value ?? '');
-    try {
-      await fetch('/api/os', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: this.sessionId,
-          command: 'touch ' + this.editorFile + ' ' + encodeURIComponent(content),
-        }),
-      });
-      this.editorContent = content;
-      this.lines.push(this.responseLine('Saved ' + this.editorFile + '.', 'success'));
-    } catch {
-      this.lines.push(this.responseLine('Failed to save ' + this.editorFile + '.', 'warn'));
-    }
-    this.renderLog();
-    const status = this.viewElement.querySelector('.editor-status');
-    if (status) {
-      const src = this.editorMount ? getEditorText(this.editorMount) : (this.editorTextarea?.value ?? '');
-      status.textContent = `${src.split('\n').length} lines`;
-    }
-    this.editorMount?.view.focus();
-  }
-
-  private closeEditor(): void {
-    if (this.editorMount) {
-      this.editorMount.destroy();
-      this.editorMount = null;
-    }
-    this.editorFile = null;
-    this.editorContent = '';
-    this.editorTextarea = null;
-    this.setShellPrompt();
-    this.viewElement.innerHTML = '';
-    this.routeIndicator.textContent = '';
-    this.themeIndicator.textContent = 'palette:auto';
-    this.lines.push(this.responseLine('Editor closed.', 'info'));
-    this.renderLog();
-    this.inputElement.focus();
-  }
-
   private parseCommand(rawInput: string): { name: string; args: string[] } {
     // Expand ~ to /home in paths (avoid lookbehind for compat)
     const tildeExpanded = rawInput.replace(/(^|\s)~(?=\/|\s|$)/g, '$1/home');
     const normalized = tildeExpanded.replace(/^\//, '').replace(/^\.\//, '').trim();
     const [name = '', ...args] = normalized.split(/\s+/);
     return { name: name.toLowerCase(), args };
+  }
+
+  private applyAiCliFlags(args: string[]): string[] {
+    const remaining: string[] = [];
+    for (const arg of args) {
+      if (arg.startsWith('--model=')) {
+        const model = arg.slice('--model='.length).trim();
+        if (AI_MODEL_OPTIONS.includes(model as (typeof AI_MODEL_OPTIONS)[number])) {
+          this.aiModel = model;
+          this.persistShellProfile();
+          void this.setConfigQuiet('ai_model', model);
+        }
+        continue;
+      }
+      if (arg.startsWith('--system=')) {
+        this.systemPromptInjection = arg.slice('--system='.length).trim().slice(0, 1200);
+        this.persistShellProfile();
+        void this.setConfigQuiet('system_prompt', this.systemPromptInjection);
+        continue;
+      }
+      remaining.push(arg);
+    }
+    this.updatePromptIdentityUi();
+    return remaining;
   }
 
   private resolveCommand(name: string): CommandDefinition | undefined {
@@ -1603,6 +1661,10 @@ export class TerminalApp {
   }
 
   private updateAutocomplete(): void {
+    if (document.activeElement !== this.inputElement) {
+      this.hideAutocomplete();
+      return;
+    }
     this.suggestions = this.buildSuggestions(this.inputElement.value);
     this.suggestionIndex = 0;
     this.renderAutocomplete();
@@ -1801,6 +1863,22 @@ export class TerminalApp {
   }
 
   private argumentSuggestions(commandName: string, args: string[], trailingSpace: boolean): Suggestion[] {
+    if (commandName === 'ask' || commandName === 'chat') {
+      const prefix = `${commandName} ${args.join(' ')}`.trim();
+      const options = [
+        ...AI_MODEL_OPTIONS.map((model) => `${commandName} --model=${model}`),
+        `${commandName} --system=`,
+      ];
+      const freq = readCommandFrequency();
+      const ranked = rankByFuzzyAndFrequency(prefix, options.map((key) => ({ key })), MAX_AUTOCOMPLETE_RESULTS, freq);
+      return ranked.map((x) => ({
+        completion: x.key.endsWith('=') ? x.key : `${x.key} `,
+        usage: x.key.includes('--model=') ? '--model=<model>' : '--system=<prompt>',
+        description: x.key.includes('--model=') ? 'Use this Workers AI model.' : 'Append prompt instructions for this request/session.',
+        commandName,
+      }));
+    }
+
     if (commandName === 'cat') {
       const pathArgs = args.filter((a) => a !== '--pretty');
       const fragment = trailingSpace ? '' : pathArgs.at(-1) ?? '';
@@ -1898,12 +1976,17 @@ export class TerminalApp {
       }));
     }
 
-    if (commandName === 'tail' || commandName === 'less') {
+    if (commandName === 'tail' || commandName === 'less' || commandName === 'source') {
       const fragment = trailingSpace ? '' : args.at(-1) ?? '';
       return this.rankPathSuggestions(fragment, FILE_PATHS, (path) => ({
         completion: `${commandName} ${path}`,
         usage: `${commandName} ${path}`,
-        description: commandName === 'tail' ? 'Print last lines of this file.' : 'View this file with scrollback.',
+        description:
+          commandName === 'tail'
+            ? 'Print last lines of this file.'
+            : commandName === 'source'
+              ? 'Run shell commands from this file.'
+              : 'View this file with scrollback.',
         commandName,
       }));
     }
@@ -2092,7 +2175,7 @@ export class TerminalApp {
     this.promptScramble.textContent = '';
     this.statusScramble.textContent = '';
     this.routeIndicator.textContent = '';
-    this.themeIndicator.textContent = 'palette:auto';
+    this.applyTheme(this.manualTheme ?? 'orange');
     this.setShellPrompt();
     this.highlightNavLink(null);
     this.restoreWindow();
@@ -2367,6 +2450,7 @@ export class TerminalApp {
         body: JSON.stringify({
           sessionId: this.sessionId,
           model: this.aiModel,
+          systemPrompt: this.systemPromptInjection,
           message,
           history: this.lines
             .filter((line) => line.id !== pendingId)
@@ -2416,6 +2500,8 @@ export class TerminalApp {
         body: JSON.stringify({
           sessionId: this.sessionId,
           command,
+          model: this.aiModel,
+          systemPrompt: this.systemPromptInjection,
           visibleContext: this.visibleContext(),
         }),
       });
@@ -2433,7 +2519,8 @@ export class TerminalApp {
         this.promptLabel.textContent = 'chat>';
         this.routeIndicator.textContent = 'chat';
         this.themeIndicator.textContent = 'workers-ai';
-        this.applyTheme(this.manualTheme ?? 'green');
+        this.highlightNavLink('chat');
+        this.applyTheme(this.manualTheme ?? 'red');
       }
 
       if (output.startsWith('[sudo]') || output.startsWith('Password:')) {
@@ -2443,7 +2530,7 @@ export class TerminalApp {
       const cmdTrim = command.trim();
       const catPath = cmdTrim.match(/^cat\s+(?:--pretty\s+)?(\S+)/i)?.[1] ?? null;
       const lessPath = cmdTrim.match(/^less\s+(\S+)/i)?.[1] ?? null;
-      const targetPath = (catPath ?? lessPath)?.toLowerCase() ?? '';
+      const targetPath = ((catPath ?? lessPath) ? `/${(catPath ?? lessPath)!.replace(/^\/+/, '')}` : '').toLowerCase();
       const isMarkdownPath = /\.(md|markdown)$/i.test(targetPath);
       const isCodePath = /\.(ts|tsx|js|jsx|json|css|html|py|go|rs|zig|sh|bash|yml|yaml|toml)$/i.test(targetPath);
       const isAiMarkdown = /^\s*(ask|explain)\b/i.test(cmdTrim);
@@ -2452,7 +2539,8 @@ export class TerminalApp {
         this.replaceLine(pendingId, output, 'warn');
       } else if (isMarkdownPath || isAiMarkdown) {
         this.morphLineToPretty(pendingId);
-        await this.streamMarkdownToLine(pendingId, output, isAiMarkdown ? this.aiModel : undefined);
+        const renderer = targetPath.startsWith('/posts/') ? renderPostMarkdownToHtml : renderMarkdownToHtml;
+        await this.streamMarkdownToLine(pendingId, output, isAiMarkdown ? this.aiModel : undefined, renderer);
       } else if (isCodePath) {
         this.morphLineToPretty(pendingId);
         const lang = targetPath.split('.').pop() || 'text';
@@ -2576,23 +2664,42 @@ export class TerminalApp {
     );
   }
 
-  private async streamMarkdownToLine(id: string, text: string, model?: string): Promise<void> {
+  private async streamMarkdownToLine(
+    id: string,
+    text: string,
+    model?: string,
+    renderer: (markdown: string) => string = renderMarkdownToHtml,
+  ): Promise<void> {
     if (!text) {
-      this.replaceLineMarkdown(id, '', model);
+      this.replaceLineMarkdown(id, '', model, renderer);
       return;
     }
-    const step = 5;
+    const step = text.length > 1600 ? 160 : 80;
     for (let end = step; end <= text.length + step; end += step) {
       const acc = text.slice(0, Math.min(end, text.length));
-      this.replaceLineMarkdown(id, acc, model);
+      this.replaceLineStreaming(id, acc, model);
       this.renderLog();
       this.outputElement.scrollTop = this.outputElement.scrollHeight;
-      await new Promise((r) => window.setTimeout(r, 6));
+      await new Promise((r) => window.setTimeout(r, 10));
     }
+    this.replaceLineMarkdown(id, text, model, renderer);
+    this.renderLog();
   }
 
-  private replaceLineMarkdown(id: string, raw: string, model?: string): void {
-    const html = renderMarkdownToHtml(raw);
+  private replaceLineStreaming(id: string, raw: string, model?: string): void {
+    const html = `<pre class="streaming-output">${this.escapeHtml(raw)}</pre>`;
+    this.lines = this.lines.map((line) =>
+      line.id === id ? { id, kind: 'pretty-response', html, text: raw, model, copyable: false } : line,
+    );
+  }
+
+  private replaceLineMarkdown(
+    id: string,
+    raw: string,
+    model?: string,
+    renderer: (markdown: string) => string = renderMarkdownToHtml,
+  ): void {
+    const html = renderer(raw);
     this.lines = this.lines.map((line) =>
       line.id === id ? { id, kind: 'pretty-response', html, text: raw, model, copyable: true } : line,
     );

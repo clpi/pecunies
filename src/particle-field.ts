@@ -19,21 +19,21 @@ export type ParticleFieldOptions = {
 // ─── Tunables ─────────────────────────────────────────────────────────────
 const CONFIG = {
   /** Base multipliers per preset for particle counts */
-  density: { minimal: 0.72, standard: 1.72, enhanced: 2.56 } as const,
+  density: { minimal: 0.92, standard: 2.05, enhanced: 2.72 } as const,
   /** Global flow rotation speed (rad / ms) */
-  flowRotate: 0.00000055,
+  flowRotate: 0.00000008,
   /** Pointer repulsion: max extra velocity (px/frame at ~60fps scale) */
-  repelMax: 1.32,
-  repelRadius: 176,
+  repelMax: 0.82,
+  repelRadius: 188,
   /** Noise strength scales per layer (0 = back … 2 = fore) */
-  noiseLayer: [0.4, 0.58, 0.84] as const,
+  noiseLayer: [0.18, 0.28, 0.42] as const,
   /** Velocity smoothing toward flow + noise */
-  steer: 0.043,
+  steer: 0.024,
   /** Extra vignette strength in enhanced */
   vignetteEnhanced: 0.08,
   /** Rare drift “current” pulses */
   clusterIntervalMs: 5200,
-  clusterStrength: 0.041,
+  clusterStrength: 0.011,
 } as const;
 
 // ─── Palette: dim terminal dust + theme accent (modes match terminalThemes.mode 0–3) ─
@@ -188,18 +188,18 @@ function seedParticles(
       let size: number;
       let baseAlpha: number;
       if (layer === 0) {
-        size = Math.random() < 0.58 ? 1 : Math.random() < 0.84 ? 2 : Math.random() < 0.96 ? 3 : 4;
-        baseAlpha = 0.05 + Math.random() * 0.11;
+        size = Math.random() < 0.76 ? 1 : Math.random() < 0.94 ? 2 : 3;
+        baseAlpha = 0.026 + Math.random() * 0.055;
       } else if (layer === 1) {
-        size = Math.random() < 0.28 ? 1 : Math.random() < 0.7 ? 2 : Math.random() < 0.94 ? 3 : 4;
-        baseAlpha = 0.08 + Math.random() * 0.14;
+        size = Math.random() < 0.58 ? 1 : Math.random() < 0.88 ? 2 : 3;
+        baseAlpha = 0.038 + Math.random() * 0.075;
       } else {
-        size = Math.random() < 0.2 ? 1 : Math.random() < 0.56 ? 2 : Math.random() < 0.84 ? 3 : Math.random() < 0.96 ? 4 : 5;
-        baseAlpha = 0.1 + Math.random() * 0.16;
+        size = Math.random() < 0.42 ? 1 : Math.random() < 0.76 ? 2 : Math.random() < 0.94 ? 3 : 4;
+        baseAlpha = 0.045 + Math.random() * 0.09;
       }
 
       if (isSignal || isMidSignal) {
-        baseAlpha = Math.min(0.2, baseAlpha * 1.65);
+        baseAlpha = Math.min(0.14, baseAlpha * 1.45);
         size = Math.min(3, size + 1);
       }
 
@@ -262,8 +262,8 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
 
   const pool: DustParticle[] = [];
 
-  const layerSpeed = [0.11, 0.26, 0.48] as const;
-  const layerParallax = [0.62, 1.08, 1.72] as const;
+  const layerSpeed = [0.026, 0.052, 0.09] as const;
+  const layerParallax = [0.32, 0.64, 1.05] as const;
 
   const resize = (): void => {
     const rect = canvas.getBoundingClientRect();
@@ -314,8 +314,8 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
     const py = pointer.y / height - 0.5;
 
     flowAngle += CONFIG.flowRotate * dt;
-    const flowX = Math.cos(flowAngle) * 0.22;
-    const flowY = Math.sin(flowAngle) * 0.18;
+    const flowX = Math.cos(flowAngle) * 0.06;
+    const flowY = Math.sin(flowAngle) * 0.05;
 
     if (ts >= nextClusterAt) {
       nextClusterAt = ts + CONFIG.clusterIntervalMs * (0.7 + Math.random() * 0.6);
@@ -328,7 +328,7 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
     burst *= 0.94;
 
     ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = '#050709';
+    ctx.fillStyle = '#030405';
     ctx.fillRect(0, 0, width, height);
 
     const nScale = 0.00115;
@@ -342,8 +342,8 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
       const ny = fbm2(p.x * nScale * 1.3 - t * 0.3, p.y * nScale + t * 0.5 + 13.7);
       const hueNoise = fbm2(p.x * nScale * 0.58 + t * 0.42, p.y * nScale * 0.62 - t * 0.27);
 
-      let tx = flowX * ls + nx * CONFIG.noiseLayer[p.layer] * ls * 4.2;
-      let ty = flowY * ls + ny * CONFIG.noiseLayer[p.layer] * ls * 4.2;
+      let tx = flowX * ls + nx * CONFIG.noiseLayer[p.layer] * ls * 2.4;
+      let ty = flowY * ls + ny * CONFIG.noiseLayer[p.layer] * ls * 2.4;
 
       tx += Math.cos(clusterAngle) * clusterStrength * ls * 24;
       ty += Math.sin(clusterAngle) * clusterStrength * ls * 24;
@@ -364,11 +364,11 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
         p.vy += (dy / dist) * f;
       }
 
-      p.x += p.vx * dt * 0.055;
-      p.y += p.vy * dt * 0.055;
+      p.x += p.vx * dt * 0.022;
+      p.y += p.vy * dt * 0.022 + (0.002 + p.layer * 0.003) * dt;
 
-      p.x -= px * par * 3.8;
-      p.y -= py * par * 3.2;
+      p.x -= px * par * 1.7;
+      p.y -= py * par * 1.35;
 
       if (p.x < 0) {
         p.x += width;
@@ -389,7 +389,7 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
         (preset === 'enhanced' ? 0.065 * Math.sin(ts * 0.0011 + p.x * 0.01) : 0);
       let alpha = p.baseAlpha * flicker * (burst * 0.12 + 0.92);
       if (p.isSignal) {
-        alpha = Math.min(0.22, alpha * 1.75);
+        alpha = Math.min(0.16, alpha * 1.55);
       }
 
       const mix = p.colorJitter;
@@ -415,7 +415,7 @@ export function mountParticleField({ canvas, preset: presetOpt }: ParticleFieldO
       const s = p.size;
       const rx = p.x | 0;
       const ry = p.y | 0;
-      ctx.filter = p.blur > 0 ? `blur(${p.blur}px)` : 'none';
+      ctx.filter = 'none';
       ctx.fillRect(rx, ry, s, s);
     }
     ctx.filter = 'none';
