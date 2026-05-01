@@ -15,7 +15,7 @@ type FrontmatterMeta = {
 
 const PURIFY: Parameters<typeof DOMPurify.sanitize>[1] = {
   ALLOWED_TAGS: [
-    'a', 'b', 'blockquote', 'br', 'button', 'code', 'del', 'div', 'em', 'h1', 'h2', 'h3', 'h4',
+    'a', 'b', 'blockquote', 'br', 'button', 'code', 'del', 'div', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
     'hr', 'i', 'img', 'li', 'ol', 'p', 'pre', 's', 'small', 'span', 'strong', 'sub', 'sup',
     'table', 'tbody', 'td', 'th', 'thead', 'time', 'tr', 'ul',
   ],
@@ -39,9 +39,10 @@ export function renderPostMarkdownToHtml(markdown: string): string {
 function renderMarkdownCore(markdown: string): string {
   const renderer = new marked.Renderer();
   renderer.code = ({ text, lang }) => {
+    const normalized = String(text ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     const language = (lang || 'text').toLowerCase();
-    const highlighted = highlightCode(text, language);
-    const lineNumbers = buildLineNumbers(text);
+    const highlighted = highlightCode(normalized, language);
+    const lineNumbers = buildLineNumbers(normalized);
     return `<pre class="md-code-block" data-lang="${escapeHtml(language)}"><div class="md-code-block-head"><span class="md-code-block-language">${escapeHtml(language)}</span><button type="button" class="md-code-copy-button" aria-label="Copy code" data-copy-code></button></div><div class="md-code-block-body"><span class="md-code-line-numbers" aria-hidden="true">${lineNumbers}</span><code class="language-${escapeHtml(language)}">${highlighted}</code></div></pre>`;
   };
   const raw = marked.parse(markdown, { async: false, renderer }) as string;
@@ -67,9 +68,8 @@ function parseFrontmatter(markdown: string): { meta: FrontmatterMeta; body: stri
     if (key === 'title') meta.title = value;
     if (key === 'date') meta.date = value;
     if (key === 'description') meta.description = value;
-    if (key === 'tags') {
+    if (key === 'tags')
       meta.tags = value.split(',').map((t) => t.trim()).filter(Boolean);
-    }
   }
   return { meta, body };
 }
@@ -142,13 +142,10 @@ function restorePlaceholders(raw: string, placeholders: string[]): string {
 function highlightCode(source: string, language: string): string {
   const normalized = LANG_ALIASES[language] ?? language;
   const cleanSource = normalizeSourceForHighlight(source);
-  if (!MAJOR_LANGS.has(normalized)) {
+  if (!MAJOR_LANGS.has(normalized)) 
     return escapeHtml(cleanSource);
-  }
-
-  if (normalized === 'md' || normalized === 'markdown') {
+  if (normalized === 'md' || normalized === 'markdown') 
     return highlightMarkdown(cleanSource);
-  }
 
   const placeholders: string[] = [];
   const stash = (raw: string, cls: string): string => {
@@ -228,9 +225,8 @@ function normalizeSourceForHighlight(source: string): string {
 function buildLineNumbers(source: string): string {
   const total = Math.max(1, String(source).split('\n').length);
   const lines: string[] = [];
-  for (let i = 1; i <= total; i += 1) {
+  for (let i = 1; i <= total; i += 1) 
     lines.push(String(i));
-  }
   return escapeHtml(lines.join('\n'));
 }
 

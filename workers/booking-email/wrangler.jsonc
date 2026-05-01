@@ -1,0 +1,12 @@
+{
+	"name": "pecunies-booking-email",
+	"main": "src/index.js",
+	"compatibility_date": "2026-03-23",
+	"$schema": "https://raw.githubusercontent.com/cloudflare/wrangler/main/schema.json",
+	"send_email": [
+		{
+			"name": "BOOKING_EMAIL",
+			"allowed_sender_addresses": ["chris@pecunies.com"]
+		}
+	]
+}

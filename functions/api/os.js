@@ -11,18 +11,10 @@ import {
   upsertTagWithItems,
 } from "./posts.js";
 import { queryKnowledge } from "./knowledge-store.js";
-
-const MODEL = "@cf/meta/llama-3.1-8b-instruct";
-
-/**
- * Accept Workers AI / Hugging Face model ids instead of a tiny hardcoded list.
- * Examples: @cf/meta/llama-3.1-8b-instruct, @cf/qwen/qwen2.5-coder-32b-instruct
- */
-function isValidAiModel(model) {
-  if (typeof model !== "string") return false;
-  const value = model.trim();
-  return /^@(cf|hf)\/[a-z0-9._-]+\/[a-z0-9._:-]+$/i.test(value);
-}
+import {
+  DEFAULT_AI_MODEL as MODEL,
+  isValidWorkersAiModelId as isValidAiModel,
+} from "./ai-models.js";
 
 const PROFILE_CONTEXT = `
 Chris Pecunies is a Seattle-based Software Engineer specializing in cloud services, workflow automation, distributed systems, and full-stack cloud applications.
@@ -102,7 +94,7 @@ const FILES = {
   "/assets/posts/2026/04/29/terminal-portfolio-changelog.md":
     "---\ntitle: Terminal Portfolio Changelog\ndate: 2026-04-29\ntags: writing, content, terminal\ndescription: Changelog and notes for the terminal-native portfolio writing system.\n---\n\n# Terminal Portfolio Changelog\n\nInitial post placeholder for the terminal-native writing system. Posts are markdown files under `/posts`; creating, editing, or removing them requires sudo privileges.",
   "/system/man.txt":
-    "Portfolio OS commands: ls, cat, man, whoami, history, ps, top, pwd, echo, cp, tree, find, grep, touch, rm, mkdir, tail, less, source, logs, date, uptime, last, dark, light, rag, ask, explain, curl, ping, traceroute, trace, weather, stock, metrics, leaderboard, internet, fzf, clpsh, email, book, comment, sudo, su, 2048, jobquest, clear, chat, exit, download, theme, maximize, minimize, shutdown.",
+    "Portfolio OS commands: ls, cat, man, whoami, history, ps, top, pwd, echo, cp, tree, find, grep, touch, rm, mkdir, tail, less, source, logs, date, uptime, last, dark, light, rag, ask, explain, model, context, curl, ping, traceroute, trace, weather, stock, metrics, leaderboard, internet, fzf, clpsh, email, book, comment, sudo, su, 2048, jobquest, clear, chat, exit, download, theme, maximize, minimize, shutdown.",
   "/bin/clpsh":
     "#!/bin/clpsh\nPortfolio OS shell. Type commands at the prompt.",
   "/bin/minesweeper": "#!/bin/minesweeper\nText-mode minesweeper game.",
@@ -436,7 +428,7 @@ const MANUALS = {
   email:
     'email <your email> <subject> <message>\nCreate a structured email draft to Chris. Example: email me@example.com Hello "Interested in your work".',
   book: "book <your email> <date> <time> <duration> <message>\nRequest a meeting. The worker records the request and attempts a transactional email notification.",
-  ls: "ls [path]\nList directories in the portfolio OS. Try ls /projects.",
+  ls: "ls [path]\nList directories in the portfolio OS. Paths may start with ~ for your home (/home/<user>). Try ls ~ or ls /projects.",
   cat: "cat <path>\nRead files from the portfolio OS. Markdown files render as formatted output in the terminal UI. Try cat /README.md or cat /resume/resume.md.",
   man: "man <command>\nShow command documentation.",
   whoami: "whoami\nPrint the current portfolio identity.",
@@ -523,7 +515,7 @@ const MANUALS = {
   tags: "tags [fragment]\nList all tags used in the portfolio OS, or show content for tags whose names match <fragment> (substring).",
   post: "post open <slug>\nFrontend command: load a full post from /api/posts. Use posts to browse the index.",
   config:
-    "config <set|get|list|reset> [key] [value]\nSession preferences: crt on|off (CRT scanline effect), theme, syntax_scheme (default|contrast|pastel), font_size, font, dark, name, environment, email, ai_model, system_prompt.\nChanging name moves the simulated home to /home/<name>, creates it if needed, migrates .clpshrc and .clpsh_history from the previous home when present, and resets cwd to the new home.",
+    "config <set|get|list|reset> [key] [value]\nSession preferences: crt on|off (CRT scanline effect), theme, syntax_scheme (default|contrast|pastel), font_size, font, dark, name, environment, email, ai_model, ai_tools (true|false, Workers AI tool calling in chat), system_prompt.\nChanging name moves the simulated home to /home/<name>, creates it if needed, migrates .clpshrc and .clpsh_history from the previous home when present, and resets cwd to the new home.",
 };
 
 /** Command → taxonomy tags (shown on man pages); keep in sync with src/data/content-tags.ts COMMAND_TAGS */
@@ -935,7 +927,7 @@ async function runCommand(
   switch (parsed.name) {
     case "ls":
     case "dir":
-      return listPath(parsed.rest || state.cwd || "/", env);
+      return listPath(parsed.rest || state.cwd || "/", env, state);
     case "cat": {
       const pretty = parsed.args.includes("--pretty");
       const cleanRest =
@@ -1015,7 +1007,7 @@ async function runCommand(
     case "pwd":
       return { output: state.cwd || "/" };
     case "tree":
-      return treePath(parsed.rest || "/", env);
+      return treePath(parsed.rest || "/", env, state);
     case "find":
       return findPath(parsed.rest, env);
     case "grep":
@@ -1025,7 +1017,7 @@ async function runCommand(
     case "rm":
       return removeFile(parsed.rest, state, env, options);
     case "mkdir":
-      return mkdirPath(parsed.args, options);
+      return mkdirPath(parsed.args, options, state);
     case "head":
       return headFile(parsed.args, state, env);
     case "tail":
@@ -1376,8 +1368,8 @@ function sanitizeHistoryCommand(command) {
   return command;
 }
 
-async function listPath(path, env) {
-  const normalized = normalizePath(path);
+async function listPath(path, env, state) {
+  const normalized = normalizePathWithTilde(path, state);
   const entries = await directoryEntries(normalized, env);
 
   if (!entries) {
@@ -1396,7 +1388,7 @@ async function catPath(path, state, env, options = {}) {
     return { output: "Usage: cat <path>", status: 400 };
   }
 
-  const normalized = normalizePath(path);
+  const normalized = normalizePathWithTilde(path, state);
 
   // /root/ and /etc/ require elevated to read
   if (
@@ -1577,6 +1569,7 @@ async function explainWithAiOrFallback(
   }
 
   const answer = await runAi(env, question, state, visibleContext, {
+    ...meta,
     sessionId: meta.sessionId,
     source: meta.source ?? "explain",
   });
@@ -1621,8 +1614,16 @@ function extractAiOptions(rest, state, options = {}) {
 async function runAi(env, question, state, visibleContext, meta = {}) {
   const sessionId = meta.sessionId ?? "anonymous";
   const source = meta.source ?? "os";
-  const activeModel = isValidAiModel(meta.model) ? meta.model : MODEL;
-  const systemInjection = String(meta.system || "")
+  const cfg = mergeConfigDefaults(state.config);
+  const configuredModel = String(cfg.ai_model || "").trim();
+  const activeModel = isValidAiModel(meta.model)
+    ? meta.model.trim()
+    : isValidAiModel(configuredModel)
+      ? configuredModel
+      : MODEL;
+  const systemInjection = String(
+    meta.system ?? meta.systemPrompt ?? cfg.system_prompt ?? "",
+  )
     .trim()
     .slice(0, 1200);
   logSystemEvent(
@@ -2008,8 +2009,8 @@ async function stock(rawTicker) {
   };
 }
 
-async function treePath(path = "/", env) {
-  const root = normalizePath(path);
+async function treePath(path = "/", env, state) {
+  const root = normalizePathWithTilde(path, state);
 
   if (!(await directoryEntries(root, env))) {
     return {
@@ -2094,7 +2095,7 @@ async function touchFile(path, state, env, options) {
     return { output: "Usage: touch <path>", status: 400 };
   }
 
-  const normalized = normalizePath(path);
+  const normalized = normalizePathWithTilde(path, state);
   const existing = await readFile(normalized, env);
   return writeUserFile(env, state, normalized, existing ?? "", {
     append: false,
@@ -2108,7 +2109,7 @@ async function removeFile(path, state, env, options) {
     return { output: "Usage: rm <path>", status: 400 };
   }
 
-  const normalized = normalizePath(path);
+  const normalized = normalizePathWithTilde(path, state);
 
   /* Refuse to remove the root filesystem */
   if (normalized === "/" || normalized === "") {
@@ -3225,6 +3226,7 @@ function changeDir(path, state) {
     state.cwd = userHomePath(state);
     return { output: "" };
   }
+  path = expandTildeInPath(path, state);
   if (path === "/") {
     state.cwd = "/";
     return { output: "" };
@@ -3256,11 +3258,8 @@ function changeDir(path, state) {
 async function copyFile(src, dest, state, env, options = {}) {
   if (!src || !dest)
     return { output: "Usage: cp <source> <destination>", status: 400 };
-  const srcPath = normalizePath(src);
-  const destPath = normalizePath(dest);
-  const content = await readFile(srcPath, env);
-  if (content === null || content === undefined)
-    return { output: `cp: ${src}: no such file`, status: 404 };
+  const srcPath = normalizePathWithTilde(src, state);
+  const destPath = normalizePathWithTilde(dest, state);
   const allowed = ["/home/", "/guest/", "/tmp/"];
   const inAllowed = allowed.some((p) => destPath.startsWith(p));
   if (!inAllowed && !options.elevated)
@@ -3291,8 +3290,8 @@ async function copyFile(src, dest, state, env, options = {}) {
 async function moveFile(src, dest, state, env, options = {}) {
   if (!src || !dest)
     return { output: "Usage: mv <source> <destination>", status: 400 };
-  const srcPath = normalizePath(src);
-  const destPath = normalizePath(dest);
+  const srcPath = normalizePathWithTilde(src, state);
+  const destPath = normalizePathWithTilde(dest, state);
   const content = await readFile(srcPath, env);
   if (content === null || content === undefined)
     return { output: `mv: ${src}: no such file`, status: 404 };
@@ -3340,8 +3339,8 @@ async function linkFile(src, dest, state, env, options = {}) {
   if (!src || !dest)
     return { output: "Usage: ln [-s] <source> <destination>", status: 400 };
   const symlink = options.symlink !== false;
-  const srcPath = normalizePath(src);
-  const destPath = normalizePath(dest);
+  const srcPath = normalizePathWithTilde(src, state);
+  const destPath = normalizePathWithTilde(dest, state);
   if (!FILES[srcPath] && !DIRECTORIES[srcPath])
     return { output: `ln: ${src}: no such file or directory`, status: 404 };
   const allowed = ["/home/", "/guest/", "/tmp/"];
@@ -3647,7 +3646,7 @@ async function tailFile(args, state, env) {
   const n = args.includes("-n")
     ? Number(args[args.indexOf("-n") + 1]) || 10
     : 10;
-  const normalized = normalizePath(path);
+  const normalized = normalizePathWithTilde(path, state);
   const content = await readFile(normalized, env);
   if (content === null || content === undefined)
     return { output: `tail: ${path}: no such file`, status: 404 };
@@ -3661,7 +3660,7 @@ async function headFile(args, state, env) {
   const n = args.includes("-n")
     ? Number(args[args.indexOf("-n") + 1]) || 10
     : 10;
-  const normalized = normalizePath(path);
+  const normalized = normalizePathWithTilde(path, state);
   const content = await readFile(normalized, env);
   if (content === null || content === undefined)
     return { output: `head: ${path}: no such file`, status: 404 };
@@ -3672,7 +3671,7 @@ async function headFile(args, state, env) {
 async function lessFile(args, state, env) {
   const path = args[0];
   if (!path) return { output: "Usage: less <path>", status: 400 };
-  const normalized = normalizePath(path);
+  const normalized = normalizePathWithTilde(path, state);
   const content = await readFile(normalized, env);
   if (content === null || content === undefined)
     return { output: `less: ${path}: no such file`, status: 404 };
@@ -3691,7 +3690,7 @@ async function sourceFile(
   if (Number(options.sourceDepth ?? 0) > 2) {
     return { output: "source: maximum source depth exceeded", status: 400 };
   }
-  const normalized = normalizePath(path);
+  const normalized = normalizePathWithTilde(path, state);
   const content = await readFile(normalized, env, options);
   if (content === null || content === undefined)
     return { output: `source: ${path}: no such file`, status: 404 };
@@ -3807,10 +3806,10 @@ function parseExportLines(content) {
   return out;
 }
 
-function mkdirPath(args, options) {
+function mkdirPath(args, options, state) {
   const path = args[0];
   if (!path) return { output: "Usage: mkdir <path>", status: 400 };
-  const normalized = normalizePath(path);
+  const normalized = normalizePathWithTilde(path, state);
   const allowed =
     normalized.startsWith("/home/") ||
     normalized.startsWith("/guest/") ||
@@ -3981,6 +3980,7 @@ function mergeConfigDefaults(raw) {
     email: "",
     crt: true,
     ai_model: "@cf/meta/llama-3.1-8b-instruct",
+    ai_tools: false,
     system_prompt: "",
     ...(raw && typeof raw === "object" ? raw : {}),
   };
@@ -3998,6 +3998,35 @@ function sanitizeUsername(raw) {
 function userHomePath(cfgSource) {
   const cfg = mergeConfigDefaults(cfgSource?.config ?? cfgSource);
   return `/home/${sanitizeUsername(cfg.name)}`;
+}
+
+/** Expand shell-style ~ and ~/path using the session identity home (see `userHomePath`). */
+function expandTildeInPath(rawPath, state) {
+  if (rawPath == null) return "";
+  const s = String(rawPath).trim();
+  if (!s) return "";
+  const home = userHomePath(state);
+  if (s === "~") return home;
+  if (s.startsWith("~/")) {
+    const tail = s.slice(2).trim();
+    if (!tail) return home;
+    return normalizePath(`${home}/${tail}`);
+  }
+  if (s.startsWith("~") && s.length > 1 && s[1] !== "/") {
+    const rest = s.slice(1);
+    const slash = rest.indexOf("/");
+    if (slash === -1) {
+      return normalizePath(`/home/${sanitizeUsername(rest)}`);
+    }
+    const uname = sanitizeUsername(rest.slice(0, slash));
+    const tail = rest.slice(slash);
+    return normalizePath(`/home/${uname}${tail}`);
+  }
+  return s;
+}
+
+function normalizePathWithTilde(rawPath, state) {
+  return normalizePath(expandTildeInPath(rawPath, state));
 }
 
 function ensureHomeDirectory(cfgSource) {
@@ -4460,7 +4489,7 @@ function digHost(args) {
 async function editFile(args, state, env, options) {
   const path = args[0];
   if (!path) return { output: "Usage: edit <path>", status: 400 };
-  const normalized = normalizePath(path);
+  const normalized = normalizePathWithTilde(path, state);
   const content = await readFile(normalized, env, options);
   if (content === null || content === undefined) {
     return {
@@ -4793,6 +4822,7 @@ function renderGuestShellRc(config) {
     `export USER=${String(c.name || "guest")}`,
     `export ENVIRONMENT=${String(c.environment || "pecunies")}`,
     `export AI_MODEL=${String(c.ai_model || "@cf/meta/llama-3.1-8b-instruct")}`,
+    `export AI_TOOLS=${c.ai_tools === true || String(c.ai_tools).toLowerCase() === "true" ? "true" : "false"}`,
     `export THEME=${String(c.theme || "orange")}`,
     `export SYNTAX_SCHEME=${String(c.syntax_scheme || "default")}`,
     `export DARK_MODE=${String(c.dark !== false)}`,

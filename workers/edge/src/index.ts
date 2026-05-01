@@ -1,8 +1,6 @@
-const PAGES_ORIGIN = 'https://pecunies-chaos-portfolio.pages.dev';
 const APEX_HOST = 'pecunies.com';
 const WWW_HOST = 'www.pecunies.com';
 const API_HOST = 'api.pecunies.com';
-const MCP_HOST = 'mcp.pecunies.com';
 
 export default {
   async fetch(request: Request): Promise<Response> {
@@ -21,10 +19,6 @@ export default {
 
     if (url.hostname === API_HOST && !upstreamUrl.pathname.startsWith('/api/')) {
       upstreamUrl.pathname = `/api${upstreamUrl.pathname === '/' ? '/knowledge' : upstreamUrl.pathname}`;
-    }
-
-    if (url.hostname === MCP_HOST) {
-      upstreamUrl.pathname = '/api/mcp';
     }
 
     const upstreamRequest = new Request(upstreamUrl.toString(), request);

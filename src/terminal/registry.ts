@@ -1807,11 +1807,83 @@ export function createCommandRegistry(): {
     route: "chat",
     featured: true,
     description:
-      "Enter an AI chat session about Chris, his work history, and his projects.",
+      "Enter an AI chat session about Chris, his work history, and his projects. Use /model and /context to change the Workers AI model or system prompt injection without leaving chat.",
     execute() {
       return {
         kind: "chat",
-        text: "Chat mode active. Ask about Chris, his work history, or projects. Type /exit to leave.",
+        text: "Chat mode active. Ask about Chris, his work history, or projects. Use /model and /context for Workers AI settings; /exit to leave.",
+        tone: "success",
+      };
+    },
+  });
+
+  commands.push({
+    name: "model",
+    aliases: [],
+    usage: "model [<workers-ai-model-id>]",
+    group: "AI",
+    description:
+      "Set or show the Workers AI model for chat, ask, explain, and OS AI calls (same as session identity). In chat, prefix with a slash: /model @cf/…",
+    execute(context, args) {
+      if (!args.length) {
+        return {
+          kind: "system",
+          text: `Current model: ${context.getAiModel()}`,
+          tone: "info",
+        };
+      }
+      const id = args.join(" ").trim();
+      if (!context.setAiModel(id)) {
+        return {
+          kind: "system",
+          text:
+            "Invalid Workers AI model id. Use an id such as @cf/meta/llama-3.1-8b-instruct (tab-complete after model).",
+          tone: "warn",
+        };
+      }
+      return {
+        kind: "system",
+        text: `Model set to ${id}.`,
+        tone: "success",
+      };
+    },
+  });
+
+  commands.push({
+    name: "context",
+    aliases: [],
+    usage: "context [clear | <system-prompt-text>]",
+    group: "AI",
+    description:
+      "Set or show the optional system prompt injected into AI calls (same textarea as session identity). In chat, use /context …. Run context clear to reset.",
+    execute(context, args) {
+      if (!args.length) {
+        const cur = context.getSystemPrompt();
+        if (!cur)
+          return {
+            kind: "system",
+            text: "No system prompt injection is set.",
+            tone: "info",
+          };
+        return {
+          kind: "system",
+          text: `Current injection (${cur.length} chars):\n${cur}`,
+          tone: "info",
+        };
+      }
+      if (args.length === 1 && args[0]!.toLowerCase() === "clear") {
+        context.setSystemPrompt("");
+        return {
+          kind: "system",
+          text: "System prompt injection cleared.",
+          tone: "success",
+        };
+      }
+      const text = args.join(" ").trim().slice(0, 1200);
+      context.setSystemPrompt(text);
+      return {
+        kind: "system",
+        text: `System prompt injection updated (${text.length} chars).`,
         tone: "success",
       };
     },
@@ -2556,7 +2628,7 @@ export function createCommandRegistry(): {
     usage: "config <set|get|list|reset> [key] [value]",
     group: "System",
     description:
-      "Manage user config: theme, syntax_scheme, font_size, font, dark, name, environment, email.",
+      "Manage user config: theme, syntax_scheme, font_size, font, dark, crt, name, environment, email, ai_model, ai_tools, system_prompt.",
   });
 
   addOsCommand("note", {

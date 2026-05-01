@@ -201,6 +201,12 @@ export type CommandContext = {
   setTheme: (theme: ThemeName | null) => void;
   getDarkMode: () => boolean;
   setDarkMode: (dark: boolean) => void;
+  /** Session Workers AI model (chat / ask / identity). */
+  getAiModel: () => string;
+  setAiModel: (model: string) => boolean;
+  /** Session system prompt injection (chat / identity). */
+  getSystemPrompt: () => string;
+  setSystemPrompt: (text: string) => void;
 };
 
 export type CommandOutcome =

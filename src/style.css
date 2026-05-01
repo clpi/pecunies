@@ -2264,12 +2264,47 @@ a.output-record:hover {
 }
 
 .pretty-output-shell {
+  position: relative;
   margin: 0;
   max-width: 100%;
   min-width: 0;
   border-left: 2px solid var(--accent, #ff6b6b);
   border-radius: 3px;
   background: transparent;
+}
+
+/* cat/less/code: copy control overlays — avoids a tall empty meta row before content */
+.pretty-output-shell--file-copy .pretty-output-meta {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  z-index: 2;
+  padding: 0;
+  margin: 0;
+  justify-content: flex-end;
+}
+
+.pretty-output-shell--file-copy .pretty-output.markdown-body {
+  padding-right: 40px;
+}
+
+/* Chat / AI: model label flush to top; body tight; expandable context after answer */
+.pretty-output-shell--ai .pretty-output-meta {
+  padding: 2px 12px 0;
+  margin: 0;
+}
+
+.pretty-output-shell--ai .pretty-output.markdown-body {
+  padding-top: 4px;
+  padding-bottom: 8px;
+}
+
+.pretty-output-shell--ai .pretty-thinking {
+  margin: 0 12px 8px;
+}
+
+.pretty-output-shell--ai .markdown-body > :first-child {
+  margin-top: 0 !important;
 }
 
 .pretty-output-meta {
@@ -2385,33 +2420,59 @@ a.output-record:hover {
   min-width: 0;
 }
 
-.pretty-output.markdown-body h1,
-.pretty-output.markdown-body h2,
-.pretty-output.markdown-body h3,
-.pretty-output.markdown-body h4 {
-  margin: 0.72em 0 0.35em;
-  font-weight: 600;
-  line-height: 1.08;
+:where(.pretty-output, .post-article-body).markdown-body > :first-child {
+  margin-top: 0;
 }
 
-.pretty-output.markdown-body h1 {
-  font-size: 1.34em;
+:where(.pretty-output, .post-article-body).markdown-body h1,
+:where(.pretty-output, .post-article-body).markdown-body h2,
+:where(.pretty-output, .post-article-body).markdown-body h3,
+:where(.pretty-output, .post-article-body).markdown-body h4,
+:where(.pretty-output, .post-article-body).markdown-body h5,
+:where(.pretty-output, .post-article-body).markdown-body h6 {
+  margin: 0.85em 0 0.38em;
+  font-weight: 600;
+  line-height: 1.12;
+}
+
+:where(.pretty-output, .post-article-body).markdown-body h1 {
+  margin-top: 0.65em;
+  font-size: 1.88em;
+  font-weight: 650;
+  letter-spacing: -0.015em;
   color: var(--accent);
 }
 
-.pretty-output.markdown-body h2 {
-  font-size: 1.2em;
-  color: rgba(255, 255, 255, 0.96);
+:where(.pretty-output, .post-article-body).markdown-body h2 {
+  font-size: 1.48em;
+  letter-spacing: -0.01em;
+  color: rgba(255, 255, 255, 0.97);
 }
 
-.pretty-output.markdown-body h3 {
-  font-size: 1.1em;
-  color: rgba(255, 255, 255, 0.96);
+:where(.pretty-output, .post-article-body).markdown-body h3 {
+  font-size: 1.24em;
+  color: rgba(255, 255, 255, 0.95);
 }
 
-.pretty-output.markdown-body h4 {
-  font-size: 1.02em;
-  color: rgba(255, 255, 255, 0.96);
+:where(.pretty-output, .post-article-body).markdown-body h4 {
+  font-size: 1.08em;
+  color: rgba(255, 255, 255, 0.93);
+}
+
+:where(.pretty-output, .post-article-body).markdown-body h5 {
+  font-size: 0.98em;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--accent) 55%, rgba(255, 255, 255, 0.9));
+}
+
+:where(.pretty-output, .post-article-body).markdown-body h6 {
+  font-size: 0.9em;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: rgba(226, 232, 236, 0.72);
 }
 
 .pretty-output.markdown-body p {
@@ -3150,6 +3211,9 @@ a.output-record:hover {
   min-width: 0;
   padding: 0.14rem 0 0.55rem;
   background: transparent;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  line-height: 1.5;
 }
 
 .md-code-line-numbers {
@@ -3157,8 +3221,10 @@ a.output-record:hover {
   padding: 0.16rem 0.58rem 0 0.7rem;
   min-width: 2.35rem;
   color: rgba(148, 163, 184, 0.38);
-  font-size: 0.65rem;
-  line-height: 1.48;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  font-variant-numeric: tabular-nums;
   text-align: right;
   white-space: pre;
   user-select: none;
@@ -3175,11 +3241,12 @@ a.output-record:hover {
   border-radius: 0;
   background: transparent !important;
   color: rgba(226, 232, 240, 0.88);
+  font-family: inherit;
   font-size: inherit;
+  line-height: inherit;
   white-space: pre;
   overflow-wrap: normal;
   word-break: normal;
-  line-height: 1.48;
   tab-size: 2;
 }
 
@@ -3236,3 +3303,65 @@ html[data-syntax-scheme='pastel'] {
 .tok-operator { color: var(--syntax-operator); }
 .tok-punctuation { color: var(--syntax-punctuation); }
 .tok-decorator { color: var(--syntax-decorator); }
+
+/* Floating “quote into reply” for chat-mode assistant markdown */
+.chat-quote-fab {
+  position: fixed;
+  z-index: 20000;
+  box-sizing: border-box;
+  width: 2.1rem;
+  height: 1.95rem;
+  margin: 0;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, rgba(255, 255, 255, 0.14));
+  background: color-mix(in srgb, rgba(12, 14, 18, 0.96) 88%, var(--accent-tertiary) 12%);
+  color: color-mix(in srgb, var(--accent) 62%, rgba(248, 250, 252, 0.92));
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.35),
+    0 10px 24px rgba(0, 0, 0, 0.35),
+    0 0 18px color-mix(in srgb, var(--accent) 22%, transparent);
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease,
+    transform 120ms ease;
+}
+
+.chat-quote-fab:hover {
+  color: rgba(248, 250, 252, 0.96);
+  border-color: color-mix(in srgb, var(--accent) 52%, rgba(255, 255, 255, 0.2));
+  background: color-mix(in srgb, rgba(14, 16, 22, 0.98) 82%, var(--accent-tertiary) 18%);
+  transform: scale(1.04);
+}
+
+.chat-quote-fab:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.chat-quote-fab .chat-quote-fab-check {
+  display: none;
+}
+
+.chat-quote-fab.is-done {
+  color: #a7f3d0;
+  border-color: rgba(167, 243, 208, 0.35);
+  background: rgba(167, 243, 208, 0.1);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.25),
+    0 6px 18px rgba(0, 0, 0, 0.28);
+}
+
+.chat-quote-fab.is-done .chat-quote-fab-reply {
+  display: none;
+}
+
+.chat-quote-fab.is-done .chat-quote-fab-check {
+  display: block;
+}

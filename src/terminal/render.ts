@@ -1,5 +1,6 @@
 import { COMMAND_TAGS } from '../data/content-tags';
 import { resumeData } from '../data/resume';
+import { WORKERS_AI_TEXT_MODELS, workersAiModelShowsThinkingExpandable } from './ai-models';
 import type {
   CommandDefinition,
   CommandHelpItem,
@@ -170,14 +171,10 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
               </select>
               <label class="identity-popover-label" for="identity-model">AI model</label>
               <select class="identity-popover-select" id="identity-model">
-                <option value="@cf/meta/llama-3.1-8b-instruct">@cf/meta/llama-3.1-8b-instruct</option>
-                <option value="@cf/meta/llama-3.1-70b-instruct">@cf/meta/llama-3.1-70b-instruct</option>
-                <option value="@cf/meta/llama-3.3-70b-instruct-fp8-fast">@cf/meta/llama-3.3-70b-instruct-fp8-fast</option>
-                <option value="@cf/qwen/qwen1.5-14b-chat-awq">@cf/qwen/qwen1.5-14b-chat-awq</option>
-                <option value="@cf/qwen/qwen2.5-coder-32b-instruct">@cf/qwen/qwen2.5-coder-32b-instruct</option>
-                <option value="@cf/qwen/qwen2.5-32b-instruct">@cf/qwen/qwen2.5-32b-instruct</option>
-                <option value="@cf/qwen/qwen2.5-72b-instruct">@cf/qwen/qwen2.5-72b-instruct</option>
-                <option value="@hf/nousresearch/hermes-2-pro-mistral-7b">@hf/nousresearch/hermes-2-pro-mistral-7b</option>
+                ${WORKERS_AI_TEXT_MODELS.map(
+                  (id) =>
+                    `<option value="${escapeAttribute(id)}">${escapeHtml(id)}</option>`,
+                ).join('')}
               </select>
               <label class="identity-popover-label" for="identity-email">Email (optional)</label>
               <input
@@ -203,6 +200,10 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
               <label class="identity-popover-toggle" for="identity-dark-mode">
                 <input id="identity-dark-mode" type="checkbox" checked />
                 <span>dark mode</span>
+              </label>
+              <label class="identity-popover-toggle" for="identity-ai-tools">
+                <input id="identity-ai-tools" type="checkbox" />
+                <span>AI tool use (chat)</span>
               </label>
               <label class="identity-popover-label" for="identity-system-prompt">System prompt injection</label>
               <textarea
@@ -268,18 +269,28 @@ export function renderLog(lines: SessionLine[]): string {
                  ${copyButton}
                </div>`
             : '';
-        const thinkingSection = line.model
+        const showThinkingExpandable =
+          Boolean(line.model) && workersAiModelShowsThinkingExpandable(line.model);
+        const thinkingSection = showThinkingExpandable
           ? `<details class="pretty-thinking">
-               <summary><span class="pretty-thinking-chevron">&gt;</span> <span class="pretty-thinking-label">Thinking...</span></summary>
+               <summary><span class="pretty-thinking-chevron">&gt;</span> <span class="pretty-thinking-label">Thinking</span></summary>
                <p>Using portfolio profile, app command registry, visible terminal buffer, session history, RAG notes, metrics, leaderboard state, and files read in this session.</p>
              </details>`
           : '';
+        const shellClass = [
+          'pretty-output-shell',
+          line.model ? 'pretty-output-shell--ai' : '',
+          line.copyable && !line.model ? 'pretty-output-shell--file-copy' : '',
+        ]
+          .filter(Boolean)
+          .join(' ');
+        const quoteAttr = line.model ? ' data-chat-quote-source="1"' : '';
         return `
-          <li class="log-line log-line-pretty" data-line-id="${escapeAttribute(line.id)}">
-            <div class="pretty-output-shell">
+          <li class="log-line log-line-pretty" data-line-id="${escapeAttribute(line.id)}"${quoteAttr}>
+            <div class="${shellClass}">
               ${metaHeader}
-              ${thinkingSection}
               <div class="pretty-output markdown-body">${line.html}</div>
+              ${thinkingSection}
             </div>
           </li>
         `;

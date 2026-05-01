@@ -12,8 +12,10 @@
     "test:sanity": "node scripts/sanity-check.mjs",
     "preview": "vite preview",
     "deploy:pages": "npm run build && npx wrangler pages deploy dist --project-name pecunies-chaos-portfolio",
-    "deploy:edge": "npx wrangler deploy --config edge/wrangler.jsonc",
-    "deploy:cloudflare": "npm run deploy:pages && npm run deploy:edge",
+    "deploy:edge": "npx wrangler deploy --config workers/edge/wrangler.jsonc",
+    "deploy:booking-email": "npx wrangler deploy --config workers/booking-email/wrangler.jsonc",
+    "deploy:mcp": "npx wrangler deploy --config workers/mcp/wrangler.jsonc",
+    "deploy:cloudflare": "npm run deploy:pages && npm run deploy:booking-email && npm run deploy:edge && npm run deploy:mcp",
     "deploy": "npm run deploy:cloudflare",
     "publish": "npm run deploy:cloudflare"
   },
@@ -23,6 +25,7 @@
     "vite": "^7.3.2"
   },
   "dependencies": {
+    "@cloudflare/ai-utils": "^1.0.1",
     "@cloudflare/workers-types": "^4.20260430.1",
     "dompurify": "^3.4.1",
     "marked": "^18.0.2"

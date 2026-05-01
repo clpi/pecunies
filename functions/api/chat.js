@@ -1,19 +1,10 @@
+import { runWithTools } from '@cloudflare/ai-utils';
 import { appendAiLog } from './ai-log.js';
+import { DEFAULT_AI_MODEL, resolveChatModel } from './ai-models.js';
 import { queryKnowledge } from './knowledge-store.js';
 import { collectAllPosts } from './posts.js';
 
-const MODEL = '@cf/meta/llama-3.1-8b-instruct';
-const ALLOWED_MODELS = new Set([
-  '@cf/meta/llama-3.1-8b-instruct',
-  '@cf/meta/llama-3.1-70b-instruct',
-  '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
-  '@cf/qwen/qwen1.5-14b-chat-awq',
-  "@cf/qwen/qwen2.5-coder-32b-instruct",
-  "@cf/qwen/qwen2.5-32b-instruct",
-  "@cf/qwen/qwen2.5-72b-instruct",
-  "@hf/nousresearch/hermes-2-pro-mistral-7b"
-]);
-
+const MODEL = DEFAULT_AI_MODEL;
 const PROFILE_CONTEXT = `
 You answer questions about Chris Pecunies using only this public portfolio context.
 If asked for private, unknown, or speculative details, say you do not know from the supplied context.
@@ -109,12 +100,101 @@ Command reference (name: usage - description):
 - 2048|chess|minesweeper|jobquest: <command> - launch game
 `;
 
-const CHAT_TOOL_NAMES = new Set([
-  'create_user',
-  'register_user',
-  'generate_command',
-  'compose_query',
-]);
+function resolveToolsEnabled(body, state) {
+  if (typeof body?.toolsEnabled === 'boolean') return body.toolsEnabled;
+  const raw = body?.toolsEnabled;
+  if (typeof raw === 'string') {
+    const s = raw.trim().toLowerCase();
+    if (s === 'true' || s === '1' || s === 'on') return true;
+    if (s === 'false' || s === '0' || s === 'off') return false;
+  }
+  const c = state?.config?.ai_tools;
+  if (c === true) return true;
+  if (c === false) return false;
+  const s = String(c ?? '').trim().toLowerCase();
+  if (s === 'true' || s === '1' || s === 'on') return true;
+  return false;
+}
+
+function buildChatToolImplementations(env) {
+  return [
+    {
+      name: 'generate_command',
+      description:
+        'Suggest a single pecunies terminal command for a user goal (timeline, projects, skills, posts, weather, etc.).',
+      parameters: {
+        type: 'object',
+        properties: {
+          goal: { type: 'string', description: 'What the user wants to accomplish in the terminal.' },
+          constraints: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional short constraints (e.g. concise, safe).',
+          },
+          includeAlternatives: {
+            type: 'boolean',
+            description: 'Whether to include alternative commands.',
+          },
+        },
+        required: ['goal'],
+      },
+      function: async (args) => {
+        const r = executeGenerateCommandTool(args || {});
+        return r.ok ? r.message : `Error: ${r.message}`;
+      },
+    },
+    {
+      name: 'compose_query',
+      description: 'Compose a small multi-step pecunies terminal command plan for an objective.',
+      parameters: {
+        type: 'object',
+        properties: {
+          objective: { type: 'string', description: 'Objective to decompose into terminal commands.' },
+          maxSteps: { type: 'number', description: 'Max steps in the plan (2-8).' },
+        },
+        required: ['objective'],
+      },
+      function: async (args) => {
+        const r = executeComposeQueryTool(args || {});
+        return r.ok ? r.message : `Error: ${r.message}`;
+      },
+    },
+    {
+      name: 'create_user',
+      description: 'Create a new user row in the portfolio session database (requires D1).',
+      parameters: {
+        type: 'object',
+        properties: {
+          email: { type: 'string', description: 'User email.' },
+          username: { type: 'string', description: 'Unique username (letters, digits, . _ -).' },
+          fullName: { type: 'string', description: 'Optional display name.' },
+        },
+        required: ['email', 'username'],
+      },
+      function: async (args) => {
+        const r = await executeChatTool(env, { tool: 'create_user', arguments: args || {} });
+        return r.ok ? r.message : `Error: ${r.message}`;
+      },
+    },
+    {
+      name: 'register_user',
+      description: 'Register or update a user by email in the portfolio session database.',
+      parameters: {
+        type: 'object',
+        properties: {
+          email: { type: 'string' },
+          username: { type: 'string' },
+          fullName: { type: 'string', description: 'Optional display name.' },
+        },
+        required: ['email', 'username'],
+      },
+      function: async (args) => {
+        const r = await executeChatTool(env, { tool: 'register_user', arguments: args || {} });
+        return r.ok ? r.message : `Error: ${r.message}`;
+      },
+    },
+  ];
+}
 
 const jsonHeaders = {
   'Content-Type': 'application/json; charset=utf-8',
@@ -149,7 +229,6 @@ export async function onRequestPost({ request, env }) {
 
   const message = typeof body?.message === 'string' ? body.message.trim() : '';
   const sessionId = sanitizeSessionId(body?.sessionId);
-  const systemPrompt = typeof body?.systemPrompt === 'string' ? body.systemPrompt.trim().slice(0, 1200) : '';
   const visibleContext = typeof body?.visibleContext === 'string' ? body.visibleContext.trim().slice(-6000) : '';
 
   if (!message) {
@@ -164,13 +243,24 @@ export async function onRequestPost({ request, env }) {
   }
 
   const state = await readState(env, sessionId);
+  const toolsEnabled = resolveToolsEnabled(body, state);
   const requestedModel = typeof body?.model === 'string' ? body.model.trim() : '';
   const configuredModel = String(state.config?.ai_model ?? '').trim();
-  const activeModel = ALLOWED_MODELS.has(requestedModel)
-    ? requestedModel
-    : ALLOWED_MODELS.has(configuredModel)
-      ? configuredModel
-      : MODEL;
+  const activeModel = resolveChatModel(
+    requestedModel,
+    configuredModel,
+    env.DEFAULT_AI_MODEL || MODEL,
+  );
+
+  const bodySystem =
+    typeof body?.systemPrompt === 'string'
+      ? body.systemPrompt.trim().slice(0, 1200)
+      : '';
+  const sessionSystem =
+    typeof state.config?.system_prompt === 'string'
+      ? String(state.config.system_prompt).trim().slice(0, 1200)
+      : '';
+  const systemPrompt = bodySystem || sessionSystem;
 
   const transientHistory = Array.isArray(body?.history)
     ? body.history
@@ -226,35 +316,55 @@ export async function onRequestPost({ request, env }) {
   const userContent = `Portfolio context:\n${PROFILE_CONTEXT}\n\nTerminal command reference:\n${COMMAND_REFERENCE}\n\nPersistent session/app state:\n${sessionState}\n\nPersistent RAG/session context notes:\n${ragContext || '(none)'}\n\nPersistent repository context (wiki/resume/posts/meetings/files via AI Search, Vectorize, and D1):\n${repositoryContext}\n\nVisible terminal context:\n${visibleContext || '(none)'}\n\nMetrics state:\n${JSON.stringify(metrics).slice(0, 3000)}\n\nLeaderboard state:\n${JSON.stringify(leaderboard).slice(0, 2000)}\n\nPosts digest:\n${postDigest}\n\nPersisted terminal history:\n${persistedHistory || '(empty)'}\n\nQuestion: ${message}`;
   const contextExcerpt = `chat_history_json:\n${JSON.stringify(mergedHistory).slice(0, 3500)}\n\n---\n${userContent}`;
 
+  const toolGuidance = toolsEnabled
+    ? `When it helps the user, call the provided tools (native function calling). After tool results, answer briefly in plain language.`
+    : `Reply in plain text only. Do not emit tool-call JSON, fenced tool payloads, or pseudocode tools.`;
+
+  const systemBlock =
+    `You are the AI help mode for Chris Pecunies terminal portfolio. Answer only from the provided context. Be concise and factual.
+${toolGuidance}
+${systemPrompt ? `\n\nSession system prompt injection:\n${systemPrompt}` : ''}`;
+
+  const chatMessages = [
+    { role: 'system', content: systemBlock },
+    ...mergedHistory,
+    { role: 'user', content: userContent },
+  ];
+
   let result;
 
   try {
-    result = await env.AI.run(activeModel, {
-      messages: [
-        {
-          role: 'system',
-          content:
-            `You are the AI help mode for Chris Pecunies terminal portfolio. Answer only from the provided context. Be concise and factual.
-You may call tools by returning STRICT JSON only, with this shape:
-{"tool":"create_user","arguments":{"email":"user@example.com","username":"alice","fullName":"Alice"}}
-or
-{"tool":"register_user","arguments":{"email":"user@example.com","username":"alice","fullName":"Alice"}}
-or
-{"tool":"generate_command","arguments":{"goal":"show project timeline","constraints":["concise"],"includeAlternatives":true}}
-or
-{"tool":"compose_query","arguments":{"objective":"summarize posts about cloud and ai","maxSteps":4}}
-If no tool call is needed, return normal assistant text.
-${systemPrompt ? `\n\nSession system prompt injection:\n${systemPrompt}` : ''}`,
-        },
-        ...mergedHistory,
-        {
-          role: 'user',
-          content: userContent,
-        },
-      ],
-      temperature: 0.2,
-      max_tokens: 700,
-    });
+    if (toolsEnabled) {
+      const tools = buildChatToolImplementations(env);
+      try {
+        result = await runWithTools(
+          env.AI,
+          activeModel,
+          { messages: chatMessages, tools },
+          { maxRecursiveToolRuns: 0, strictValidation: false, streamFinalResponse: false },
+        );
+      } catch (toolErr) {
+        await appendAiLog(env, {
+          source: 'chat',
+          sessionId,
+          model: activeModel,
+          query: message,
+          contextExcerpt,
+          error: `runWithTools: ${toolErr instanceof Error ? toolErr.message : String(toolErr)}`,
+        });
+        result = await env.AI.run(activeModel, {
+          messages: chatMessages,
+          temperature: 0.2,
+          max_tokens: 700,
+        });
+      }
+    } else {
+      result = await env.AI.run(activeModel, {
+        messages: chatMessages,
+        temperature: 0.2,
+        max_tokens: 700,
+      });
+    }
   } catch (err) {
     await appendAiLog(env, {
       source: 'chat',
@@ -276,14 +386,7 @@ ${systemPrompt ? `\n\nSession system prompt injection:\n${systemPrompt}` : ''}`,
       : typeof result?.text === 'string'
         ? result.text
         : 'I could not extract a text response from the Workers AI result.';
-  const toolCall = extractToolCall(answer);
-  let finalAnswer = answer;
-  if (toolCall) {
-    const toolResult = await executeChatTool(env, toolCall);
-    finalAnswer = toolResult.ok
-      ? `${toolResult.message}`
-      : `Tool call failed: ${toolResult.message}`;
-  }
+  const finalAnswer = answer;
 
   await appendAiLog(env, {
     source: 'chat',
@@ -418,24 +521,6 @@ async function buildPostDigest(env) {
       .join('\n');
   } catch {
     return '(failed to load posts)';
-  }
-}
-
-function extractToolCall(answer) {
-  const text = String(answer || '').trim();
-  if (!text) return null;
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  const candidate = fenced ? fenced[1] : text;
-  try {
-    const parsed = JSON.parse(candidate);
-    if (!parsed || typeof parsed !== 'object') return null;
-    const tool = String(parsed.tool || '').trim();
-    const args = parsed.arguments && typeof parsed.arguments === 'object' ? parsed.arguments : {};
-    if (!tool) return null;
-    if (!CHAT_TOOL_NAMES.has(tool)) return null;
-    return { tool, arguments: args };
-  } catch {
-    return null;
   }
 }
 

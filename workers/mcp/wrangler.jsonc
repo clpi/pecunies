@@ -1,16 +1,15 @@
 {
-	"name": "pecunies-chaos-portfolio",
-	"$schema": "node_modules/wrangler/config-schema.json",
-
-	"pages_build_output_dir": "./dist",
+	"name": "pecunies-mcp",
+	"main": "src/index.js",
 	"compatibility_date": "2026-03-23",
-	"ai": {
-		"binding": "AI"
-	},
+	"$schema": "https://raw.githubusercontent.com/cloudflare/wrangler/main/schema.json",
 	"vars": {
 		"OOKING_EMAIL_URL": "https://pecunies-booking-email.mtrl.workers.dev",
 		"AI_GATEWAY_ID": "pecunies",
 		"AI_SEARCH_INSTANCE": "pecunies-knowledge"
+	},
+	"ai": {
+		"binding": "AI"
 	},
 	"vectorize": [
 		{
@@ -31,20 +30,6 @@
 			"remote": true
 		}
 	],
-	// "durable_objects": {
-	//   "bindings": [
-	//     {
-	//       "name": "PECUNIES_STATE",
-	//       "script_name": "pecunies-state",
-	//       "class_name": "PecuniesState",
-	//     }
-	//   ]
-	// },
-	// "secrets": {
-	//   "required": [
-	//     "PECUNIES_SUDO_PASSWD"
-	//   ]
-	// },
 	"kv_namespaces": [
 		{
 			"binding": "PORTFOLIO_OS",
@@ -58,13 +43,11 @@
 			"database_id": "a65bd06c-16c0-446d-a047-605ad1e6abc2",
 			"remote": true
 		}
+	],
+	"routes": [
+		{
+			"pattern": "mcp.pecunies.com/*",
+			"zone_name": "pecunies.com"
+		}
 	]
-	// "migrations": [
-	//   {
-	//     "tag": "v1",
-	//     "new_sqlite_classes": [
-	//       "PecuniesState"
-	//     ]
-	//   }
-	// ]
 }

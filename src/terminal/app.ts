@@ -1,8 +1,15 @@
 import { resumeData } from '../data/resume';
 import type { AmbientFieldHandle } from '../wasm';
 import { bumpCommandFrequency, fuzzyScore, rankByFuzzyAndFrequency, readCommandFrequency } from './fuzzy-rank';
+import {
+  buildGenericUsageSuggestions,
+  commandSynopsisNeedsArgs,
+  extractHintFlagTokens,
+  rankArgHintRows,
+} from './usage-autocomplete';
 import { renderMarkdownToHtml, renderPostMarkdownToHtml } from './markdown';
 import { terminalThemes, type ThemeName } from './palette';
+import { DEFAULT_AI_MODEL, isValidWorkersAiModelId, WORKERS_AI_TEXT_MODELS } from './ai-models';
 import {
   createJobQuestState,
   formatJobQuestScene,
@@ -63,41 +70,6 @@ type MinesCell = {
   count: number;
 };
 
-const ARG_COMMANDS = new Set([
-  'ask',
-  'book',
-  'cat',
-  'config',
-  'cp',
-  'curl',
-  'dark',
-  'download',
-  'echo',
-  'email',
-  'explain',
-  'find',
-  'fzf',
-  'grep',
-  'head',
-  'internet',
-  'leaderboard',
-  'less',
-  'light',
-  'ls',
-  'man',
-  'mkdir',
-  'new',
-  'ping',
-  'post',
-  'rag',
-  'source',
-  'stock',
-  'tail',
-  'tags',
-  'trace',
-  'tree',
-  'weather',
-]);
 const FILE_PATHS = [
   '/',
   '/README.md',
@@ -251,17 +223,6 @@ const FONT_SIZE_MIN = 10;
 const FONT_SIZE_MAX = 28;
 const FONT_SIZE_DEFAULT = 14;
 const FONT_SIZE_STEP = 1;
-const DEFAULT_AI_MODEL = '@cf/meta/llama-3.1-8b-instruct';
-const AI_MODEL_OPTIONS = [
-  '@cf/meta/llama-3.1-8b-instruct',
-  '@cf/meta/llama-3.1-70b-instruct',
-  '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
-  '@cf/qwen/qwen1.5-14b-chat-awq',
-  '@cf/qwen/qwen2.5-coder-32b-instruct',
-  '@cf/qwen/qwen2.5-32b-instruct',
-  '@cf/qwen/qwen2.5-72b-instruct',
-  '@hf/nousresearch/hermes-2-pro-mistral-7b',
-] as const;
 
 export class TerminalApp {
   private readonly root: HTMLElement;
@@ -290,6 +251,7 @@ export class TerminalApp {
   private readonly identityEmailInput: HTMLInputElement;
   private readonly identityThemeSelect: HTMLSelectElement;
   private readonly identityDarkModeInput: HTMLInputElement;
+  private readonly identityAiToolsInput: HTMLInputElement;
   private readonly identitySystemPromptInput: HTMLTextAreaElement;
   private readonly identitySaveButton: HTMLButtonElement;
   private readonly identityCancelButton: HTMLButtonElement;
@@ -334,6 +296,8 @@ export class TerminalApp {
   private identityEmail = '';
   private aiModel = DEFAULT_AI_MODEL;
   private systemPromptInjection = '';
+  /** When true, `/api/chat` uses Workers AI native tools (`runWithTools`). */
+  private aiToolsEnabled = false;
   private darkMode = true;
   private syntaxScheme: 'default' | 'contrast' | 'pastel' = 'default';
   private suppressNextFocusAutocomplete = false;
@@ -341,6 +305,9 @@ export class TerminalApp {
   private viewHistory: string[] = [];
   private lastRenderedLineCount = 0;
   private terminalFontSizePx = FONT_SIZE_DEFAULT;
+  private readonly chatQuoteFab: HTMLButtonElement;
+  private chatQuoteFabRaf = 0;
+  private chatQuoteSelection = '';
 
   constructor({ root, commands, featuredCommands }: TerminalAppOptions) {
     this.root = root;
@@ -372,11 +339,36 @@ export class TerminalApp {
     this.identityEmailInput = this.requireElement<HTMLInputElement>('#identity-email');
     this.identityThemeSelect = this.requireElement<HTMLSelectElement>('#identity-theme');
     this.identityDarkModeInput = this.requireElement<HTMLInputElement>('#identity-dark-mode');
+    this.identityAiToolsInput = this.requireElement<HTMLInputElement>('#identity-ai-tools');
     this.identitySystemPromptInput = this.requireElement<HTMLTextAreaElement>('#identity-system-prompt');
     this.identitySaveButton = this.requireElement<HTMLButtonElement>('#identity-save');
     this.identityCancelButton = this.requireElement<HTMLButtonElement>('#identity-cancel');
     this.dockElement = this.requireElement<HTMLButtonElement>('#terminal-dock');
     this.backButton = this.requireElement<HTMLButtonElement>('#terminal-back-button');
+
+    this.chatQuoteFab = document.createElement('button');
+    this.chatQuoteFab.type = 'button';
+    this.chatQuoteFab.className = 'chat-quote-fab';
+    this.chatQuoteFab.hidden = true;
+    this.chatQuoteFab.setAttribute('aria-label', 'Quote selection into reply');
+    const chatQuoteFabReply = document.createElement('span');
+    chatQuoteFabReply.className = 'chat-quote-fab-reply';
+    chatQuoteFabReply.setAttribute('aria-hidden', 'true');
+    chatQuoteFabReply.textContent = '↩';
+    const chatQuoteFabCheck = document.createElement('span');
+    chatQuoteFabCheck.className = 'chat-quote-fab-check';
+    chatQuoteFabCheck.setAttribute('aria-hidden', 'true');
+    chatQuoteFabCheck.textContent = '✓';
+    this.chatQuoteFab.append(chatQuoteFabReply, chatQuoteFabCheck);
+    document.body.appendChild(this.chatQuoteFab);
+    this.chatQuoteFab.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.applyChatQuoteFromFab();
+    });
+    this.chatQuoteFab.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+    });
 
     for (const command of this.commands) {
       if (command.route) {
@@ -471,11 +463,16 @@ export class TerminalApp {
     });
     this.identityModelSelect.addEventListener('change', () => {
       const v = this.identityModelSelect.value;
-      this.aiModel = AI_MODEL_OPTIONS.includes(v as (typeof AI_MODEL_OPTIONS)[number])
-        ? v
-        : DEFAULT_AI_MODEL;
+      this.aiModel = isValidWorkersAiModelId(v) ? v : DEFAULT_AI_MODEL;
       this.persistShellProfile();
       void this.setConfigQuiet('ai_model', this.aiModel);
+    });
+    this.identitySystemPromptInput.addEventListener('input', () => {
+      this.systemPromptInjection = this.identitySystemPromptInput.value.trim().slice(0, 1200);
+    });
+    this.identitySystemPromptInput.addEventListener('change', () => {
+      this.systemPromptInjection = this.identitySystemPromptInput.value.trim().slice(0, 1200);
+      void this.setConfigQuiet('system_prompt', this.systemPromptInjection);
     });
     document.addEventListener('click', (event) => {
       const target = event.target;
@@ -703,6 +700,13 @@ export class TerminalApp {
       }
     });
 
+    document.addEventListener('selectionchange', () => {
+      this.scheduleChatQuoteFabUpdate();
+    });
+    this.outputElement.addEventListener('scroll', () => {
+      this.scheduleChatQuoteFabUpdate();
+    });
+
     window.addEventListener('hashchange', () => {
       if (this.suppressHashChange) {
         return;
@@ -840,20 +844,20 @@ export class TerminalApp {
     }
 
     const shorthandExpanded = normalized === '..' ? 'cd ..' : normalized === '.' ? 'pwd' : normalized;
-    const expandedLine = this.expandShellAliases(shorthandExpanded);
+    const historyExpanded = this.expandHistoryShorthands(shorthandExpanded);
+    const expandedLine = this.expandShellAliases(historyExpanded);
     const { name, args } = this.parseCommand(expandedLine);
 
     if (name === 'chat' && args.length > 0) {
       const firstPrompt = this.applyAiCliFlags(args).join(' ').trim();
-      if (echo) {
+      if (echo) 
         this.lines.push(this.commandLine(normalized));
-      }
       if (recordHistory) {
         this.pushHistory(normalized);
       }
       void this.recordCommand(normalized);
       this.applyOutcome(
-        { kind: 'chat', text: 'Chat mode active. Ask about Chris, his work history, or projects. Type /exit to leave.', tone: 'success' },
+        { kind: 'chat', text: 'Chat mode active. Ask about Chris, his work history, or projects. Use /model and /context for Workers AI settings; /exit to leave.', tone: 'success' },
         this.resolveCommand('chat') ?? this.commands[0]!,
         syncHash,
       );
@@ -986,6 +990,15 @@ export class TerminalApp {
         return;
       }
 
+      if (this.splitShellArgs(expandedLine).length >= 2) {
+        void this.recordCommand(normalized);
+        void this.sendOsCommand(`ask ${expandedLine}`);
+        if (focus) {
+          this.inputElement.focus();
+        }
+        return;
+      }
+
       void this.recordCommand(normalized);
       const suggestion = this.closestCommands(name);
       const suffix = suggestion.length ? ` Try ${suggestion.join(', ')}.` : ' Try help.';
@@ -1091,7 +1104,6 @@ export class TerminalApp {
       this.themeIndicator.textContent = 'workers-ai';
       this.highlightNavLink('chat');
       this.lines.push(this.responseLine(outcome.text, outcome.tone ?? 'success'));
-      this.applyTheme(this.manualTheme ?? 'orange');
 
       if (syncHash) {
         this.writeRoute(command.route ?? 'chat');
@@ -1105,6 +1117,10 @@ export class TerminalApp {
       this.gameMode = null;
       this.setShellPrompt();
       this.lines.push(this.responseLine(outcome.text, outcome.tone ?? 'info'));
+      if (this.activeView)
+        this.applyTheme(this.effectiveTheme(this.activeView));
+      else
+        this.applyTheme(this.manualTheme ?? 'orange');
       return;
     }
 
@@ -1259,12 +1275,17 @@ export class TerminalApp {
       this.identityEnvironment = this.normalizeIdentityPart(config.environment, 'pecunies');
     if ('ai_model' in config) {
       const rawModel = String(config.ai_model || '').trim();
-      this.aiModel = AI_MODEL_OPTIONS.includes(rawModel as (typeof AI_MODEL_OPTIONS)[number]) ? rawModel : DEFAULT_AI_MODEL;
+      this.aiModel = isValidWorkersAiModelId(rawModel) ? rawModel : DEFAULT_AI_MODEL;
     }
     if ('email' in config)
       this.identityEmail = String(config.email ?? '').trim().slice(0, 120);
     if ('system_prompt' in config)
       this.systemPromptInjection = String(config.system_prompt ?? '').slice(0, 1200);
+    if ('ai_tools' in config) {
+      const raw = config.ai_tools;
+      this.aiToolsEnabled =
+        raw === true || String(raw).toLowerCase() === 'true' || String(raw) === '1';
+    }
     if ('syntax_scheme' in config) {
       const raw = String(config.syntax_scheme ?? '').trim().toLowerCase();
       this.applySyntaxScheme(raw === 'contrast' || raw === 'pastel' ? raw : 'default');
@@ -1322,14 +1343,28 @@ export class TerminalApp {
     this.updatePromptIdentityUi();
   }
 
+  private ensureIdentityModelOption(model: string): void {
+    if (!isValidWorkersAiModelId(model)) return;
+    const sel = this.identityModelSelect;
+    for (let i = 0; i < sel.options.length; i++) {
+      if (sel.options[i]?.value === model) return;
+    }
+    const opt = document.createElement('option');
+    opt.value = model;
+    opt.textContent = model;
+    sel.appendChild(opt);
+  }
+
   private updatePromptIdentityUi(): void {
     this.promptIdentityButton.textContent = this.currentIdentityPrompt();
     this.identityDisplayNameInput.value = this.identityDisplayName;
     this.identityEnvironmentSelect.value = this.identityEnvironment;
+    this.ensureIdentityModelOption(this.aiModel);
     this.identityModelSelect.value = this.aiModel;
     this.identityEmailInput.value = this.identityEmail;
     this.identityThemeSelect.value = this.manualTheme ?? 'auto';
     this.identityDarkModeInput.checked = this.darkMode;
+    this.identityAiToolsInput.checked = this.aiToolsEnabled;
     this.identitySystemPromptInput.value = this.systemPromptInjection;
   }
 
@@ -1339,10 +1374,12 @@ export class TerminalApp {
       this.promptIdentityButton.setAttribute('aria-expanded', 'true');
       this.identityDisplayNameInput.value = this.identityDisplayName;
       this.identityEnvironmentSelect.value = this.identityEnvironment;
+      this.ensureIdentityModelOption(this.aiModel);
       this.identityModelSelect.value = this.aiModel;
       this.identityEmailInput.value = this.identityEmail;
       this.identityThemeSelect.value = this.manualTheme ?? 'auto';
       this.identityDarkModeInput.checked = this.darkMode;
+      this.identityAiToolsInput.checked = this.aiToolsEnabled;
       this.identitySystemPromptInput.value = this.systemPromptInjection;
       this.closeThemePopover();
       this.identityDisplayNameInput.focus();
@@ -1380,7 +1417,7 @@ export class TerminalApp {
     );
     this.identityDisplayName = nextName;
     this.identityEnvironment = nextEnvironment;
-    this.aiModel = AI_MODEL_OPTIONS.includes(this.identityModelSelect.value as (typeof AI_MODEL_OPTIONS)[number])
+    this.aiModel = isValidWorkersAiModelId(this.identityModelSelect.value)
       ? this.identityModelSelect.value
       : DEFAULT_AI_MODEL;
     this.identityEmail = this.identityEmailInput.value.trim().slice(0, 120);
@@ -1388,6 +1425,7 @@ export class TerminalApp {
     const nextTheme = nextThemeRaw === 'auto' ? null : nextThemeRaw in terminalThemes ? (nextThemeRaw as ThemeName) : null;
     this.manualTheme = nextTheme;
     this.darkMode = this.identityDarkModeInput.checked;
+    this.aiToolsEnabled = this.identityAiToolsInput.checked;
     this.systemPromptInjection = this.identitySystemPromptInput.value.trim().slice(0, 1200);
     this.applyDarkMode(this.darkMode);
     this.applyTheme(this.manualTheme ?? (this.activeView ? this.activeView.theme : 'orange'));
@@ -1399,6 +1437,7 @@ export class TerminalApp {
     await this.setConfigQuiet('email', this.identityEmail);
     await this.setConfigQuiet('theme', nextTheme ?? 'auto');
     await this.setConfigQuiet('dark', String(this.darkMode));
+    await this.setConfigQuiet('ai_tools', String(this.aiToolsEnabled));
     await this.setConfigQuiet('system_prompt', this.systemPromptInjection);
     this.persistShellProfile();
   }
@@ -1436,10 +1475,15 @@ export class TerminalApp {
     const systemPrompt = String(config.system_prompt ?? '');
     const syntaxSchemeRaw = String(config.syntax_scheme ?? this.syntaxScheme).toLowerCase();
     const syntaxScheme = syntaxSchemeRaw === 'contrast' || syntaxSchemeRaw === 'pastel' ? syntaxSchemeRaw : 'default';
+    const aiTools =
+      config.ai_tools === true ||
+      String(config.ai_tools ?? '')
+        .toLowerCase()
+        .trim() === 'true';
     const themeOptions = ['auto', ...Object.keys(terminalThemes)]
       .map((t) => `<option value="${this.escapeAttribute(t)}"${t === theme ? ' selected' : ''}>${this.escapeHtml(t)}</option>`)
       .join('');
-    const modelOptions = AI_MODEL_OPTIONS
+    const modelOptions = WORKERS_AI_TEXT_MODELS
       .map((m) => `<option value="${this.escapeAttribute(m)}"${m === aiModel ? ' selected' : ''}>${this.escapeHtml(m)}</option>`)
       .join('');
     return `
@@ -1461,6 +1505,7 @@ export class TerminalApp {
             <label class="config-editor-field"><span>syntax_scheme</span><select data-config-field="syntax_scheme"><option value="default"${syntaxScheme === 'default' ? ' selected' : ''}>default</option><option value="contrast"${syntaxScheme === 'contrast' ? ' selected' : ''}>contrast</option><option value="pastel"${syntaxScheme === 'pastel' ? ' selected' : ''}>pastel</option></select></label>
             <label class="config-editor-toggle"><input data-config-field="dark" type="checkbox"${dark ? ' checked' : ''} /><span>dark</span></label>
             <label class="config-editor-toggle"><input data-config-field="crt" type="checkbox"${crt ? ' checked' : ''} /><span>crt</span></label>
+            <label class="config-editor-toggle"><input data-config-field="ai_tools" type="checkbox"${aiTools ? ' checked' : ''} /><span>ai_tools (chat tools)</span></label>
           </div>
           <label class="config-editor-field config-editor-field-wide">
             <span>system_prompt</span>
@@ -1546,6 +1591,7 @@ export class TerminalApp {
       ['system_prompt', this.readConfigEditorField('system_prompt') || ''],
       ['dark', this.readConfigEditorToggle('dark') ? 'true' : 'false'],
       ['crt', this.readConfigEditorToggle('crt') ? 'true' : 'false'],
+      ['ai_tools', this.readConfigEditorToggle('ai_tools') ? 'true' : 'false'],
     ];
 
     for (const [key, value] of updates) {
@@ -1637,16 +1683,19 @@ export class TerminalApp {
         aiModel?: string;
         systemPrompt?: string;
         darkMode?: boolean;
+        aiTools?: boolean;
       };
       this.shellAliases = { ...(p.aliases ?? {}) };
       if (this.shellAliases.ls === 'timeline')
         delete this.shellAliases.ls;
       const t = p.env?.THEME?.toLowerCase();
       const syntaxRaw = String(p.env?.SYNTAX_SCHEME ?? '').toLowerCase();
-      if (p.aiModel && AI_MODEL_OPTIONS.includes(p.aiModel as (typeof AI_MODEL_OPTIONS)[number]))
+      if (p.aiModel && isValidWorkersAiModelId(p.aiModel))
         this.aiModel = p.aiModel;
       if (typeof p.systemPrompt === 'string')
         this.systemPromptInjection = p.systemPrompt.slice(0, 1200);
+      if (typeof p.aiTools === 'boolean')
+        this.aiToolsEnabled = p.aiTools;
       this.applyDarkMode(typeof p.darkMode === 'boolean' ? p.darkMode : localStorage.getItem('pecunies.dark') !== 'false');
       if (t && t in terminalThemes)
         this.manualTheme = t as ThemeName;
@@ -1678,6 +1727,7 @@ export class TerminalApp {
           aiModel: this.aiModel,
           systemPrompt: this.systemPromptInjection,
           darkMode: this.darkMode,
+          aiTools: this.aiToolsEnabled,
         }),
       );
     } catch {
@@ -1694,6 +1744,27 @@ export class TerminalApp {
     if (!mapped)
       return line;
     return [mapped, ...rest].join(' ').trim();
+  }
+
+  /** `$_` → last arg of prior command; `$@` → all args (after `..` / `.` + alias expansion on that line). Prefix `\\` to take literally. */
+  private expandHistoryShorthands(line: string): string {
+    if (!line.includes('$_') && !line.includes('$@'))
+      return line;
+    const prev = this.history.at(-1);
+    let lastArg = '';
+    let allArgsJoined = '';
+    if (prev) {
+      const prevBase = prev === '..' ? 'cd ..' : prev === '.' ? 'pwd' : prev;
+      const prevExpanded = this.expandShellAliases(prevBase);
+      const tokens = this.splitShellArgs(prevExpanded);
+      if (tokens.length) {
+        lastArg = tokens[tokens.length - 1] ?? '';
+        allArgsJoined = tokens.length > 1 ? tokens.slice(1).join(' ') : '';
+      }
+    }
+    return line
+      .replace(/(?<!\\)\$@/g, allArgsJoined)
+      .replace(/(?<!\\)\$_/g, lastArg);
   }
 
   private async runBootSequence(kind: 'boot' | 'reboot' | 'init'): Promise<void> {
@@ -1785,6 +1856,118 @@ export class TerminalApp {
       this.outputElement.scrollTop = this.outputElement.scrollHeight;
     this.lastRenderedLineCount = this.lines.length;
     delete this.outputElement.dataset.pinTop;
+    this.hideChatQuoteFab();
+  }
+
+  private scheduleChatQuoteFabUpdate(): void {
+    if (!this.chatMode) {
+      this.hideChatQuoteFab();
+      return;
+    }
+    if (this.chatQuoteFabRaf !== 0) return;
+    this.chatQuoteFabRaf = window.requestAnimationFrame(() => {
+      this.chatQuoteFabRaf = 0;
+      this.syncChatQuoteFab();
+    });
+  }
+
+  private hideChatQuoteFab(): void {
+    this.chatQuoteSelection = '';
+    this.chatQuoteFab.hidden = true;
+    this.chatQuoteFab.classList.remove('is-done');
+    this.chatQuoteFab.setAttribute('aria-label', 'Quote selection into reply');
+    this.chatQuoteFab.style.top = '';
+    this.chatQuoteFab.style.left = '';
+  }
+
+  private syncChatQuoteFab(): void {
+    if (!this.chatMode) {
+      this.hideChatQuoteFab();
+      return;
+    }
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount < 1 || sel.isCollapsed) {
+      this.hideChatQuoteFab();
+      return;
+    }
+    const text = sel.toString().replace(/\u00a0/g, ' ').replace(/\r\n/g, '\n').trim();
+    if (!text) {
+      this.hideChatQuoteFab();
+      return;
+    }
+    const anchor = sel.anchorNode;
+    const focusNode = sel.focusNode;
+    if (!anchor || !focusNode) {
+      this.hideChatQuoteFab();
+      return;
+    }
+    const startEl = anchor.nodeType === Node.TEXT_NODE ? anchor.parentElement : (anchor as Element);
+    const endEl = focusNode.nodeType === Node.TEXT_NODE ? focusNode.parentElement : (focusNode as Element);
+    if (!startEl || !endEl) {
+      this.hideChatQuoteFab();
+      return;
+    }
+    if (this.inputElement.contains(startEl) || this.inputElement.contains(endEl)) {
+      this.hideChatQuoteFab();
+      return;
+    }
+    const zoneStart = startEl.closest('[data-chat-quote-source]');
+    const zoneEnd = endEl.closest('[data-chat-quote-source]');
+    if (!zoneStart || zoneStart !== zoneEnd) {
+      this.hideChatQuoteFab();
+      return;
+    }
+    const pretty = zoneStart.querySelector('.pretty-output');
+    if (!pretty || !pretty.contains(startEl) || !pretty.contains(endEl)) {
+      this.hideChatQuoteFab();
+      return;
+    }
+
+    const range = sel.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) {
+      this.hideChatQuoteFab();
+      return;
+    }
+
+    this.chatQuoteSelection = text;
+    const fabW = 36;
+    const fabH = 32;
+    let top = rect.bottom + 6;
+    let left = rect.right - fabW - 4;
+    const margin = 8;
+    top = Math.max(margin, Math.min(top, window.innerHeight - fabH - margin));
+    left = Math.max(margin, Math.min(left, window.innerWidth - fabW - margin));
+    this.chatQuoteFab.style.top = `${top}px`;
+    this.chatQuoteFab.style.left = `${left}px`;
+    this.chatQuoteFab.hidden = false;
+  }
+
+  private insertQuotedReplyAtCaret(selected: string): void {
+    const normalized = selected.replace(/\r\n/g, '\n').trim();
+    if (!normalized) return;
+    const lines = normalized.split('\n');
+    const quoteBlock = `${lines.map((line) => `> ${line}`).join('\n')}\n\n`;
+    const el = this.inputElement;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    const v = el.value;
+    el.value = `${v.slice(0, start)}${quoteBlock}${v.slice(end)}`;
+    const caret = start + quoteBlock.length;
+    el.setSelectionRange(caret, caret);
+    el.focus();
+  }
+
+  private applyChatQuoteFromFab(): void {
+    const raw = this.chatQuoteSelection;
+    if (!raw) return;
+    this.insertQuotedReplyAtCaret(raw);
+    this.chatQuoteFab.classList.add('is-done');
+    this.chatQuoteFab.setAttribute('aria-label', 'Quoted');
+    window.getSelection()?.removeAllRanges();
+    window.setTimeout(() => {
+      this.hideChatQuoteFab();
+    }, 700);
   }
 
   private pulseView(): void {
@@ -1831,6 +2014,24 @@ export class TerminalApp {
         this.applyDarkMode(dark);
         this.persistShellProfile();
         void this.setConfigQuiet('dark', String(dark));
+      },
+      getAiModel: () => this.aiModel,
+      setAiModel: (model) => {
+        const m = model.trim();
+        if (!isValidWorkersAiModelId(m))
+          return false;
+        this.aiModel = m;
+        this.persistShellProfile();
+        void this.setConfigQuiet('ai_model', m);
+        this.updatePromptIdentityUi();
+        return true;
+      },
+      getSystemPrompt: () => this.systemPromptInjection,
+      setSystemPrompt: (text) => {
+        this.systemPromptInjection = text.trim().slice(0, 1200);
+        this.persistShellProfile();
+        void this.setConfigQuiet('system_prompt', this.systemPromptInjection);
+        this.updatePromptIdentityUi();
       },
     };
   }
@@ -1900,7 +2101,7 @@ export class TerminalApp {
     for (const arg of args) {
       if (arg.startsWith('--model=')) {
         const model = arg.slice('--model='.length).trim();
-        if (AI_MODEL_OPTIONS.includes(model as (typeof AI_MODEL_OPTIONS)[number])) {
+        if (isValidWorkersAiModelId(model)) {
           this.aiModel = model;
           this.persistShellProfile();
           void this.setConfigQuiet('ai_model', model);
@@ -2169,10 +2370,59 @@ export class TerminalApp {
       }));
     }
 
+    if (commandName === 'theme') {
+      return [];
+    }
+
+    if (commandName === 'model') {
+      const freq = readCommandFrequency();
+      const fragment = trailingSpace ? '' : (args[args.length - 1] ?? '');
+      const base = trailingSpace ? `model ${args.join(' ')}`.trim() : `model ${args.slice(0, -1).join(' ')}`.trim();
+      const ranked = rankByFuzzyAndFrequency(
+        fragment,
+        [...WORKERS_AI_TEXT_MODELS].map((key) => ({ key })),
+        MAX_AUTOCOMPLETE_RESULTS,
+        freq,
+      );
+      return ranked.map((x) => ({
+        completion: `${base} ${x.key} `,
+        usage: x.key,
+        description: 'Workers AI text model for this session (also in session identity).',
+        commandName: 'model',
+      }));
+    }
+
+    if (commandName === 'context') {
+      const freq = readCommandFrequency();
+      if (!args.length && trailingSpace) {
+        return [
+          {
+            completion: 'context clear ',
+            usage: 'context clear',
+            description: 'Clear system prompt injection (session identity field).',
+            commandName: 'context',
+          },
+        ];
+      }
+      if (args.length === 1 && !trailingSpace) {
+        const frag = args[0] ?? '';
+        const ranked = rankByFuzzyAndFrequency(frag, [{ key: 'clear' }], MAX_AUTOCOMPLETE_RESULTS, freq);
+        if (ranked.length) {
+          return ranked.map((x) => ({
+            completion: `context ${x.key} `,
+            usage: 'context clear',
+            description: 'Clear system prompt injection.',
+            commandName: 'context',
+          }));
+        }
+      }
+      return [];
+    }
+
     if (commandName === 'ask' || commandName === 'chat') {
       const prefix = `${commandName} ${args.join(' ')}`.trim();
       const options = [
-        ...AI_MODEL_OPTIONS.map((model) => `${commandName} --model=${model}`),
+        ...WORKERS_AI_TEXT_MODELS.map((model) => `${commandName} --model=${model}`),
         `${commandName} --system=`,
       ];
       const freq = readCommandFrequency();
@@ -2259,66 +2509,6 @@ export class TerminalApp {
       }));
     }
 
-    if (commandName === 'touch' || commandName === 'rm') {
-      const fragment = trailingSpace ? '' : args.at(-1) ?? '';
-      const pool = [...new Set([...FILE_PATHS, ...this.osHomePathSuggestions(), '/guest/', '/home/'])];
-      return this.rankPathSuggestions(fragment, pool, (path) => ({
-        completion: `${commandName} ${path}`,
-        usage: `${commandName} <path>`,
-        description: commandName === 'touch' ? 'Create this file path.' : 'Remove this writable file path.',
-        commandName,
-      }));
-    }
-
-    if (commandName === 'ls') {
-      const fragment = trailingSpace ? '' : args.at(-1) ?? '';
-      const dirPool = [...new Set([...DIRECTORY_PATHS, ...this.osHomePathSuggestions()])];
-      return this.rankPathSuggestions(fragment, dirPool, (path) => ({
-        completion: `ls ${path}`,
-        usage: `ls ${path}`,
-        description: 'List this directory in the portfolio OS.',
-        commandName: 'ls',
-      }));
-    }
-
-    if (commandName === 'tail' || commandName === 'less' || commandName === 'source') {
-      const fragment = trailingSpace ? '' : args.at(-1) ?? '';
-      const tailPool = [...new Set([...FILE_PATHS, ...this.osHomePathSuggestions()])];
-      return this.rankPathSuggestions(fragment, tailPool, (path) => ({
-        completion: `${commandName} ${path}`,
-        usage: `${commandName} ${path}`,
-        description:
-          commandName === 'tail'
-            ? 'Print last lines of this file.'
-            : commandName === 'source'
-              ? 'Run shell commands from this file.'
-              : 'View this file with scrollback.',
-        commandName,
-      }));
-    }
-
-    if (commandName === 'mkdir') {
-      const fragment = trailingSpace ? '' : args.at(-1) ?? '';
-      const pool = [...new Set([...DIRECTORY_PATHS, ...this.osHomePathSuggestions(), '/home/', '/guest/', '/tmp/'])];
-      return this.rankPathSuggestions(fragment, pool, (path) => ({
-        completion: `mkdir ${path}`,
-        usage: `mkdir ${path}`,
-        description: 'Create a directory at this path.',
-        commandName: 'mkdir',
-      }));
-    }
-
-    if (commandName === 'grep' || commandName === 'find') {
-      const fragment = trailingSpace ? '' : args.at(-1) ?? '';
-      const grepPool = [...new Set([...FILE_PATHS, ...this.osHomePathSuggestions()])];
-      return this.rankPathSuggestions(fragment, grepPool, (path) => ({
-        completion: `${commandName} ${path}`,
-        usage: `${commandName} ${path}`,
-        description: commandName === 'grep' ? 'Search this file for matching text.' : 'Find this path in the portfolio OS.',
-        commandName,
-      }));
-    }
-
     if (commandName === 'skills') {
       const opts = ['skills --category', 'skills --applications'];
       const prefix = `skills ${args.join(' ')}`.trim();
@@ -2366,30 +2556,26 @@ export class TerminalApp {
       }));
     }
 
-    const hints = ARG_HINTS[commandName];
+    const cmd = this.resolveCommand(commandName);
+    const freq = readCommandFrequency();
+    const hintRows = ARG_HINTS[commandName];
 
-    if (!hints || (!trailingSpace && args.length === 0))
-      return [];
+    if (cmd && commandSynopsisNeedsArgs(cmd.usage)) {
+      const generic = buildGenericUsageSuggestions(
+        cmd,
+        args,
+        trailingSpace,
+        freq,
+        (frag, pool, build) => this.rankPathSuggestions(frag, pool, build),
+        FILE_PATHS,
+        DIRECTORY_PATHS,
+        () => this.osHomePathSuggestions(),
+        extractHintFlagTokens(hintRows ?? []),
+      );
+      if (generic.length) return generic;
+    }
 
-    const index = trailingSpace ? args.length : Math.max(0, args.length - 1);
-    const hint = hints[index] ?? hints.at(-1);
-
-    if (!hint)
-      return [];
-
-    const prefix = [commandName, ...args.slice(0, trailingSpace ? args.length : Math.max(0, args.length - 1))]
-      .filter(Boolean)
-      .join(' ');
-    const completion = prefix ? `${prefix} ` : `${commandName} `;
-
-    return [
-      {
-        completion,
-        usage: `${hint.token}: ${hint.description}`,
-        description: 'Argument help for the current parameter.',
-        commandName,
-      },
-    ];
+    return rankArgHintRows(commandName, args, trailingSpace, hintRows ?? [], freq);
   }
 
   private hideAutocomplete(): void {
@@ -2404,7 +2590,9 @@ export class TerminalApp {
   }
 
   private completionForCommand(commandName: string): string {
-    return ARG_COMMANDS.has(commandName) ? `${commandName} ` : commandName;
+    const cmd = this.resolveCommand(commandName);
+    if (cmd && commandSynopsisNeedsArgs(cmd.usage)) return `${commandName} `;
+    return commandName;
   }
 
   private acceptSuggestion(completion: string): void {
@@ -2787,6 +2975,7 @@ export class TerminalApp {
           sessionId: this.sessionId,
           model: this.aiModel,
           systemPrompt: this.systemPromptInjection,
+          toolsEnabled: this.aiToolsEnabled,
           message,
           visibleContext: this.visibleContext(),
           history: this.lines
@@ -2855,7 +3044,6 @@ export class TerminalApp {
         this.triggerViewSwitchFeedback('chat');
         this.themeIndicator.textContent = 'workers-ai';
         this.highlightNavLink('chat');
-        this.applyTheme(this.manualTheme ?? 'red');
       }
 
       if (output.startsWith('[sudo]') || output.startsWith('Password:'))

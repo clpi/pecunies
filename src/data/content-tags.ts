@@ -170,6 +170,8 @@ export const COMMAND_TAGS: Record<string, string[]> = {
   ask: ['ai', 'network', 'portfolio'],
   explain: ['ai', 'portfolio', 'career'],
   chat: ['ai', 'terminal'],
+  model: ['ai', 'terminal'],
+  context: ['ai', 'terminal'],
   ls: ['system', 'tooling'],
   cat: ['portfolio', 'content', 'tooling'],
   man: ['terminal', 'tooling'],
