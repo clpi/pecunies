@@ -1,6 +1,7 @@
 import { resumeData } from '../data/resume';
 import type { AmbientFieldHandle } from '../wasm';
 import { bumpCommandFrequency, fuzzyScore, rankByFuzzyAndFrequency, readCommandFrequency } from './fuzzy-rank';
+import { findTagsMatching, getTagDescription, listTagSummaries } from '../data/content-tags';
 import {
   buildGenericUsageSuggestions,
   commandSynopsisNeedsArgs,
@@ -46,6 +47,7 @@ type Suggestion = {
   usage: string;
   description: string;
   commandName?: string;
+  displayName?: string;
 };
 
 type OsResponse = {
@@ -212,6 +214,10 @@ const ARG_HINTS: Record<string, Array<{ token: string; description: string }>> =
     { token: '<name>', description: 'display name' },
     { token: '<message>', description: 'comment text' },
   ],
+  reply: [
+    { token: '<comment-id>', description: 'numeric comment id from a post page' },
+    { token: '<message>', description: 'reply text' },
+  ],
   theme: [
     { token: '<set|list|random>', description: 'theme subcommand or direct name' },
     { token: '<name>', description: 'red, amber, frost, ivory, green, magenta, blue, purple, auto' },
@@ -275,6 +281,7 @@ export class TerminalApp {
   private readonly identityThemeSelect: HTMLSelectElement;
   private readonly identityDarkModeInput: HTMLInputElement;
   private readonly identityAiToolsInput: HTMLInputElement;
+  private readonly identitySkillUseInput: HTMLInputElement;
   private readonly identitySystemPromptInput: HTMLTextAreaElement;
   private readonly identitySaveButton: HTMLButtonElement;
   private readonly identityCancelButton: HTMLButtonElement;
@@ -321,6 +328,7 @@ export class TerminalApp {
   private systemPromptInjection = '';
   /** When true, `/api/chat` uses Workers AI native tools (`runWithTools`). */
   private aiToolsEnabled = false;
+  private skillUseEnabled = false;
   private darkMode = true;
   private syntaxScheme: 'default' | 'contrast' | 'pastel' = 'default';
   private suppressNextFocusAutocomplete = false;
@@ -363,6 +371,7 @@ export class TerminalApp {
     this.identityThemeSelect = this.requireElement<HTMLSelectElement>('#identity-theme');
     this.identityDarkModeInput = this.requireElement<HTMLInputElement>('#identity-dark-mode');
     this.identityAiToolsInput = this.requireElement<HTMLInputElement>('#identity-ai-tools');
+    this.identitySkillUseInput = this.requireElement<HTMLInputElement>('#identity-skill-use');
     this.identitySystemPromptInput = this.requireElement<HTMLTextAreaElement>('#identity-system-prompt');
     this.identitySaveButton = this.requireElement<HTMLButtonElement>('#identity-save');
     this.identityCancelButton = this.requireElement<HTMLButtonElement>('#identity-cancel');
@@ -703,16 +712,19 @@ export class TerminalApp {
       }
 
       const command = target.closest<HTMLElement>('[data-command]')?.dataset.command;
+      const prepopulate = target.closest<HTMLElement>('[data-prepopulate-command]')?.dataset.prepopulateCommand;
 
-      if (!command) {
+      if (!command && !prepopulate) {
         return;
       }
 
-      this.execute(command);
-      const prepopulate = target.closest<HTMLElement>('[data-prepopulate-command]')?.dataset.prepopulateCommand;
+      if (command) {
+        this.execute(command);
+      }
       this.inputElement.value = prepopulate ?? '';
       if (prepopulate) {
         this.inputElement.setSelectionRange(prepopulate.length, prepopulate.length);
+        this.inputElement.focus();
       }
       this.hideAutocomplete();
     });
@@ -1311,6 +1323,11 @@ export class TerminalApp {
       this.aiToolsEnabled =
         raw === true || String(raw).toLowerCase() === 'true' || String(raw) === '1';
     }
+    if ('skill_use' in config) {
+      const raw = config.skill_use;
+      this.skillUseEnabled =
+        raw === true || String(raw).toLowerCase() === 'true' || String(raw) === '1';
+    }
     if ('syntax_scheme' in config) {
       const raw = String(config.syntax_scheme ?? '').trim().toLowerCase();
       this.applySyntaxScheme(raw === 'contrast' || raw === 'pastel' ? raw : 'default');
@@ -1391,6 +1408,7 @@ export class TerminalApp {
     this.identityThemeSelect.value = this.manualTheme ?? 'auto';
     this.identityDarkModeInput.checked = this.darkMode;
     this.identityAiToolsInput.checked = this.aiToolsEnabled;
+    this.identitySkillUseInput.checked = this.skillUseEnabled;
     this.identitySystemPromptInput.value = this.systemPromptInjection;
   }
 
@@ -1406,6 +1424,7 @@ export class TerminalApp {
       this.identityThemeSelect.value = this.manualTheme ?? 'auto';
       this.identityDarkModeInput.checked = this.darkMode;
       this.identityAiToolsInput.checked = this.aiToolsEnabled;
+      this.identitySkillUseInput.checked = this.skillUseEnabled;
       this.identitySystemPromptInput.value = this.systemPromptInjection;
       this.closeThemePopover();
       this.identityDisplayNameInput.focus();
@@ -1452,6 +1471,7 @@ export class TerminalApp {
     this.manualTheme = nextTheme;
     this.darkMode = this.identityDarkModeInput.checked;
     this.aiToolsEnabled = this.identityAiToolsInput.checked;
+    this.skillUseEnabled = this.identitySkillUseInput.checked;
     this.systemPromptInjection = this.identitySystemPromptInput.value.trim().slice(0, 1200);
     this.applyDarkMode(this.darkMode);
     this.applyTheme(this.manualTheme ?? (this.activeView ? this.activeView.theme : 'orange'));
@@ -1464,6 +1484,7 @@ export class TerminalApp {
     await this.setConfigQuiet('theme', nextTheme ?? 'auto');
     await this.setConfigQuiet('dark', String(this.darkMode));
     await this.setConfigQuiet('ai_tools', String(this.aiToolsEnabled));
+    await this.setConfigQuiet('skill_use', String(this.skillUseEnabled));
     await this.setConfigQuiet('system_prompt', this.systemPromptInjection);
     this.persistShellProfile();
   }
@@ -1506,6 +1527,11 @@ export class TerminalApp {
       String(config.ai_tools ?? '')
         .toLowerCase()
         .trim() === 'true';
+    const skillUse =
+      config.skill_use === true ||
+      String(config.skill_use ?? '')
+        .toLowerCase()
+        .trim() === 'true';
     const themeOptions = ['auto', ...Object.keys(terminalThemes)]
       .map((t) => `<option value="${this.escapeAttribute(t)}"${t === theme ? ' selected' : ''}>${this.escapeHtml(t)}</option>`)
       .join('');
@@ -1532,6 +1558,7 @@ export class TerminalApp {
             <label class="config-editor-toggle"><input data-config-field="dark" type="checkbox"${dark ? ' checked' : ''} /><span>dark</span></label>
             <label class="config-editor-toggle"><input data-config-field="crt" type="checkbox"${crt ? ' checked' : ''} /><span>crt</span></label>
             <label class="config-editor-toggle"><input data-config-field="ai_tools" type="checkbox"${aiTools ? ' checked' : ''} /><span>ai_tools (chat tools)</span></label>
+            <label class="config-editor-toggle"><input data-config-field="skill_use" type="checkbox"${skillUse ? ' checked' : ''} /><span>skill_use (AI skills)</span></label>
           </div>
           <label class="config-editor-field config-editor-field-wide">
             <span>system_prompt</span>
@@ -1618,6 +1645,7 @@ export class TerminalApp {
       ['dark', this.readConfigEditorToggle('dark') ? 'true' : 'false'],
       ['crt', this.readConfigEditorToggle('crt') ? 'true' : 'false'],
       ['ai_tools', this.readConfigEditorToggle('ai_tools') ? 'true' : 'false'],
+      ['skill_use', this.readConfigEditorToggle('skill_use') ? 'true' : 'false'],
     ];
 
     for (const [key, value] of updates) {
@@ -1715,6 +1743,7 @@ export class TerminalApp {
         systemPrompt?: string;
         darkMode?: boolean;
         aiTools?: boolean;
+        skillUse?: boolean;
       };
       this.shellAliases = { ...(p.aliases ?? {}) };
       if (this.shellAliases.ls === 'timeline')
@@ -1727,6 +1756,8 @@ export class TerminalApp {
         this.systemPromptInjection = p.systemPrompt.slice(0, 1200);
       if (typeof p.aiTools === 'boolean')
         this.aiToolsEnabled = p.aiTools;
+      if (typeof p.skillUse === 'boolean')
+        this.skillUseEnabled = p.skillUse;
       this.applyDarkMode(typeof p.darkMode === 'boolean' ? p.darkMode : localStorage.getItem('pecunies.dark') !== 'false');
       if (t && t in terminalThemes)
         this.manualTheme = t as ThemeName;
@@ -1759,6 +1790,7 @@ export class TerminalApp {
           systemPrompt: this.systemPromptInjection,
           darkMode: this.darkMode,
           aiTools: this.aiToolsEnabled,
+          skillUse: this.skillUseEnabled,
         }),
       );
     } catch {
@@ -2179,6 +2211,11 @@ export class TerminalApp {
   }
 
   private buildSuggestions(rawValue: string): Suggestion[] {
+    const tagSuggestions = this.tagAutocompleteSuggestions(rawValue);
+    if (tagSuggestions.length) {
+      return tagSuggestions;
+    }
+
     const commandLine = rawValue.replace(/^\//, '').replace(/^\.\//, '');
     const normalized = commandLine.trim().toLowerCase();
     const explicitCommand = rawValue.trim().startsWith('/');
@@ -2351,7 +2388,7 @@ export class TerminalApp {
             data-suggestion-value="${suggestion.completion}"
           >
             <div class="autocomplete-copy">
-              <p class="autocomplete-name">/${suggestion.completion}</p>
+              <p class="autocomplete-name">${this.escapeHtml(suggestion.displayName ?? `/${suggestion.completion}`)}</p>
               <p class="autocomplete-desc">${suggestion.description}</p>
             </div>
             <span class="autocomplete-meta">${suggestion.usage}</span>
@@ -2633,6 +2670,37 @@ export class TerminalApp {
     this.updateAutocomplete();
   }
 
+  private tagAutocompleteSuggestions(rawValue: string): Suggestion[] {
+    const caret = this.inputElement.selectionStart ?? rawValue.length;
+    const beforeCaret = rawValue.slice(0, caret);
+    const afterCaret = rawValue.slice(caret);
+    const match = beforeCaret.match(/(^|[\s(])#([a-z0-9._-]*)$/i);
+    if (!match) {
+      return [];
+    }
+
+    const fragment = (match[2] ?? '').toLowerCase();
+    const markerStart = beforeCaret.length - match[0].length + match[1].length;
+    const summaries = listTagSummaries();
+    const known = new Map(summaries.map((item) => [item.slug, item.count]));
+    const matches = (fragment ? findTagsMatching(fragment) : summaries.map((item) => item.slug)).slice(
+      0,
+      MAX_AUTOCOMPLETE_RESULTS,
+    );
+
+    return matches.map((slug) => {
+      const replacement = `#${slug}`;
+      const nextValue = `${rawValue.slice(0, markerStart)}${replacement} ${afterCaret.replace(/^[a-z0-9._-]*/i, '')}`;
+      const uses = known.get(slug) ?? 0;
+      return {
+        completion: nextValue,
+        displayName: replacement,
+        usage: `${uses} ${uses === 1 ? 'use' : 'uses'}`,
+        description: getTagDescription(slug),
+      };
+    });
+  }
+
   private shouldRunCommandInChat(input: string): boolean {
     const normalized = input.trim();
 
@@ -2852,22 +2920,35 @@ export class TerminalApp {
           published?: string;
           description?: string;
           tags?: string[];
-          comments?: Array<{ name: string; message: string; at: string }>;
+          comments?: Array<{
+            id?: number;
+            name: string;
+            message: string;
+            at: string;
+            replies?: Array<{ id?: number; name: string; message: string; at: string }>;
+          }>;
         }>;
       };
-
-      if (!response.ok || !payload.posts?.length)
-        return;
+      if (!response.ok)
+        throw new Error('posts fetch failed');
+      const posts = Array.isArray(payload.posts) ? payload.posts : [];
 
       this.lines.push({
         id: this.makeId(),
         kind: 'view',
-        html: this.renderPosts(payload.posts),
-        text: payload.posts.map((post) => `${post.title}\n${post.markdown}`).join('\n\n'),
+        html: this.renderPosts(posts),
+        text: posts.map((post) => `${post.title}\n${post.markdown}`).join('\n\n'),
       });
       this.renderLog();
     } catch {
-      // Static post index remains available if the dynamic reader fails.
+      this.lines.push({
+        id: this.makeId(),
+        kind: 'view',
+        html: this.renderPosts([]),
+        text: 'No published posts found.',
+      });
+      this.lines.push(this.responseLine('Could not load the live /api/posts index.', 'warn'));
+      this.renderLog();
     }
   }
 
@@ -2880,10 +2961,72 @@ export class TerminalApp {
       published?: string;
       description?: string;
       tags?: string[];
-      comments?: Array<{ name: string; message: string; at: string }>;
+      comments?: Array<{
+        id?: number;
+        name: string;
+        message: string;
+        at: string;
+        replies?: Array<{ id?: number; name: string; message: string; at: string }>;
+      }>;
     }>,
   ): string {
     const commentCountLabel = (count: number): string => `${count} ${count === 1 ? 'comment' : 'comments'}`;
+    const feedBody = posts.length
+      ? posts
+          .map((post) => {
+            const commentList = post.comments ?? [];
+            const comments = commentList.reduce(
+              (total, comment) => total + 1 + (comment.replies?.length ?? 0),
+              0,
+            );
+
+            return `
+              <article
+                class="output-record post-card timeline-item post-timeline-item is-clickable"
+                role="button"
+                tabindex="0"
+                data-command="post open ${this.escapeAttribute(post.slug)}"
+              >
+                <span class="timeline-marker" aria-hidden="true"></span>
+                <div class="record-topline">
+                  <p class="post-card-titleline">
+                    <strong>${this.escapeHtml(post.title)}</strong>
+                  </p>
+                </div>
+                <p class="post-date-line">
+                  <time class="post-date" datetime="${this.escapeAttribute(post.published ?? '')}">${this.escapeHtml(post.published ?? '—')}</time>
+                </p>
+                <div class="post-card-status">
+                  <span class="post-path-line"><code>${this.escapeHtml(post.path)}</code></span>
+                </div>
+                <div class="post-tag-row" aria-label="Post tags">
+                  ${(post.tags ?? [])
+                    .map(
+                      (tag) =>
+                        `<button type="button" class="content-tag post-tag-chip" data-command="tags ${this.escapeAttribute(tag)}">#${this.escapeHtml(tag)}</button>`,
+                    )
+                    .join('')}
+                </div>
+                <p class="record-summary post-excerpt">${this.escapeHtml(post.description ?? this.markdownPreview(post.markdown))}</p>
+                <div class="record-meta post-card-actions">
+                  <button type="button" class="post-comments-action" data-command="post open ${this.escapeAttribute(post.slug)}">${this.escapeHtml(commentCountLabel(comments))}</button>
+                  <span>comment <code>${this.escapeHtml(post.slug)}</code> &lt;name&gt; &lt;message&gt;</span>
+                </div>
+                ${
+                  comments
+                    ? `<div class="output-copy post-comments-preview">${commentList
+                        .map(
+                          (comment) =>
+                            `<p><strong>${this.escapeHtml(comment.name)}</strong>: ${this.escapeHtml(comment.message)}</p>`,
+                        )
+                        .join('')}</div>`
+                    : ''
+                }
+              </article>
+            `;
+          })
+          .join('')
+      : '<p class="post-feed-empty">No published posts found.</p>';
 
     return `
       <div class="terminal-view is-live post-index-view">
@@ -2895,60 +3038,7 @@ export class TerminalApp {
             </p>
           </div>
           <div class="output-records post-feed timeline-rail">
-            ${posts
-              .map((post) => {
-                const commentList = post.comments ?? [];
-                const comments = commentList.length;
-
-                return `
-                  <article
-                    class="output-record post-card timeline-item post-timeline-item is-clickable"
-                    role="button"
-                    tabindex="0"
-                    data-command="post open ${this.escapeAttribute(post.slug)}"
-                  >
-                    <span class="timeline-marker" aria-hidden="true"></span>
-                    <div class="record-topline">
-                      <p class="post-card-titleline">
-                        <strong>${this.escapeHtml(post.title)}</strong>
-                      </p>
-                    </div>
-                    <p class="post-date-line">
-                      <time class="post-date" datetime="${this.escapeAttribute(post.published ?? '')}">${this.escapeHtml(post.published ?? '—')}</time>
-                    </p>
-                    <div class="post-card-status">
-                      <span class="post-path-line"><code>${this.escapeHtml(post.path)}</code></span>
-                      <span class="post-comment-count" aria-label="${this.escapeAttribute(commentCountLabel(comments))}">
-                        ${this.escapeHtml(commentCountLabel(comments))}
-                      </span>
-                    </div>
-                    <div class="post-tag-row" aria-label="Post tags">
-                      ${(post.tags ?? [])
-                        .map(
-                          (tag) =>
-                            `<button type="button" class="content-tag post-tag-chip" data-command="tags ${this.escapeAttribute(tag)}">#${this.escapeHtml(tag)}</button>`,
-                        )
-                        .join('')}
-                    </div>
-                    <p class="record-summary post-excerpt">${this.escapeHtml(post.description ?? this.markdownPreview(post.markdown))}</p>
-                    <div class="record-meta post-card-actions">
-                      <button type="button" class="post-comments-action" data-command="post open ${this.escapeAttribute(post.slug)}">comments</button>
-                      <span>comment <code>${this.escapeHtml(post.slug)}</code> &lt;name&gt; &lt;message&gt;</span>
-                    </div>
-                    ${
-                      comments
-                        ? `<div class="output-copy post-comments-preview">${commentList
-                            .map(
-                              (comment) =>
-                                `<p><strong>${this.escapeHtml(comment.name)}</strong>: ${this.escapeHtml(comment.message)}</p>`,
-                            )
-                            .join('')}</div>`
-                      : ''
-                    }
-                  </article>
-                `;
-              })
-              .join('')}
+            ${feedBody}
           </div>
         </section>
       </div>
@@ -3032,6 +3122,7 @@ export class TerminalApp {
           model: this.aiModel,
           systemPrompt: this.systemPromptInjection,
           toolsEnabled: this.aiToolsEnabled,
+          skillsEnabled: this.skillUseEnabled,
           message,
           visibleContext: this.visibleContext(),
           history: this.lines
@@ -3173,6 +3264,7 @@ export class TerminalApp {
           command,
           model: this.aiModel,
           systemPrompt: this.systemPromptInjection,
+          skillsEnabled: this.skillUseEnabled,
           visibleContext: this.visibleContext(),
         }),
       });

@@ -629,31 +629,36 @@ export async function collectAllPosts(env) {
   const bucket = postsBucket(env);
 
   if (db) {
-    const rows = await db
-      .prepare("SELECT path, r2_markdown_key FROM posts")
-      .all();
-    for (const row of rows?.results ?? []) {
-      const postPath = String(row?.path || "");
-      const r2Key = String(row?.r2_markdown_key || "");
-      if (!postPath.startsWith("/posts/")) {
-        continue;
-      }
-      let markdown = null;
-      if (bucket && r2Key) {
-        const obj = await bucket.get(r2Key);
-        if (obj) {
-          markdown = await obj.text();
+    await ensureContentInfra(env);
+    try {
+      const rows = await db
+        .prepare("SELECT path, r2_markdown_key FROM posts")
+        .all();
+      for (const row of rows?.results ?? []) {
+        const postPath = String(row?.path || "");
+        const r2Key = String(row?.r2_markdown_key || "");
+        if (!postPath.startsWith("/posts/")) {
+          continue;
+        }
+        let markdown = null;
+        if (bucket && r2Key) {
+          const obj = await bucket.get(r2Key);
+          if (obj) {
+            markdown = await obj.text();
+          }
+        }
+        if (!markdown && env.PORTFOLIO_OS) {
+          markdown = await env.PORTFOLIO_OS.get(`file:${postPath}`);
+        }
+        if (markdown) {
+          byPath.set(
+            postPath,
+            await postPayload(postPath, String(markdown), env),
+          );
         }
       }
-      if (!markdown && env.PORTFOLIO_OS) {
-        markdown = await env.PORTFOLIO_OS.get(`file:${postPath}`);
-      }
-      if (markdown) {
-        byPath.set(
-          postPath,
-          await postPayload(postPath, String(markdown), env),
-        );
-      }
+    } catch {
+      // Keep the static seed available even if the database is not ready yet.
     }
   } else if (env.PORTFOLIO_OS?.list) {
     for (const prefix of ["file:/posts/", "file:/public/posts/"]) {

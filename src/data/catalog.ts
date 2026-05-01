@@ -5,6 +5,10 @@ export type CatalogEntityType =
   | "skill"
   | "tool"
   | "project"
+  | "command"
+  | "view"
+  | "app"
+  | "link"
   | "work"
   | "workflow"
   | "step"
@@ -29,6 +33,7 @@ export type CatalogEntity = {
   category: string;
   description: string;
   tags: string[];
+  yearsOfExperience?: number;
   summary?: string;
   avatar?: string;
   status?: string;
@@ -87,6 +92,46 @@ export const CATALOG_TYPES: Record<CatalogEntityType, CatalogTypeMeta> = {
     title: "Projects",
     description:
       "Shipped and active work with linked skills, tools, workflows, and portfolio metadata.",
+  },
+  command: {
+    type: "command",
+    command: "command",
+    routeBase: "command",
+    singular: "command",
+    plural: "commands",
+    title: "Commands",
+    description:
+      "Terminal commands with usage metadata, manual context, and linked entity surfaces.",
+  },
+  view: {
+    type: "view",
+    command: "view",
+    routeBase: "view",
+    singular: "view",
+    plural: "views",
+    title: "Views",
+    description:
+      "Named terminal views and routes with descriptions, tags, and connected content surfaces.",
+  },
+  app: {
+    type: "app",
+    command: "app",
+    routeBase: "app",
+    singular: "app",
+    plural: "apps",
+    title: "Apps",
+    description:
+      "Interactive apps and games launched from terminal commands.",
+  },
+  link: {
+    type: "link",
+    command: "link",
+    routeBase: "link",
+    singular: "link",
+    plural: "links",
+    title: "Links",
+    description:
+      "External links, public references, and outbound resources with descriptions, tags, and source metadata.",
   },
   work: {
     type: "work",
@@ -923,6 +968,402 @@ const USERS: CatalogEntity[] = [
   },
 ];
 
+const COMMANDS: CatalogEntity[] = [
+  {
+    type: "command",
+    slug: "ask",
+    title: "/ask",
+    category: "ai",
+    description: "Ask Workers AI a question with terminal and portfolio context.",
+    tags: ["terminal", "ai", "command"],
+    metadata: {
+      usage: "ask <question>",
+    },
+    related: [link("view", "chat"), link("systemprompt", "portfolio-default")],
+  },
+  {
+    type: "command",
+    slug: "explain",
+    title: "/explain",
+    category: "ai",
+    description: "Explain a project, command, skill, work item, or other portfolio surface.",
+    tags: ["terminal", "ai", "command"],
+    metadata: {
+      usage: "explain <project|skill|work|education|command|last> [name]",
+    },
+    related: [link("view", "projects"), link("view", "skills"), link("view", "resume")],
+  },
+  {
+    type: "command",
+    slug: "post",
+    title: "/post",
+    category: "content",
+    description: "Open a post detail page from the published markdown index.",
+    tags: ["terminal", "content", "command"],
+    metadata: {
+      usage: "post open <slug|path-fragment>",
+    },
+    related: [link("view", "posts")],
+  },
+  {
+    type: "command",
+    slug: "comment",
+    title: "/comment",
+    category: "content",
+    description: "Add a viewer comment to a markdown post.",
+    tags: ["terminal", "content", "comments", "command"],
+    metadata: {
+      usage: "comment <post> <name> <message>",
+    },
+    related: [link("workflow", "reply-to-comment"), link("view", "posts")],
+  },
+  {
+    type: "command",
+    slug: "reply",
+    title: "/reply",
+    category: "content",
+    description: "Reply to an existing comment by comment id.",
+    tags: ["terminal", "content", "reply", "command"],
+    metadata: {
+      usage: "reply <comment-id> <message>",
+    },
+    related: [link("workflow", "reply-to-comment"), link("trigger", "comment-created")],
+  },
+  {
+    type: "command",
+    slug: "tags",
+    title: "/tags",
+    category: "discovery",
+    description: "Browse and filter tagged content across commands, views, files, and posts.",
+    tags: ["terminal", "tags", "command"],
+    metadata: {
+      usage: "tags [tag|prefix|tag1 tag2 ...]",
+    },
+    related: [link("view", "tags"), link("tag", "tags")],
+  },
+  {
+    type: "command",
+    slug: "skill",
+    title: "/skill",
+    category: "catalog",
+    description: "Manage skill entities and inspect their relationships and where-used references.",
+    tags: ["terminal", "catalog", "command"],
+    metadata: {
+      usage: "skill <list|get|create|update|delete> [id] [args...]",
+    },
+    related: [link("skill", "entity-modeling")],
+  },
+  {
+    type: "command",
+    slug: "project",
+    title: "/project",
+    category: "catalog",
+    description: "Manage project entities, descriptions, tags, and related skills.",
+    tags: ["terminal", "catalog", "command"],
+    metadata: {
+      usage: "project <list|get|create|update|delete> [id] [args...]",
+    },
+    related: [link("project", "pecunies-terminal")],
+  },
+  {
+    type: "command",
+    slug: "work",
+    title: "/work",
+    category: "catalog",
+    description: "Manage work and experience entities with descriptions, tags, and skills used.",
+    tags: ["terminal", "catalog", "command"],
+    metadata: {
+      usage: "work <list|get|create|update|delete> [id] [args...]",
+    },
+    related: [link("work", "devops-engineer-hashgraph")],
+  },
+  {
+    type: "command",
+    slug: "link",
+    title: "/link",
+    category: "catalog",
+    description: "Manage external link entities, descriptions, tags, and source references.",
+    tags: ["terminal", "catalog", "command"],
+    metadata: {
+      usage: "link <list|get|create|update|delete> [id] [args...]",
+    },
+    related: [link("link", "github"), link("link", "linkedin")],
+  },
+];
+
+const VIEWS: CatalogEntity[] = [
+  {
+    type: "view",
+    slug: "home",
+    title: "Home",
+    category: "route",
+    description: "Terminal landing view with route overview and entry points into the portfolio.",
+    tags: ["view", "terminal", "portfolio"],
+    related: [link("project", "pecunies-terminal")],
+  },
+  {
+    type: "view",
+    slug: "about",
+    title: "About",
+    category: "route",
+    description: "Architecture and design notes for the terminal portfolio.",
+    tags: ["view", "terminal", "architecture"],
+    related: [link("project", "pecunies-terminal")],
+  },
+  {
+    type: "view",
+    slug: "resume",
+    title: "Resume",
+    category: "route",
+    description: "Resume-backed professional profile and summary view.",
+    tags: ["view", "resume", "career"],
+    related: [link("user", "chris-pecunies")],
+  },
+  {
+    type: "view",
+    slug: "projects",
+    title: "Projects",
+    category: "route",
+    description: "Project overview view with independent work and deep links.",
+    tags: ["view", "projects", "portfolio"],
+    related: [link("project", "pecunies-terminal"), link("project", "moe-marketplace")],
+  },
+  {
+    type: "view",
+    slug: "skills",
+    title: "Skills",
+    category: "route",
+    description: "Skill overview route for grouped capabilities and where-used filtering.",
+    tags: ["view", "skills", "portfolio"],
+    related: [link("skill", "edge-routing"), link("skill", "entity-modeling")],
+  },
+  {
+    type: "view",
+    slug: "experience",
+    title: "Experience",
+    category: "route",
+    description: "Work and experience route for professional history.",
+    tags: ["view", "career", "work"],
+    related: [link("work", "devops-engineer-hashgraph")],
+  },
+  {
+    type: "view",
+    slug: "posts",
+    title: "Posts",
+    category: "route",
+    description: "Published posts index with comments and RSS integration.",
+    tags: ["view", "writing", "content"],
+    related: [link("workflow", "publish-post")],
+  },
+  {
+    type: "view",
+    slug: "links",
+    title: "Links",
+    category: "route",
+    description: "Outbound links, profiles, project endpoints, and contact surfaces.",
+    tags: ["view", "links", "social"],
+    related: [link("link", "github"), link("link", "linkedin")],
+  },
+  {
+    type: "view",
+    slug: "tags",
+    title: "Tags",
+    category: "route",
+    description: "Tag filtering route for discovery across content surfaces.",
+    tags: ["view", "tags", "portfolio"],
+    related: [link("tag", "tags")],
+  },
+  {
+    type: "view",
+    slug: "chat",
+    title: "Chat",
+    category: "route",
+    description: "AI chat view for interactive portfolio questions and reasoning traces.",
+    tags: ["view", "ai", "terminal"],
+    related: [link("agent", "portfolio-assistant")],
+  },
+];
+
+const APPS: CatalogEntity[] = [
+  {
+    type: "app",
+    slug: "2048",
+    title: "2048",
+    category: "game",
+    description: "Terminal-launched 2048 game.",
+    tags: ["app", "games", "terminal"],
+    metadata: {
+      command: "2048",
+    },
+  },
+  {
+    type: "app",
+    slug: "chess",
+    title: "Chess",
+    category: "game",
+    description: "Terminal-launched chess game.",
+    tags: ["app", "games", "terminal"],
+    metadata: {
+      command: "chess",
+    },
+  },
+  {
+    type: "app",
+    slug: "minesweeper",
+    title: "Minesweeper",
+    category: "game",
+    description: "Terminal-launched minesweeper game.",
+    tags: ["app", "games", "terminal"],
+    metadata: {
+      command: "minesweeper",
+    },
+  },
+  {
+    type: "app",
+    slug: "jobquest",
+    title: "JobQuest",
+    category: "game",
+    description: "Terminal narrative game for job-search signal hunting.",
+    tags: ["app", "games", "terminal"],
+    metadata: {
+      command: "jobquest",
+    },
+  },
+];
+
+const LINKS: CatalogEntity[] = [
+  {
+    type: "link",
+    slug: "github",
+    title: "GitHub",
+    category: "profile",
+    description: "Primary public GitHub profile and source-hosting surface.",
+    tags: ["links", "social", "portfolio"],
+    metadata: {
+      url: "https://github.com/clpi",
+      source: "links-view",
+    },
+    related: [link("user", "chris-pecunies"), link("project", "pecunies-terminal")],
+  },
+  {
+    type: "link",
+    slug: "gitlab",
+    title: "GitLab",
+    category: "profile",
+    description: "Public GitLab profile for mirrored repositories and source visibility.",
+    tags: ["links", "social", "portfolio"],
+    metadata: {
+      url: "https://gitlab.com/clpi",
+      source: "links-view",
+    },
+    related: [link("user", "chris-pecunies")],
+  },
+  {
+    type: "link",
+    slug: "sourcehut",
+    title: "SourceHut",
+    category: "profile",
+    description: "Public SourceHut profile for hosted code and development history.",
+    tags: ["links", "social", "portfolio"],
+    metadata: {
+      url: "https://sr.ht/~clp/",
+      source: "links-view",
+    },
+    related: [link("user", "chris-pecunies")],
+  },
+  {
+    type: "link",
+    slug: "codeberg",
+    title: "Codeberg",
+    category: "profile",
+    description: "Codeberg profile for public repository hosting.",
+    tags: ["links", "social", "portfolio"],
+    metadata: {
+      url: "https://codeberg.org/clp",
+      source: "links-view",
+    },
+    related: [link("user", "chris-pecunies")],
+  },
+  {
+    type: "link",
+    slug: "linkedin",
+    title: "LinkedIn",
+    category: "profile",
+    description: "Professional LinkedIn profile and hiring-facing public identity.",
+    tags: ["links", "social", "career"],
+    metadata: {
+      url: "https://linkedin.com/in/chrispecunies",
+      source: "links-view",
+    },
+    related: [link("user", "chris-pecunies")],
+  },
+  {
+    type: "link",
+    slug: "moe-marketplace",
+    title: "Moe Marketplace",
+    category: "project",
+    description: "Live marketplace aggregation deployment and public project endpoint.",
+    tags: ["links", "project", "portfolio"],
+    metadata: {
+      url: "https://moe.pecunies.com",
+      source: "links-view",
+    },
+    related: [link("project", "moe-marketplace")],
+  },
+  {
+    type: "link",
+    slug: "wart-github",
+    title: "WebAssembly Runtime Repository",
+    category: "project",
+    description: "Public repository for the Zig WebAssembly runtime project.",
+    tags: ["links", "project", "wasm"],
+    metadata: {
+      url: "https://github.com/clpi/wart.git",
+      source: "links-view",
+    },
+    related: [link("project", "zig-runtime")],
+  },
+  {
+    type: "link",
+    slug: "down-nvim-github",
+    title: "down.nvim Repository",
+    category: "project",
+    description: "Public repository for the down.nvim Neovim markdown plugin.",
+    tags: ["links", "project", "writing"],
+    metadata: {
+      url: "https://github.com/clpi/down.nvim.git",
+      source: "links-view",
+    },
+    related: [link("project", "down-nvim")],
+  },
+  {
+    type: "link",
+    slug: "cal-com",
+    title: "Cal.com",
+    category: "contact",
+    description: "Scheduling surface for direct booking and availability.",
+    tags: ["links", "contact", "social"],
+    metadata: {
+      url: "https://cal.com/chrisp",
+      source: "contact-view",
+    },
+    related: [link("user", "chris-pecunies")],
+  },
+  {
+    type: "link",
+    slug: "calendly",
+    title: "Calendly",
+    category: "contact",
+    description: "Alternate scheduling surface for booking meetings.",
+    tags: ["links", "contact", "social"],
+    metadata: {
+      url: "https://calendly.com/pecunies",
+      source: "contact-view",
+    },
+    related: [link("user", "chris-pecunies")],
+  },
+];
+
 const PROJECT_SKILL_MAP: Record<string, string[]> = {
   "moe-marketplace": ["edge-routing", "entity-modeling", "feed-synchronization"],
   "zig-runtime": ["entity-modeling", "markdown-delivery"],
@@ -1040,6 +1481,9 @@ export function buildCatalogSeed(): CatalogEntity[] {
   const seeded = [
     ...SKILLS,
     ...TOOLS,
+    ...COMMANDS,
+    ...VIEWS,
+    ...APPS,
     ...SYSTEM_PROMPTS,
     ...AGENTS,
     ...STEPS,
@@ -1049,6 +1493,7 @@ export function buildCatalogSeed(): CatalogEntity[] {
     ...JOBS,
     ...EXECUTIONS,
     ...USERS,
+    ...LINKS,
     ...PROJECTS,
     ...WORK_ITEMS,
   ];
@@ -1069,9 +1514,19 @@ export function normalizeCatalogType(value: string): CatalogEntityType | null {
     skills: "skill",
     tool: "tool",
     tools: "tool",
+    command: "command",
+    commands: "command",
+    view: "view",
+    views: "view",
+    app: "app",
+    apps: "app",
     project: "project",
     projects: "project",
+    link: "link",
+    links: "link",
     work: "work",
+    experience: "work",
+    experiences: "work",
     workitem: "work",
     workitems: "work",
     workflow: "workflow",

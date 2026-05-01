@@ -1938,7 +1938,18 @@ export function createCommandRegistry(): {
             published?: string;
             updated?: string;
             tags?: string[];
-            comments?: Array<{ name: string; message: string; at: string }>;
+            comments?: Array<{
+              id: number;
+              name: string;
+              message: string;
+              at: string;
+              replies?: Array<{
+                id: number;
+                name: string;
+                message: string;
+                at: string;
+              }>;
+            }>;
           }>;
         };
         const list = payload.posts ?? [];
@@ -1969,33 +1980,65 @@ export function createCommandRegistry(): {
           body: JSON.stringify({ action: "view", path: post.path }),
         }).catch(() => null);
         const comments = post.comments ?? [];
-        const commentHeading = `${comments.length} ${comments.length === 1 ? "comment" : "comments"}`;
+        const totalComments = comments.reduce(
+          (total, entry) => total + 1 + (entry.replies?.length ?? 0),
+          0,
+        );
+        const commentHeading = `${totalComments} ${totalComments === 1 ? "comment" : "comments"}`;
         const commentsHtml = comments.length
           ? comments
               .map((entry) => {
                 const at = entry.at ? new Date(entry.at).toLocaleString() : "";
+                const replies = entry.replies ?? [];
+                const repliesHtml = replies.length
+                  ? `<div class="post-reply-list">
+                      ${replies
+                        .map((reply) => {
+                          const replyAt = reply.at
+                            ? new Date(reply.at).toLocaleString()
+                            : "";
+                          return `<article class="post-reply-item">
+                            <p class="post-comment-meta"><strong>${escapeHtml(reply.name || "anonymous")}</strong>${replyAt ? ` <span>${escapeHtml(replyAt)}</span>` : ""}</p>
+                            <p class="post-comment-body">${escapeHtml(reply.message || "")}</p>
+                          </article>`;
+                        })
+                        .join("")}
+                    </div>`
+                  : "";
                 return `<article class="post-comment-item">
-                  <p class="post-comment-meta"><strong>${escapeHtml(entry.name || "anonymous")}</strong>${at ? ` <span>${escapeHtml(at)}</span>` : ""}</p>
+                  <div class="post-comment-head">
+                    <p class="post-comment-meta"><strong>${escapeHtml(entry.name || "anonymous")}</strong>${at ? ` <span>${escapeHtml(at)}</span>` : ""}</p>
+                    <button type="button" class="inline-link post-comment-reply-link" data-prepopulate-command="reply ${entry.id} ">reply</button>
+                  </div>
                   <p class="post-comment-body">${escapeHtml(entry.message || "")}</p>
+                  ${repliesHtml}
                 </article>`;
               })
               .join("")
           : '<p class="post-comment-empty">No comments yet.</p>';
         const articleHtml = renderPostMarkdownToHtml(post.markdown);
         const postIndex = list.findIndex((entry) => entry.path === post.path);
+        const previousPost = postIndex > 0 ? list[postIndex - 1] : undefined;
         const nextPost = postIndex >= 0 ? list[postIndex + 1] : undefined;
+        const previousButton = previousPost
+          ? `<button type="button" class="inline-link post-previous-link" data-command="post open ${escapeHtml(previousPost.slug)}">&lt;- previous</button>`
+          : '<span aria-hidden="true"></span>';
         const nextButton = nextPost
           ? `<button type="button" class="inline-link post-next-link" data-command="post open ${escapeHtml(nextPost.slug)}">next -&gt;</button>`
           : '<span aria-hidden="true"></span>';
         const html = `<article class="post-article-shell">
           <div class="post-article-nav">
             <button type="button" class="inline-link" data-command="posts">← back to posts</button>
+            ${previousButton}
             ${nextButton}
           </div>
           <div class="post-article-divider" aria-hidden="true"></div>
           <section class="post-article-body markdown-body">${articleHtml}</section>
           <section class="post-comment-section">
-            <h3 class="output-heading">${escapeHtml(commentHeading)}</h3>
+            <div class="post-comment-section-head">
+              <h3 class="output-heading">${escapeHtml(commentHeading)}</h3>
+              <button type="button" class="post-comments-action" data-prepopulate-command="comment ${escapeHtml(post.slug)} ">comment</button>
+            </div>
             <p class="post-comment-command">comment <code>${escapeHtml(post.slug)}</code> &lt;name&gt; &lt;message&gt;</p>
             ${commentsHtml}
           </section>
@@ -2176,6 +2219,12 @@ export function createCommandRegistry(): {
     usage: "comment <post> <name> <message>",
     group: "OS",
     description: "Add a viewer comment to a markdown post.",
+  });
+
+  addOsCommand("reply", {
+    usage: "reply <comment-id> <message>",
+    group: "OS",
+    description: "Reply to an existing comment on a markdown post.",
   });
 
   addOsCommand("new", {

@@ -517,7 +517,7 @@ const MANUALS = {
   tags: "tags [fragment]\nList all tags used in the portfolio OS, or show content for tags whose names match <fragment> (substring).",
   post: "post open <slug>\nFrontend command: load a full post from /api/posts. Use posts to browse the index.",
   config:
-    "config <set|get|list|reset> [key] [value]\nSession preferences: crt on|off (CRT scanline effect), theme, syntax_scheme (default|contrast|pastel), font_size, font, dark, name, environment, email, ai_model, ai_tools (true|false, Workers AI tool calling in chat), system_prompt.\nChanging name moves the simulated home to /home/<name>, creates it if needed, migrates .clpshrc and .clpsh_history from the previous home when present, and resets cwd to the new home.",
+    "config <set|get|list|reset> [key] [value]\nSession preferences: crt on|off (CRT scanline effect), theme, syntax_scheme (default|contrast|pastel), font_size, font, dark, name, environment, email, ai_model, ai_tools (true|false, Workers AI tool calling in chat), skill_use (true|false, allow AI skill retrieval/use when available), system_prompt.\nChanging name moves the simulated home to /home/<name>, creates it if needed, migrates .clpshrc and .clpsh_history from the previous home when present, and resets cwd to the new home.",
 };
 
 /** Command → taxonomy tags (shown on man pages); keep in sync with src/data/content-tags.ts COMMAND_TAGS */
@@ -4032,6 +4032,7 @@ function mergeConfigDefaults(raw) {
     crt: true,
     ai_model: "@cf/meta/llama-3.1-8b-instruct",
     ai_tools: false,
+    skill_use: false,
     system_prompt: "",
     ...(raw && typeof raw === "object" ? raw : {}),
   };
@@ -4874,6 +4875,7 @@ function renderGuestShellRc(config) {
     `export ENVIRONMENT=${String(c.environment || "pecunies")}`,
     `export AI_MODEL=${String(c.ai_model || "@cf/meta/llama-3.1-8b-instruct")}`,
     `export AI_TOOLS=${c.ai_tools === true || String(c.ai_tools).toLowerCase() === "true" ? "true" : "false"}`,
+    `export SKILL_USE=${c.skill_use === true || String(c.skill_use).toLowerCase() === "true" ? "true" : "false"}`,
     `export THEME=${String(c.theme || "orange")}`,
     `export SYNTAX_SCHEME=${String(c.syntax_scheme || "default")}`,
     `export DARK_MODE=${String(c.dark !== false)}`,

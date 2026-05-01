@@ -2070,6 +2070,14 @@ a.output-record:hover {
   padding-top: 8px;
 }
 
+.post-feed-empty {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  color: rgba(226, 232, 236, 0.66);
+}
+
 .record-title {
   margin: 0;
   color: rgba(255, 255, 255, 0.68);
@@ -2753,7 +2761,10 @@ a.output-record:hover {
 .identity-popover-input,
 .identity-popover-select,
 .identity-popover-textarea {
+  display: block;
+  box-sizing: border-box;
   width: 100%;
+  min-height: calc(1.58em + 16px);
   margin-bottom: 9px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 6px;
@@ -3060,12 +3071,18 @@ a.output-record:hover {
 .post-article-nav {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
+.post-previous-link,
 .post-next-link {
   margin-left: auto;
+}
+
+.post-previous-link + .post-next-link {
+  margin-left: 0;
 }
 
 .post-article-divider {
@@ -3093,6 +3110,13 @@ a.output-record:hover {
   border-top: 1px solid rgba(255, 255, 255, 0.09);
 }
 
+.post-comment-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .post-comment-command {
   margin: 0;
   color: rgba(226, 232, 236, 0.56);
@@ -3100,10 +3124,19 @@ a.output-record:hover {
 }
 
 .post-comment-item {
+  display: grid;
+  gap: 6px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
   padding: 8px 10px;
   background: rgba(255, 255, 255, 0.022);
+}
+
+.post-comment-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .post-comment-meta,
@@ -3125,8 +3158,26 @@ a.output-record:hover {
 
 .post-comment-body,
 .post-comment-empty {
-  margin-top: 4px;
   color: rgba(226, 232, 236, 0.68);
+}
+
+.post-comment-reply-link {
+  white-space: nowrap;
+  font-size: 0.68rem;
+  color: color-mix(in srgb, var(--accent) 78%, white 22%);
+}
+
+.post-reply-list {
+  display: grid;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+.post-reply-item {
+  margin-left: 14px;
+  padding: 8px 10px;
+  border-left: 1px solid color-mix(in srgb, var(--accent) 34%, rgba(255, 255, 255, 0.08));
+  border-radius: 0 8px 8px 0;
 }
 
 .pretty-output.markdown-body li::marker,

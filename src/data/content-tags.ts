@@ -165,6 +165,40 @@ export function findTagsMatching(fragment: string): string[] {
     .sort();
 }
 
+const TAG_DESCRIPTIONS: Record<string, string> = {
+  ai: 'AI-assisted behavior, prompts, model usage, and agent flows.',
+  architecture: 'Architecture notes, system structure, and implementation design.',
+  career: 'Professional history, work trajectory, and hiring context.',
+  chronology: 'Timeline-oriented views across work, projects, and education.',
+  cloud: 'Cloud platforms, infrastructure delivery, and hosted systems.',
+  contact: 'Direct contact paths, booking, and outbound communication.',
+  content: 'Posts, markdown content, files, and publishing surfaces.',
+  devops: 'Automation, operations, delivery workflows, and platform maintenance.',
+  document: 'Document-style outputs such as the resume and downloads.',
+  engineering: 'General engineering capability, implementation depth, and systems work.',
+  games: 'Interactive terminal games and related commands.',
+  links: 'External links, profiles, public endpoints, and outbound references.',
+  network: 'Networking tools, connectivity, reachability, and web traversal.',
+  portfolio: 'Portfolio-wide pages, files, and public identity surfaces.',
+  projects: 'Project pages, project files, and project-specific explainer commands.',
+  resume: 'Resume views, export paths, and professional profile material.',
+  skills: 'Skill views, skill files, and capability-related surfaces.',
+  social: 'Social presence, comments, and public engagement surfaces.',
+  system: 'Shell behavior, process/state inspection, and system-level utilities.',
+  terminal: 'Terminal-native commands, shell UI, and interactive workflow surfaces.',
+  theme: 'Theme palettes, palette switching, and visual shell modes.',
+  tooling: 'Utility commands, search, navigation, and operator productivity tools.',
+  wasm: 'WebAssembly-related project content and explainer commands.',
+  writing: 'Posts, writing workflows, and text publishing surfaces.',
+};
+
+export function getTagDescription(slug: string): string {
+  return (
+    TAG_DESCRIPTIONS[slug.toLowerCase()] ??
+    'Tag used to group related commands, views, files, and content.'
+  );
+}
+
 /** Tags shown on `man` pages (OS commands) */
 export const COMMAND_TAGS: Record<string, string[]> = {
   ask: ['ai', 'network', 'portfolio'],

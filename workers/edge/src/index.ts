@@ -38,6 +38,23 @@ type Env = {
   PECUNIES_SUDO_PASSWD?: string;
 };
 
+const RESERVED_API_ROUTES = new Set([
+  "auth",
+  "catalog",
+  "chat",
+  "fs",
+  "knowledge",
+  "mcp",
+  "meetings",
+  "metrics",
+  "os",
+  "posts",
+  "posts-sync",
+  "resume",
+  "rss",
+  "wiki",
+]);
+
 function json(data: unknown, status = 200): Response {
   return Response.json(data, {
     status,
@@ -177,11 +194,14 @@ function tagTopUses(tagSlug: string, entities: CatalogEntity[]): CatalogEntity[]
 
 async function handleCatalogApi(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  const forcedRoute = matchCatalogApiPath(url.pathname);
+  const forcedType = forcedRoute?.type ?? null;
+  const forcedSlug = forcedRoute?.slug ?? "";
   const all = await mergedCatalog(env);
 
   if (request.method === "GET") {
-    const type = normalizeCatalogType(url.searchParams.get("type") || "");
-    const slug = normalizeSlug(url.searchParams.get("slug") || "");
+    const type = forcedType ?? normalizeCatalogType(url.searchParams.get("type") || "");
+    const slug = forcedSlug || normalizeSlug(url.searchParams.get("slug") || "");
     if (!type) {
       return json({
         types: Object.values(CATALOG_TYPES).map((meta) => ({
@@ -226,7 +246,21 @@ async function handleCatalogApi(request: Request, env: Env): Promise<Response> {
   await ensureCatalogInfra(env);
 
   if (action === "update" || action === "create") {
-    const entity = body?.entity;
+    const entity = body?.entity ? { ...body.entity } : null;
+    if (forcedType) {
+      if (entity?.type && normalizeCatalogType(entity.type) !== forcedType) {
+        return json({ error: "Route type and entity type do not match." }, 400);
+      }
+      if (entity) {
+        entity.type = forcedType;
+      }
+    }
+    if (forcedSlug && entity?.slug && normalizeSlug(entity.slug) !== forcedSlug) {
+      return json({ error: "Route slug and entity slug do not match." }, 400);
+    }
+    if (forcedSlug && entity) {
+      entity.slug = forcedSlug;
+    }
     if (!entity?.type || !entity?.slug || !entity?.title) {
       return json({ error: "type, slug, and title are required." }, 400);
     }
@@ -255,8 +289,8 @@ async function handleCatalogApi(request: Request, env: Env): Promise<Response> {
   }
 
   if (action === "delete") {
-    const type = normalizeCatalogType(String(body?.type || ""));
-    const slug = normalizeSlug(String(body?.slug || ""));
+    const type = forcedType ?? normalizeCatalogType(String(body?.type || ""));
+    const slug = forcedSlug || normalizeSlug(String(body?.slug || ""));
     if (!type || !slug) return json({ error: "type and slug are required." }, 400);
     await database
       .prepare(
@@ -270,6 +304,19 @@ async function handleCatalogApi(request: Request, env: Env): Promise<Response> {
   }
 
   return json({ error: "Unsupported action." }, 400);
+}
+
+function matchCatalogApiPath(pathname: string): { type: CatalogEntityType; slug: string } | null {
+  const match = pathname.match(/^\/api\/([^/]+)(?:\/([^/]+))?\/?$/);
+  if (!match) return null;
+  const head = String(match[1] || "").trim().toLowerCase();
+  if (!head || RESERVED_API_ROUTES.has(head)) return null;
+  const type = normalizeCatalogType(head);
+  if (!type) return null;
+  return {
+    type,
+    slug: normalizeSlug(decodeURIComponent(String(match[2] || ""))),
+  };
 }
 
 async function handleAuthApi(request: Request, env: Env): Promise<Response> {
@@ -516,6 +563,9 @@ export default {
     }
     if (url.pathname === "/api/auth") {
       return handleAuthApi(request, env);
+    }
+    if (matchCatalogApiPath(url.pathname)) {
+      return handleCatalogApi(request, env);
     }
 
     const upstreamUrl = new URL(request.url);

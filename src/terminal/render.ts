@@ -208,6 +208,10 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
                 <input id="identity-ai-tools" type="checkbox" />
                 <span>AI tool use (chat)</span>
               </label>
+              <label class="identity-popover-toggle" for="identity-skill-use">
+                <input id="identity-skill-use" type="checkbox" />
+                <span>AI skill use</span>
+              </label>
               <label class="identity-popover-label" for="identity-system-prompt">System prompt injection</label>
               <textarea
                 class="identity-popover-textarea"
