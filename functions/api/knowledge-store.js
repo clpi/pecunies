@@ -1,4 +1,5 @@
 import { appendAiLog } from "./ai-log.js";
+export { DEFAULT_AI_MODEL } from "./ai-models.js";
 
 export const DEFAULT_MODEL = "@cf/meta/llama-3.1-8b-instruct";
 export const DEFAULT_EMBED_MODEL = "@cf/baai/bge-base-en-v1.5";
@@ -12,7 +13,7 @@ export function apiHeaders(extra = {}) {
   return {
     ...jsonHeaders,
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers":
       "authorization, content-type, cf-aig-authorization",
     ...extra,
@@ -123,7 +124,7 @@ export function datedPath(prefix, title, ext = "md", date = new Date()) {
   return normalizeFsPath(`${prefix}/${yyyy}/${mm}/${dd}/${slugify(title)}.${safeExt}`);
 }
 
-function db(env) {
+export function db(env) {
   return env.DB || env.POSTS_DB || null;
 }
 

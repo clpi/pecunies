@@ -632,9 +632,13 @@ export async function onRequestPost({ request, env }) {
     );
   }
 
-  appendHistory(state, sanitizeHistoryCommand(command));
+  appendHistory(state, sanitizeHistoryCommand(command, env));
   const parsed = parseCommand(stripRedirection(command).command);
-  logSystemEvent(state, `command: ${sanitizeHistoryCommand(command)}`, true);
+  logSystemEvent(
+    state,
+    `command: ${sanitizeHistoryCommand(command, env)}`,
+    true,
+  );
   await incrementCommandMetrics(env, parsed.name, request);
 
   if (body?.recordOnly) {
@@ -763,7 +767,7 @@ async function executeCommandText(
 
   const redirected = stripRedirection(commandText);
   const parsed = parseCommand(redirected.command);
-  const sudoPrefix = parseSudoPrefix(parsed);
+  const sudoPrefix = parseSudoPrefix(parsed, env);
 
   if (sudoPrefix.needsPassword) {
     state.pendingAuth = {
@@ -1298,7 +1302,7 @@ function stripRedirection(commandText) {
   };
 }
 
-function parseSudoPrefix(parsed) {
+function parseSudoPrefix(parsed, env) {
   if (parsed.name !== "sudo") {
     return {};
   }
@@ -1307,7 +1311,12 @@ function parseSudoPrefix(parsed) {
     return { needsPassword: false, command: "", password: "" };
   }
 
-  if (parsed.args.length >= 2 && looksLikePassword(parsed.args[0])) {
+  const expectedPassword = configuredSudoPassword(env);
+  if (
+    parsed.args.length >= 2 &&
+    expectedPassword &&
+    parsed.args[0] === expectedPassword
+  ) {
     const commandWithOriginalQuoting = parsed.rest
       .replace(/^\S+\s*/, "")
       .trim();
@@ -1321,10 +1330,6 @@ function parseSudoPrefix(parsed) {
     needsPassword: true,
     command: parsed.rest,
   };
-}
-
-function looksLikePassword(value) {
-  return value.length >= 6 && !/^\[/.test(value);
 }
 
 async function handlePendingAuth(command, state, env, visibleContext, request) {
@@ -1361,7 +1366,7 @@ async function verifyPassword(env, value) {
   const password = String(value || "").trim();
   if (!password) return false;
 
-  const localExpected = String(env.PECUNIES_SUDO_PASSWD || "").trim();
+  const localExpected = configuredSudoPassword(env);
   if (localExpected) {
     return password === localExpected;
   }
@@ -1373,9 +1378,28 @@ function hasRoot(state) {
   return Number(state.rootUntil ?? 0) > Date.now();
 }
 
-function sanitizeHistoryCommand(command) {
-  if (/^(sudo|su)\s+\S+/.test(command.trim())) {
-    return command.replace(/^(sudo|su)\s+\S+/, "$1 ********");
+function configuredSudoPassword(env) {
+  return String(env?.PECUNIES_SUDO_PASSWD || "").trim();
+}
+
+function sanitizeHistoryCommand(command, env) {
+  const parsed = parseCommand(stripRedirection(command).command);
+  const expectedPassword = configuredSudoPassword(env);
+
+  if (!expectedPassword) {
+    return command;
+  }
+
+  if (
+    parsed.name === "sudo" &&
+    parsed.args.length >= 2 &&
+    parsed.args[0] === expectedPassword
+  ) {
+    return command.replace(/^sudo\s+\S+/, "sudo ********");
+  }
+
+  if (parsed.name === "su" && parsed.args[0] === expectedPassword) {
+    return command.replace(/^su\s+\S+/, "su ********");
   }
 
   return command;

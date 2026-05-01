@@ -97,35 +97,6 @@ async function verifySudo(request, env) {
   return { ok: token === sudoPassword, configured: true };
 }
 
-export async function onRequestGet({ request, env }) {
-  await ensureCatalogInfra(env);
-  const d1 = catalogDb(env);
-  const url = new URL(request.url);
-  const type = url.searchParams.get("type");
-
-  if (!d1) {
-    return Response.json({ items: [], types: [] }, { headers: apiHeaders() });
-  }
-
-  let query = "SELECT * FROM catalog_entities";
-  const params = [];
-  
-  if (type) {
-    query += " WHERE type = ?";
-    params.push(type);
-  }
-  
-  query += " ORDER BY type, slug";
-
-  const result = await d1.prepare(query).bind(...params).all();
-  const items = (result.results || []).map(rowToEntity);
-
-  const typesResult = await d1.prepare("SELECT DISTINCT type FROM catalog_entities ORDER BY type").all();
-  const types = (typesResult.results || []).map(r => r.type);
-
-  return Response.json({ items, types }, { headers: apiHeaders() });
-}
-
 export async function onRequestPost({ request, env }) {
   await ensureCatalogInfra(env);
   const d1 = catalogDb(env);
@@ -137,17 +108,82 @@ export async function onRequestPost({ request, env }) {
   try {
     const body = await request.json();
     const action = body.action;
-    const sudo = await verifySudo(request, env);
-
-    if (action === "update" || action === "create") {
+    const sudoPassword = body.sudoPassword;
+    
+    // Verify sudo for write operations
+    if (sudoPassword) {
+      const sudo = await verifySudo(
+        { headers: { get: (name) => name === "authorization" ? `Bearer ${sudoPassword}` : null } },
+        env
+      );
       if (!sudo.ok) {
-        return errorJson("Unauthorized: sudo required", 401);
+        return errorJson("Unauthorized: invalid sudo password", 401);
+      }
+    }
+
+    if (action === "tag_add" || action === "tag_remove") {
+      const { type, slug, tag } = body;
+      if (!type || !slug || !tag) {
+        return errorJson("type, slug, and tag are required", 400);
       }
 
-      const entity = body.entity;
-      if (!entity || !entity.type || !entity.slug) {
-        return errorJson("entity with type and slug required", 400);
+      // Get the entity
+      const result = await d1.prepare(
+        "SELECT * FROM catalog_entities WHERE type = ? AND slug = ?"
+      ).bind(type, slug).first();
+
+      if (!result) {
+        return errorJson("Entity not found", 404);
       }
+
+      const entity = rowToEntity(result);
+      const tags = entity.tags || [];
+      
+      if (action === "tag_add") {
+        if (!tags.includes(tag)) {
+          tags.push(tag);
+        }
+      } else {
+        const idx = tags.indexOf(tag);
+        if (idx >= 0) {
+          tags.splice(idx, 1);
+        }
+      }
+
+      // Update the entity
+      await d1.prepare(`
+        UPDATE catalog_entities 
+        SET tags_json = ?, updated_at = ?
+        WHERE type = ? AND slug = ?
+      `).bind(JSON.stringify(tags), new Date().toISOString(), type, slug).run();
+
+      return Response.json({ 
+        entity: { ...entity, tags },
+        ok: true 
+      }, { headers: apiHeaders() });
+    }
+
+    if (action === "quick_link_create") {
+      const { title, url } = body;
+      if (!title || !url) {
+        return errorJson("title and url are required", 400);
+      }
+
+      const slug = String(title || "link")
+        .toLowerCase()
+        .replace(/https?:\/\//, "")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "") || `link-${Date.now().toString(36)}`;
+
+      const entity = {
+        type: "link",
+        slug,
+        title,
+        category: "quick-link",
+        description: `Quick link for ${title}.`,
+        tags: ["links", "quick-link"],
+        metadata: { url, source: "quick-link" },
+      };
 
       const row = entityToRow(entity);
       
@@ -161,12 +197,7 @@ export async function onRequestPost({ request, env }) {
           category = excluded.category,
           description = excluded.description,
           tags_json = excluded.tags_json,
-          years_of_experience = excluded.years_of_experience,
-          summary = excluded.summary,
-          avatar = excluded.avatar,
-          status = excluded.status,
           metadata_json = excluded.metadata_json,
-          details_json = excluded.details_json,
           updated_at = excluded.updated_at
       `).bind(
         row.type, row.slug, row.title, row.category, row.description, row.tags_json,
@@ -174,40 +205,61 @@ export async function onRequestPost({ request, env }) {
         row.metadata_json, row.details_json, row.updated_at
       ).run();
 
-      // Handle relations
-      if (entity.related && Array.isArray(entity.related)) {
-        await d1.prepare("DELETE FROM catalog_relations WHERE from_type = ? AND from_slug = ?")
-          .bind(entity.type, entity.slug).run();
-        
-        for (const rel of entity.related) {
-          await d1.prepare(`
-            INSERT INTO catalog_relations (from_type, from_slug, relation_type, to_type, to_slug, label)
-            VALUES (?, ?, 'related', ?, ?, ?)
-          `).bind(entity.type, entity.slug, rel.type, rel.slug, rel.label || null).run();
-        }
-      }
-
-      return Response.json({ entity: rowToEntity(row) }, { headers: apiHeaders() });
+      return Response.json({ entity: rowToEntity(row), ok: true }, { headers: apiHeaders() });
     }
 
-    if (action === "delete") {
-      if (!sudo.ok) {
-        return errorJson("Unauthorized: sudo required", 401);
+    if (action === "signal_upsert") {
+      const { signalId, signalLabel, signalValue, signalDetail, signalAccent, signalMode } = body;
+      if (!signalId || !signalLabel || !signalValue) {
+        return errorJson("signalId, signalLabel, and signalValue are required", 400);
       }
 
-      const type = body.type;
-      const slug = body.slug;
+      const entity = {
+        type: "signal",
+        slug: signalId,
+        title: signalLabel,
+        category: "metric",
+        description: signalValue,
+        tags: ["signal", "metric"],
+        metadata: {
+          value: signalValue,
+          detail: signalDetail || "",
+          accent: signalAccent || "",
+          mode: signalMode || 0,
+        },
+      };
+
+      const row = entityToRow(entity);
       
-      if (!type || !slug) {
-        return errorJson("type and slug required", 400);
+      await d1.prepare(`
+        INSERT INTO catalog_entities (
+          type, slug, title, category, description, tags_json, years_of_experience,
+          summary, avatar, status, metadata_json, details_json, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(type, slug) DO UPDATE SET
+          title = excluded.title,
+          category = excluded.category,
+          description = excluded.description,
+          tags_json = excluded.tags_json,
+          metadata_json = excluded.metadata_json,
+          updated_at = excluded.updated_at
+      `).bind(
+        row.type, row.slug, row.title, row.category, row.description, row.tags_json,
+        row.years_of_experience, row.summary, row.avatar, row.status,
+        row.metadata_json, row.details_json, row.updated_at
+      ).run();
+
+      return Response.json({ entity: rowToEntity(row), ok: true }, { headers: apiHeaders() });
+    }
+
+    if (action === "signal_delete") {
+      const { signalId } = body;
+      if (!signalId) {
+        return errorJson("signalId is required", 400);
       }
 
-      await d1.prepare("DELETE FROM catalog_entities WHERE type = ? AND slug = ?")
-        .bind(type, slug).run();
-      await d1.prepare("DELETE FROM catalog_relations WHERE from_type = ? AND from_slug = ?")
-        .bind(type, slug).run();
-      await d1.prepare("DELETE FROM catalog_relations WHERE to_type = ? AND to_slug = ?")
-        .bind(type, slug).run();
+      await d1.prepare("DELETE FROM catalog_entities WHERE type = 'signal' AND slug = ?")
+        .bind(signalId).run();
 
       return Response.json({ ok: true }, { headers: apiHeaders() });
     }
@@ -216,36 +268,6 @@ export async function onRequestPost({ request, env }) {
   } catch (e) {
     return errorJson(String(e.message || e), 500);
   }
-}
-
-export async function onRequestDelete({ request, env }) {
-  await ensureCatalogInfra(env);
-  const d1 = catalogDb(env);
-  const url = new URL(request.url);
-  const type = url.pathname.split("/").pop();
-  const slug = url.searchParams.get("slug");
-
-  if (!d1) {
-    return errorJson("Catalog database not available", 503);
-  }
-
-  const sudo = await verifySudo(request, env);
-  if (!sudo.ok) {
-    return errorJson("Unauthorized: sudo required", 401);
-  }
-
-  if (!type || !slug) {
-    return errorJson("type and slug required", 400);
-  }
-
-  await d1.prepare("DELETE FROM catalog_entities WHERE type = ? AND slug = ?")
-    .bind(type, slug).run();
-  await d1.prepare("DELETE FROM catalog_relations WHERE from_type = ? AND from_slug = ?")
-    .bind(type, slug).run();
-  await d1.prepare("DELETE FROM catalog_relations WHERE to_type = ? AND to_slug = ?")
-    .bind(type, slug).run();
-
-  return Response.json({ ok: true }, { headers: apiHeaders() });
 }
 
 export async function onRequest() {

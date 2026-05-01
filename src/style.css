@@ -2470,6 +2470,40 @@ a.output-record:hover {
   padding-top: 8px;
 }
 
+.post-preview-comment {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.55);
+  margin-bottom: 4px;
+}
+
+.post-preview-comment-author {
+  color: var(--accent);
+  font-size: 0.68rem;
+}
+
+.post-preview-comment-body {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.post-preview-reply-btn {
+  flex-shrink: 0;
+  font-size: 0.6rem;
+  padding: 2px 6px;
+}
+
+.post-comment-quick-btn {
+  font-size: 0.62rem;
+  padding: 2px 6px;
+}
+
 .post-feed-empty {
   margin: 0;
   padding: 10px 12px;
@@ -2481,6 +2515,21 @@ a.output-record:hover {
 .record-title {
   margin: 0;
   color: rgba(255, 255, 255, 0.68);
+}
+.record-title .category-link {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+.record-title .category-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .output-list {
@@ -2525,26 +2574,28 @@ a.output-record:hover {
   font-size: 0.62rem;
 }
 
-.action-chip--skill {
+.tag-list .action-chip--skill {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   border: none;
+  box-shadow: none;
   background: transparent;
 }
-.action-chip--skill::before {
+.tag-list .action-chip--skill::before {
   display: none;
 }
-.action-chip--skill:hover {
+.tag-list .action-chip--skill:hover {
   border: none;
+  box-shadow: none;
   background: rgba(255, 255, 255, 0.04);
 }
 
-.action-chip--skill .skill-chip-label {
+.tag-list .action-chip--skill .skill-chip-label {
   min-width: 0;
 }
 
-.action-chip--skill .skill-chip-years {
+.tag-list .action-chip--skill .skill-chip-years {
   margin-left: auto;
   font-size: 0.62rem;
   color: color-mix(in srgb, var(--accent) 55%, rgba(255, 255, 255, 0.55));

@@ -138,4 +138,3 @@ async function handleWrite(request, env) {
 export async function onRequest() {
   return errorJson("Method not allowed.", 405);
 }
-w;

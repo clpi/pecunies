@@ -12,15 +12,23 @@ import {
 } from "../../../src/data/catalog";
 import {
   collectAllPosts,
+  deletePostFromStorage,
+  ensureContentInfra,
   onRequestPost as handlePostsPost,
+  recordPostEvent,
+  syncPostToStorage,
 } from "../../../functions/api/posts.js";
+import { onRequestPost as handleMetricsPost } from "../../../functions/api/metrics.js";
 import {
   onRequestOptions as handleOsOptions,
   onRequestPost as handleOsPost,
 } from "../../../functions/api/os.js";
 import {
   onRequestGet as handleFsGet,
+  onRequestDelete as handleFsDelete,
   onRequestOptions as handleFsOptions,
+  onRequestPost as handleFsPost,
+  onRequestPut as handleFsPut,
 } from "../../../functions/api/fs.js";
 
 const APEX_HOST = "pecunies.com";
@@ -73,6 +81,23 @@ type HistoryRow = {
   executed_at: string;
 };
 
+type BookingRow = {
+  id: string;
+  email: string;
+  date: string;
+  time: string;
+  duration: string;
+  message: string;
+  meet_link: string;
+  created_at: string;
+};
+
+type ScoreEntry = {
+  name: string;
+  score: number;
+  at: string;
+};
+
 type AutocompleteRow = {
   prefix: string;
   scope: string;
@@ -84,6 +109,7 @@ const RESERVED_API_ROUTES = new Set([
   "auth",
   "catalog",
   "chat",
+  "crud",
   "fs",
   "knowledge",
   "mcp",
@@ -619,6 +645,1144 @@ function matchCatalogApiPath(
     type,
     slug: normalizeSlug(decodeURIComponent(String(match[2] || ""))),
   };
+}
+
+type CrudRoute = {
+  resource: string;
+  id: string;
+  tail: string[];
+};
+
+function matchCrudApiPath(pathname: string): CrudRoute | null {
+  if (!pathname.startsWith("/api/crud")) return null;
+  const segments = pathname
+    .replace(/^\/api\/crud\/?/, "")
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    });
+  return {
+    resource: String(segments[0] || "")
+      .trim()
+      .toLowerCase(),
+    id: String(segments[1] || "").trim(),
+    tail: segments.slice(2),
+  };
+}
+
+async function readJsonBody<T>(request: Request): Promise<T | null> {
+  if (request.method === "GET" || request.method === "HEAD") return null;
+  return (await request.json().catch(() => null)) as T | null;
+}
+
+async function readResponseJson<T>(response: Response): Promise<T | null> {
+  return (await response.clone().json().catch(() => null)) as T | null;
+}
+
+function makeInternalRequest(
+  request: Request,
+  path: string,
+  method = request.method,
+  body?: unknown,
+  searchParams?: URLSearchParams | Record<string, string | number | undefined>,
+): Request {
+  const url = new URL(request.url);
+  url.pathname = path;
+  url.search = "";
+  if (searchParams instanceof URLSearchParams) {
+    url.search = searchParams.toString();
+  } else if (searchParams) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(searchParams)) {
+      if (value === undefined || value === null || value === "") continue;
+      params.set(key, String(value));
+    }
+    url.search = params.toString();
+  }
+  const headers = new Headers(request.headers);
+  let payload: string | undefined;
+  if (body !== undefined) {
+    payload = JSON.stringify(body);
+    headers.set("Content-Type", "application/json");
+  }
+  return new Request(url.toString(), {
+    method,
+    headers,
+    body: payload,
+  });
+}
+
+function requireSudo(env: Env, password: string): Response | null {
+  if (!env.PECUNIES_SUDO_PASSWD || password !== env.PECUNIES_SUDO_PASSWD) {
+    return json({ error: "sudo authentication failed." }, 403);
+  }
+  return null;
+}
+
+function shellQuote(value: string): string {
+  return JSON.stringify(String(value ?? ""));
+}
+
+function sanitizeTags(tags: unknown): string[] {
+  return Array.from(
+    new Set(
+      (Array.isArray(tags) ? tags : [])
+        .map((tag) => normalizeSlug(String(tag || "")))
+        .filter(Boolean),
+    ),
+  );
+}
+
+function escapeFrontmatterValue(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+}
+
+function normalizePostDate(value: unknown, fallback: string): string {
+  const raw = String(value || "").trim();
+  if (!raw) return fallback;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime())
+    ? fallback
+    : parsed.toISOString().slice(0, 10);
+}
+
+function buildPostMarkdown(input: {
+  title: string;
+  body: string;
+  description?: string;
+  tags?: string[];
+  published?: string;
+  updated?: string;
+}): string {
+  const title = String(input.title || "Post").trim() || "Post";
+  const body = String(input.body || "").trim();
+  const published = normalizePostDate(
+    input.published,
+    new Date().toISOString().slice(0, 10),
+  );
+  const updated = normalizePostDate(input.updated, published);
+  const tags = sanitizeTags(input.tags);
+  const description = String(input.description || "")
+    .trim()
+    .slice(0, 360);
+  const lines = [
+    "---",
+    `title: "${escapeFrontmatterValue(title)}"`,
+    `date: ${published}`,
+    ...(updated && updated !== published ? [`updated: ${updated}`] : []),
+    ...(tags.length ? [`tags: ${tags.join(", ")}`] : []),
+    ...(description
+      ? [`description: "${escapeFrontmatterValue(description)}"`]
+      : []),
+    "---",
+    "",
+    `# ${title}`,
+    "",
+    body,
+  ];
+  return lines.join("\n").trimEnd();
+}
+
+function nextAvailablePostPath(
+  existingPaths: Set<string>,
+  title: string,
+  preferredSlug?: string,
+  published?: string,
+): string {
+  const baseSlug = normalizeSlug(preferredSlug || title) || "post";
+  const date = normalizePostDate(published, new Date().toISOString().slice(0, 10));
+  const [year, month, day] = date.split("-");
+  const prefix = `/posts/${year}/${month}/${day}`;
+  const basePath = `${prefix}/${baseSlug}.md`;
+  if (!existingPaths.has(basePath)) return basePath;
+  let suffix = 2;
+  while (existingPaths.has(`${prefix}/${baseSlug}-${suffix}.md`)) suffix += 1;
+  return `${prefix}/${baseSlug}-${suffix}.md`;
+}
+
+function matchesPostKey(
+  post: { path?: string; slug?: string },
+  key: string,
+): boolean {
+  const raw = String(key || "").trim();
+  if (!raw) return false;
+  if (raw.startsWith("/posts/")) return post.path === raw;
+  return normalizeSlug(post.slug || "") === normalizeSlug(raw);
+}
+
+async function findPostByKey(
+  env: Env,
+  key: string,
+): Promise<Record<string, unknown> | null> {
+  const posts = await collectAllPosts(env as never);
+  return (
+    (posts.find((entry) => matchesPostKey(entry as never, key)) as
+      | Record<string, unknown>
+      | undefined) ?? null
+  );
+}
+
+function defaultLeaderboard(): Record<string, ScoreEntry[]> {
+  return {
+    "2048": [],
+    chess: [],
+    minesweeper: [],
+    jobquest: [],
+  };
+}
+
+async function readLeaderboard(env: Env): Promise<Record<string, ScoreEntry[]>> {
+  if (!env.PORTFOLIO_OS) return defaultLeaderboard();
+  const board = (await env.PORTFOLIO_OS.get("leaderboard:global", {
+    type: "json",
+  })) as Record<string, unknown> | null;
+  const fallback = defaultLeaderboard();
+  return Object.fromEntries(
+    Object.keys(fallback).map((game) => [
+      game,
+      Array.isArray(board?.[game])
+        ? (board?.[game] as ScoreEntry[])
+        : fallback[game],
+    ]),
+  ) as Record<string, ScoreEntry[]>;
+}
+
+async function writeLeaderboard(
+  env: Env,
+  board: Record<string, ScoreEntry[]>,
+): Promise<void> {
+  if (!env.PORTFOLIO_OS) return;
+  await env.PORTFOLIO_OS.put("leaderboard:global", JSON.stringify(board));
+}
+
+async function handleCrudApi(
+  request: Request,
+  env: Env,
+  url: URL,
+): Promise<Response> {
+  const route = matchCrudApiPath(url.pathname);
+  if (!route?.resource) return json({ error: "CRUD resource required." }, 400);
+
+  const body = (await readJsonBody<Record<string, unknown>>(request)) ?? {};
+  const resource = route.resource;
+  const id = route.id;
+  const catalogType = normalizeCatalogType(resource);
+
+  if (resource === "catalog") {
+    if (request.method !== "GET") {
+      return json({ error: "Method not allowed." }, 405);
+    }
+    const items = await mergedCatalog(env);
+    return json({
+      items,
+      types: Object.values(CATALOG_TYPES).map((meta) => ({
+        ...meta,
+        count: items.filter((entity) => entity.type === meta.type).length,
+      })),
+    });
+  }
+
+  if (catalogType) {
+    if (request.method === "GET") {
+      return handleCatalogApi(
+        makeInternalRequest(
+          request,
+          id ? `/api/${catalogType}/${encodeURIComponent(id)}` : "/api/catalog",
+          "GET",
+          undefined,
+          id ? undefined : { type: catalogType },
+        ),
+        env,
+      );
+    }
+
+    if (request.method === "POST" || request.method === "PUT") {
+      const entity = {
+        ...(((body.entity as Record<string, unknown> | undefined) ?? body) as Record<
+          string,
+          unknown
+        >),
+        type: catalogType,
+        ...(id ? { slug: id } : {}),
+      } as CatalogEntity;
+      return handleCatalogApi(
+        makeInternalRequest(
+          request,
+          id ? `/api/${catalogType}/${encodeURIComponent(id)}` : `/api/${catalogType}`,
+          "POST",
+          {
+            action: request.method === "POST" ? "create" : "update",
+            entity,
+            sudoPassword: String(body.sudoPassword || ""),
+          },
+        ),
+        env,
+      );
+    }
+
+    if (request.method === "DELETE") {
+      if (!id) return json({ error: "Entity slug required." }, 400);
+      return handleCatalogApi(
+        makeInternalRequest(
+          request,
+          `/api/${catalogType}/${encodeURIComponent(id)}`,
+          "POST",
+          {
+            action: "delete",
+            type: catalogType,
+            slug: id,
+            sudoPassword: String(body.sudoPassword || ""),
+          },
+        ),
+        env,
+      );
+    }
+
+    return json({ error: "Method not allowed." }, 405);
+  }
+
+  if (resource === "users") {
+    const database = db(env);
+    if (!database) return json({ error: "D1 binding unavailable." }, 500);
+    await ensureCatalogInfra(env);
+
+    if (request.method === "GET") {
+      if (!id) {
+        return handleAuthApi(makeInternalRequest(request, "/api/auth"), env);
+      }
+      const users = await dynamicUsers(env);
+      const item =
+        users.find(
+          (user) =>
+            user.slug === normalizeSlug(id) ||
+            normalizeSlug(user.metadata?.email || "") === normalizeSlug(id),
+        ) ?? null;
+      if (!item) return json({ error: "Not found." }, 404);
+      return json({ item });
+    }
+
+    if (request.method === "POST") {
+      return handleAuthApi(
+        makeInternalRequest(request, "/api/auth", "POST", {
+          action: "signup",
+          email: body.email,
+          username: body.username,
+          fullName: body.fullName,
+        }),
+        env,
+      );
+    }
+
+    if (request.method === "PUT") {
+      if (!id) return json({ error: "User id required." }, 400);
+      const sudo = requireSudo(env, String(body.sudoPassword || ""));
+      if (sudo) return sudo;
+      const lookup = await database
+        .prepare(
+          `SELECT id, email, username, full_name, created_at, updated_at
+           FROM users
+           WHERE username = ? OR email = ?
+           LIMIT 1`,
+        )
+        .bind(id, id)
+        .all<UserRow>();
+      const row = (lookup.results?.[0] ?? null) as UserRow | null;
+      if (!row) return json({ error: "Not found." }, 404);
+      const email = String(body.email || row.email)
+        .trim()
+        .toLowerCase();
+      const username = normalizeSlug(String(body.username || row.username));
+      const fullName = String(body.fullName || row.full_name || username)
+        .trim()
+        .slice(0, 120);
+      await database
+        .prepare(
+          `UPDATE users
+           SET email = ?, username = ?, full_name = ?, updated_at = ?
+           WHERE id = ?`,
+        )
+        .bind(email, username, fullName, new Date().toISOString(), row.id)
+        .run();
+      const item =
+        (await dynamicUsers(env)).find((user) => user.slug === username) ?? null;
+      return json({ ok: true, item });
+    }
+
+    if (request.method === "DELETE") {
+      if (!id) return json({ error: "User id required." }, 400);
+      const sudo = requireSudo(env, String(body.sudoPassword || ""));
+      if (sudo) return sudo;
+      await database
+        .prepare(`DELETE FROM users WHERE username = ? OR email = ?`)
+        .bind(id, id)
+        .run();
+      return json({ ok: true });
+    }
+
+    return json({ error: "Method not allowed." }, 405);
+  }
+
+  if (resource === "comments") {
+    const database = db(env);
+    if (!database) return json({ error: "D1 binding unavailable." }, 500);
+    await ensureCatalogInfra(env);
+
+    if (request.method === "GET") {
+      if (!id) {
+        const params = new URLSearchParams();
+        if (body.targetType || url.searchParams.get("targetType")) {
+          params.set(
+            "type",
+            String(body.targetType || url.searchParams.get("targetType") || ""),
+          );
+        }
+        if (body.targetSlug || url.searchParams.get("targetSlug")) {
+          params.set(
+            "slug",
+            String(body.targetSlug || url.searchParams.get("targetSlug") || ""),
+          );
+        }
+        if (body.parentId || url.searchParams.get("parentId")) {
+          params.set(
+            "parent",
+            String(body.parentId || url.searchParams.get("parentId") || ""),
+          );
+        }
+        return handleCommentsApi(
+          makeInternalRequest(request, "/api/comments", "GET", undefined, params),
+          env,
+          new URL(`https://${API_HOST}/api/comments?${params.toString()}`),
+        );
+      }
+      const row = (
+        await database
+          .prepare(
+            `SELECT id, target_type, target_slug, parent_id, author_username, author_email, body, created_at
+             FROM comments
+             WHERE id = ? AND deleted = 0
+             LIMIT 1`,
+          )
+          .bind(id)
+          .all<CommentRow>()
+      ).results?.[0] as CommentRow | undefined;
+      if (!row) return json({ error: "Not found." }, 404);
+      return json({
+        item: {
+          id: row.id,
+          targetType: row.target_type,
+          targetSlug: row.target_slug,
+          parentId: row.parent_id,
+          author: row.author_username,
+          body: row.body,
+          createdAt: row.created_at,
+        },
+      });
+    }
+
+    if (request.method === "POST") {
+      return handleCommentsApi(
+        makeInternalRequest(request, "/api/comments", "POST", {
+          action: "create",
+          targetType: body.targetType,
+          targetSlug: body.targetSlug,
+          parentId: body.parentId,
+          authorUsername: body.authorUsername,
+          authorEmail: body.authorEmail,
+          body: body.body,
+        }),
+        env,
+        new URL("https://api.pecunies.com/api/comments"),
+      );
+    }
+
+    if (request.method === "PUT") {
+      if (!id) return json({ error: "Comment id required." }, 400);
+      const sudo = requireSudo(env, String(body.sudoPassword || ""));
+      if (sudo) return sudo;
+      const text = String(body.body || "")
+        .trim()
+        .slice(0, 4000);
+      if (!text) return json({ error: "body required." }, 400);
+      await database
+        .prepare(`UPDATE comments SET body = ? WHERE id = ? AND deleted = 0`)
+        .bind(text, id)
+        .run();
+      return handleCrudApi(
+        makeInternalRequest(request, `/api/crud/comments/${encodeURIComponent(id)}`),
+        env,
+        new URL(`https://${API_HOST}/api/crud/comments/${encodeURIComponent(id)}`),
+      );
+    }
+
+    if (request.method === "DELETE") {
+      if (!id) return json({ error: "Comment id required." }, 400);
+      return handleCommentsApi(
+        makeInternalRequest(request, "/api/comments", "POST", {
+          action: "delete",
+          commentId: id,
+          sudoPassword: body.sudoPassword,
+        }),
+        env,
+        new URL("https://api.pecunies.com/api/comments"),
+      );
+    }
+
+    return json({ error: "Method not allowed." }, 405);
+  }
+
+  if (resource === "history") {
+    const database = db(env);
+    if (!database) return json({ error: "D1 binding unavailable." }, 500);
+    await ensureCatalogInfra(env);
+
+    if (request.method === "GET") {
+      if (!id) {
+        const params = {
+          session:
+            String(body.sessionId || url.searchParams.get("session") || "").trim(),
+          limit: String(body.limit || url.searchParams.get("limit") || "50").trim(),
+        };
+        return handleHistoryApi(
+          makeInternalRequest(request, "/api/history", "GET", undefined, params),
+          env,
+          new URL(
+            `https://${API_HOST}/api/history?session=${encodeURIComponent(params.session)}&limit=${encodeURIComponent(params.limit)}`,
+          ),
+        );
+      }
+      const row = (
+        await database
+          .prepare(
+            `SELECT id, session_id, command, executed_at
+             FROM command_history
+             WHERE id = ?
+             LIMIT 1`,
+          )
+          .bind(id)
+          .all<HistoryRow>()
+      ).results?.[0] as HistoryRow | undefined;
+      if (!row) return json({ error: "Not found." }, 404);
+      return json({ item: row });
+    }
+
+    if (request.method === "POST") {
+      return handleHistoryApi(
+        makeInternalRequest(request, "/api/history", "POST", {
+          sessionId: body.sessionId,
+          command: body.command,
+        }),
+        env,
+        new URL("https://api.pecunies.com/api/history"),
+      );
+    }
+
+    if (request.method === "PUT") {
+      if (!id) return json({ error: "History id required." }, 400);
+      const sudo = requireSudo(env, String(body.sudoPassword || ""));
+      if (sudo) return sudo;
+      const command = String(body.command || "")
+        .trim()
+        .slice(0, 2000);
+      if (!command) return json({ error: "command required." }, 400);
+      await database
+        .prepare(`UPDATE command_history SET command = ? WHERE id = ?`)
+        .bind(command, id)
+        .run();
+      return json({ ok: true, item: { id, command } });
+    }
+
+    if (request.method === "DELETE") {
+      if (id) {
+        const sudo = requireSudo(env, String(body.sudoPassword || ""));
+        if (sudo) return sudo;
+        await database.prepare(`DELETE FROM command_history WHERE id = ?`).bind(id).run();
+        return json({ ok: true });
+      }
+      const sessionId = String(body.sessionId || url.searchParams.get("session") || "");
+      if (!sessionId) return json({ error: "sessionId required." }, 400);
+      await database
+        .prepare(`DELETE FROM command_history WHERE session_id = ?`)
+        .bind(sessionId)
+        .run();
+      return json({ ok: true });
+    }
+
+    return json({ error: "Method not allowed." }, 405);
+  }
+
+  if (resource === "content") {
+    const database = db(env);
+    if (!database) return json({ error: "D1 binding unavailable." }, 500);
+    await database
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS content_overrides (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+      )
+      .run();
+
+    if (request.method === "GET") {
+      if (!id) {
+        return handleContentApi(makeInternalRequest(request, "/api/content"), env);
+      }
+      const row = (
+        await database
+          .prepare(`SELECT key, value FROM content_overrides WHERE key = ? LIMIT 1`)
+          .bind(id)
+          .all<{ key: string; value: string }>()
+      ).results?.[0];
+      if (!row) return json({ error: "Not found." }, 404);
+      return json({ item: row });
+    }
+
+    if (request.method === "POST" || request.method === "PUT") {
+      const key = String(id || body.key || "").trim();
+      if (!key) return json({ error: "key required." }, 400);
+      return handleContentApi(
+        makeInternalRequest(request, "/api/content", "PUT", {
+          key,
+          value: body.value,
+        }),
+        env,
+      );
+    }
+
+    if (request.method === "DELETE") {
+      if (!id) return json({ error: "key required." }, 400);
+      await database
+        .prepare(`DELETE FROM content_overrides WHERE key = ?`)
+        .bind(id)
+        .run();
+      return json({ ok: true });
+    }
+
+    return json({ error: "Method not allowed." }, 405);
+  }
+
+  if (resource === "config") {
+    const sessionId = String(
+      url.searchParams.get("sessionId") || body.sessionId || "",
+    ).trim();
+    if (!sessionId) return json({ error: "sessionId required." }, 400);
+
+    if (request.method === "GET") {
+      const response = await handleOsPost({
+        request: makeInternalRequest(request, "/api/os", "POST", {
+          sessionId,
+          command: "config list",
+        }),
+        env,
+      } as never);
+      const payload = await readResponseJson<{
+        config?: Record<string, unknown>;
+        cwd?: string;
+      }>(response);
+      return json({
+        config: payload?.config ?? {},
+        cwd: payload?.cwd ?? "",
+      });
+    }
+
+    if (request.method === "POST" || request.method === "PUT") {
+      const values =
+        body.values && typeof body.values === "object"
+          ? (body.values as Record<string, unknown>)
+          : body.key
+            ? { [String(body.key)]: body.value }
+            : {};
+      for (const [key, value] of Object.entries(values)) {
+        const response = await handleOsPost({
+          request: makeInternalRequest(request, "/api/os", "POST", {
+            sessionId,
+            command: `config set ${key} ${shellQuote(String(value ?? ""))}`,
+          }),
+          env,
+        } as never);
+        if (!response.ok) {
+          const payload = await readResponseJson<{ error?: string }>(response);
+          return json(
+            { error: payload?.error || "Failed to update config." },
+            response.status,
+          );
+        }
+      }
+      return handleCrudApi(
+        makeInternalRequest(request, "/api/crud/config", "GET", undefined, {
+          sessionId,
+        }),
+        env,
+        new URL(`https://${API_HOST}/api/crud/config?sessionId=${encodeURIComponent(sessionId)}`),
+      );
+    }
+
+    if (request.method === "DELETE") {
+      const response = await handleOsPost({
+        request: makeInternalRequest(request, "/api/os", "POST", {
+          sessionId,
+          command: "config reset",
+        }),
+        env,
+      } as never);
+      const payload = await readResponseJson<{
+        config?: Record<string, unknown>;
+        cwd?: string;
+        error?: string;
+      }>(response);
+      if (!response.ok) {
+        return json(
+          { error: payload?.error || "Failed to reset config." },
+          response.status,
+        );
+      }
+      return json({
+        ok: true,
+        config: payload?.config ?? {},
+        cwd: payload?.cwd ?? "",
+      });
+    }
+
+    return json({ error: "Method not allowed." }, 405);
+  }
+
+  if (resource === "files") {
+    if (request.method === "GET") {
+      const path = String(id || url.searchParams.get("path") || "").trim();
+      const prefix = String(body.prefix || url.searchParams.get("prefix") || "").trim();
+      const includeContent = String(
+        body.includeContent || url.searchParams.get("content") || "",
+      ).trim();
+      const params = path
+        ? { path }
+        : {
+            prefix: prefix || "/",
+            content: includeContent === "true" ? "true" : undefined,
+          };
+      const response = await handleFsGet({
+        request: makeInternalRequest(request, "/api/fs", "GET", undefined, params),
+        env,
+      } as never);
+      const payload = await readResponseJson<unknown>(response);
+      return json(payload ?? {}, response.status);
+    }
+
+    if (request.method === "POST") {
+      const response = await handleFsPost({
+        request: makeInternalRequest(request, "/api/fs", "POST", {
+          path: String(body.path || id || ""),
+          content: body.content ?? body.markdown ?? "",
+          title: body.title,
+          kind: body.kind,
+          source: body.source,
+          metadata: body.metadata,
+        }),
+        env,
+      } as never);
+      const payload = await readResponseJson<unknown>(response);
+      return json(payload ?? {}, response.status);
+    }
+
+    if (request.method === "PUT") {
+      const response = await handleFsPut({
+        request: makeInternalRequest(request, "/api/fs", "PUT", {
+          path: String(body.path || id || ""),
+          content: body.content ?? body.markdown ?? "",
+          title: body.title,
+          kind: body.kind,
+          source: body.source,
+          metadata: body.metadata,
+        }),
+        env,
+      } as never);
+      const payload = await readResponseJson<unknown>(response);
+      return json(payload ?? {}, response.status);
+    }
+
+    if (request.method === "DELETE") {
+      const path = String(body.path || id || "").trim();
+      if (!path) return json({ error: "path required." }, 400);
+      const response = await handleFsDelete({
+        request: makeInternalRequest(
+          request,
+          "/api/fs",
+          "DELETE",
+          undefined,
+          { path },
+        ),
+        env,
+      } as never);
+      const payload = await readResponseJson<unknown>(response);
+      return json(payload ?? {}, response.status);
+    }
+
+    return json({ error: "Method not allowed." }, 405);
+  }
+
+  if (resource === "posts") {
+    if (request.method === "GET") {
+      if (!id) return handlePostsApi(makeInternalRequest(request, "/api/posts"), env);
+      const post = await findPostByKey(env, id);
+      if (!post) return json({ error: "Not found." }, 404);
+      return json({ item: post });
+    }
+
+    if (request.method === "POST" || request.method === "PUT") {
+      const sudo = requireSudo(env, String(body.sudoPassword || ""));
+      if (sudo) return sudo;
+      const existing = id ? await findPostByKey(env, id) : null;
+      if (id && !existing) return json({ error: "Not found." }, 404);
+      const allPosts = await collectAllPosts(env as never);
+      const existingPaths = new Set(
+        allPosts.map((entry) => String((entry as Record<string, unknown>).path || "")),
+      );
+      const title = String(body.title || existing?.title || "Post")
+        .trim()
+        .slice(0, 200);
+      const currentBody = String(existing?.body || existing?.markdown || "").trim();
+      const nextBody = String(
+        body.markdown || body.content || body.body || currentBody,
+      );
+      const description = String(
+        body.description || existing?.description || nextBody.slice(0, 240),
+      ).trim();
+      const tags = sanitizeTags(body.tags || existing?.tags || []);
+      const published = normalizePostDate(
+        body.published || body.date || existing?.published,
+        new Date().toISOString().slice(0, 10),
+      );
+      const updated = normalizePostDate(
+        body.updated || new Date().toISOString().slice(0, 10),
+        published,
+      );
+      const path =
+        String(body.path || existing?.path || "").trim() ||
+        nextAvailablePostPath(
+          existingPaths,
+          title,
+          String(body.slug || ""),
+          published,
+        );
+      if (!path.startsWith("/posts/") || !path.endsWith(".md")) {
+        return json({ error: "post path must be under /posts and end in .md" }, 400);
+      }
+      const markdown = buildPostMarkdown({
+        title,
+        body: nextBody,
+        description,
+        tags,
+        published,
+        updated,
+      });
+      await syncPostToStorage(env as never, path, markdown);
+      const item = await findPostByKey(env, path);
+      return json({ ok: true, item });
+    }
+
+    if (request.method === "DELETE") {
+      if (!id) return json({ error: "Post id required." }, 400);
+      const sudo = requireSudo(env, String(body.sudoPassword || ""));
+      if (sudo) return sudo;
+      const existing = await findPostByKey(env, id);
+      if (!existing?.path) return json({ error: "Not found." }, 404);
+      await deletePostFromStorage(env as never, String(existing.path));
+      return json({ ok: true });
+    }
+
+    return json({ error: "Method not allowed." }, 405);
+  }
+
+  if (resource === "bookings") {
+    const database = db(env);
+    if (!database) return json({ error: "D1 binding unavailable." }, 500);
+    await ensureContentInfra(env as never);
+
+    if (request.method === "GET") {
+      const sudo = requireSudo(env, String(body.sudoPassword || ""));
+      if (sudo) return sudo;
+      if (!id) {
+        const limit = Math.min(
+          200,
+          parseInt(String(url.searchParams.get("limit") || body.limit || "50"), 10) ||
+            50,
+        );
+        const rows = (
+          await database
+            .prepare(
+              `SELECT id, email, date, time, duration, message, meet_link, created_at
+               FROM bookings
+               ORDER BY created_at DESC
+               LIMIT ?`,
+            )
+            .bind(limit)
+            .all<BookingRow>()
+        ).results as BookingRow[];
+        return json({
+          items: rows.map((row) => ({
+            id: row.id,
+            email: row.email,
+            date: row.date,
+            time: row.time,
+            duration: row.duration,
+            message: row.message,
+            meetLink: row.meet_link,
+            createdAt: row.created_at,
+          })),
+        });
+      }
+      const row = (
+        await database
+          .prepare(
+            `SELECT id, email, date, time, duration, message, meet_link, created_at
+             FROM bookings
+             WHERE id = ?
+             LIMIT 1`,
+          )
+          .bind(id)
+          .all<BookingRow>()
+      ).results?.[0] as BookingRow | undefined;
+      if (!row) return json({ error: "Not found." }, 404);
+      return json({
+        item: {
+          id: row.id,
+          email: row.email,
+          date: row.date,
+          time: row.time,
+          duration: row.duration,
+          message: row.message,
+          meetLink: row.meet_link,
+          createdAt: row.created_at,
+        },
+      });
+    }
+
+    if (request.method === "POST") {
+      const email = String(body.email || "")
+        .trim()
+        .slice(0, 255);
+      const date = String(body.date || "")
+        .trim()
+        .slice(0, 64);
+      const time = String(body.time || "")
+        .trim()
+        .slice(0, 64);
+      const duration = String(body.duration || "")
+        .trim()
+        .slice(0, 64);
+      const message = String(body.message || "")
+        .trim()
+        .slice(0, 2000);
+      const meetLink = String(body.meetLink || "")
+        .trim()
+        .slice(0, 500);
+      if (!email || !date || !time || !duration || !message || !meetLink) {
+        return json(
+          { error: "email, date, time, duration, message, and meetLink are required." },
+          400,
+        );
+      }
+      const bookingId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const createdAt = new Date().toISOString();
+      await database
+        .prepare(
+          `INSERT INTO bookings (id, email, date, time, duration, message, meet_link, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(bookingId, email, date, time, duration, message, meetLink, createdAt)
+        .run();
+      return json({
+        ok: true,
+        item: {
+          id: bookingId,
+          email,
+          date,
+          time,
+          duration,
+          message,
+          meetLink,
+          createdAt,
+        },
+      });
+    }
+
+    if (request.method === "PUT") {
+      if (!id) return json({ error: "Booking id required." }, 400);
+      const sudo = requireSudo(env, String(body.sudoPassword || ""));
+      if (sudo) return sudo;
+      const existing = (
+        await database
+          .prepare(`SELECT id FROM bookings WHERE id = ? LIMIT 1`)
+          .bind(id)
+          .all<{ id: string }>()
+      ).results?.[0];
+      if (!existing) return json({ error: "Not found." }, 404);
+      const email = String(body.email || "")
+        .trim()
+        .slice(0, 255);
+      const date = String(body.date || "")
+        .trim()
+        .slice(0, 64);
+      const time = String(body.time || "")
+        .trim()
+        .slice(0, 64);
+      const duration = String(body.duration || "")
+        .trim()
+        .slice(0, 64);
+      const message = String(body.message || "")
+        .trim()
+        .slice(0, 2000);
+      const meetLink = String(body.meetLink || "")
+        .trim()
+        .slice(0, 500);
+      await database
+        .prepare(
+          `UPDATE bookings
+           SET email = COALESCE(NULLIF(?, ''), email),
+               date = COALESCE(NULLIF(?, ''), date),
+               time = COALESCE(NULLIF(?, ''), time),
+               duration = COALESCE(NULLIF(?, ''), duration),
+               message = COALESCE(NULLIF(?, ''), message),
+               meet_link = COALESCE(NULLIF(?, ''), meet_link)
+           WHERE id = ?`,
+        )
+        .bind(email, date, time, duration, message, meetLink, id)
+        .run();
+      return handleCrudApi(
+        makeInternalRequest(request, `/api/crud/bookings/${encodeURIComponent(id)}`),
+        env,
+        new URL(`https://${API_HOST}/api/crud/bookings/${encodeURIComponent(id)}`),
+      );
+    }
+
+    if (request.method === "DELETE") {
+      if (!id) return json({ error: "Booking id required." }, 400);
+      const sudo = requireSudo(env, String(body.sudoPassword || ""));
+      if (sudo) return sudo;
+      await database.prepare(`DELETE FROM bookings WHERE id = ?`).bind(id).run();
+      return json({ ok: true });
+    }
+
+    return json({ error: "Method not allowed." }, 405);
+  }
+
+  if (resource === "scores") {
+    if (request.method === "GET") {
+      const board = await readLeaderboard(env);
+      if (!id) return json({ items: board });
+      return json({ items: board[id] ?? [] });
+    }
+
+    if (request.method === "POST") {
+      const game = String(body.game || "").trim();
+      const score = Number(body.score);
+      const name = String(body.name || "anonymous")
+        .trim()
+        .slice(0, 40);
+      if (!game || !Number.isFinite(score)) {
+        return json({ error: "game and numeric score are required." }, 400);
+      }
+      const board = await readLeaderboard(env);
+      const entries = Array.isArray(board[game]) ? board[game] : [];
+      entries.push({
+        name: name || "anonymous",
+        score,
+        at: new Date().toISOString().slice(0, 10),
+      });
+      board[game] = entries
+        .sort((a, b) => Number(b.score) - Number(a.score))
+        .slice(0, 10);
+      await writeLeaderboard(env, board);
+      return json({ ok: true, items: board[game] });
+    }
+
+    if (request.method === "PUT") {
+      if (!id) return json({ error: "game id required." }, 400);
+      const sudo = requireSudo(env, String(body.sudoPassword || ""));
+      if (sudo) return sudo;
+      const items = Array.isArray(body.items) ? body.items : [];
+      const normalized = items
+        .map((entry) => ({
+          name: String((entry as Record<string, unknown>).name || "anonymous")
+            .trim()
+            .slice(0, 40),
+          score: Number((entry as Record<string, unknown>).score || 0),
+          at:
+            String((entry as Record<string, unknown>).at || "").trim() ||
+            new Date().toISOString().slice(0, 10),
+        }))
+        .filter((entry) => Number.isFinite(entry.score))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 10);
+      const board = await readLeaderboard(env);
+      board[id] = normalized;
+      await writeLeaderboard(env, board);
+      return json({ ok: true, items: board[id] });
+    }
+
+    if (request.method === "DELETE") {
+      const sudo = requireSudo(env, String(body.sudoPassword || ""));
+      if (sudo) return sudo;
+      const board = await readLeaderboard(env);
+      if (id) board[id] = [];
+      else {
+        for (const key of Object.keys(board)) board[key] = [];
+      }
+      await writeLeaderboard(env, board);
+      return json({ ok: true, items: id ? board[id] : board });
+    }
+
+    return json({ error: "Method not allowed." }, 405);
+  }
+
+  if (resource === "post-events") {
+    if (request.method !== "POST") {
+      return json({ error: "Method not allowed." }, 405);
+    }
+    const action = String(body.action || "view")
+      .trim()
+      .toLowerCase();
+    const key = String(body.path || body.slug || body.post || "").trim();
+    const post = await findPostByKey(env, key);
+    if (!post?.path) return json({ error: "Not found." }, 404);
+    await recordPostEvent(env as never, String(post.path), action, {
+      reaction: body.reaction,
+      name: body.name,
+      message: body.message,
+      kind: body.kind,
+      parentId: body.parentId,
+    });
+    return json({ ok: true });
+  }
+
+  if (resource === "metrics") {
+    if (request.method !== "POST") {
+      return json({ error: "Method not allowed." }, 405);
+    }
+    const response = await handleMetricsPost({
+      request: makeInternalRequest(request, "/api/metrics", "POST", {
+        sessionId: body.sessionId,
+        route: body.route,
+      }),
+      env,
+    } as never);
+    const headers = new Headers(response.headers);
+    headers.set("Access-Control-Allow-Origin", "*");
+    headers.set(
+      "Access-Control-Allow-Methods",
+      "GET, POST, PUT, DELETE, OPTIONS",
+    );
+    headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    headers.set("Cache-Control", "no-store");
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+
+  return json({ error: "Unknown CRUD resource." }, 404);
 }
 
 async function handleAuthApi(request: Request, env: Env): Promise<Response> {
@@ -1357,6 +2521,9 @@ export default {
 
     if (url.pathname === "/api/catalog") {
       return handleCatalogApi(request, env);
+    }
+    if (url.pathname.startsWith("/api/crud")) {
+      return handleCrudApi(request, env, url);
     }
     if (url.pathname === "/api/auth") {
       return handleAuthApi(request, env);

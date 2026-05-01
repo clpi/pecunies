@@ -1,4 +1,4 @@
-import { apiHeaders, errorJson, db } from "./knowledge-store.js";
+import { apiHeaders, errorJson } from "./knowledge-store.js";
 
 const jsonHeaders = {
   "Content-Type": "application/json; charset=utf-8",

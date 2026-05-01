@@ -85,19 +85,29 @@ export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
   const pathParts = url.pathname.split("/").filter(Boolean);
   
-  // Expected path: /api/{type}/{slug}
-  if (pathParts.length < 3) {
-    return errorJson("Invalid path, expected /api/{type}/{slug}", 400);
+  // Expected path: /api/{type} or /api/{type}/{slug}
+  if (pathParts.length < 2) {
+    return errorJson("Invalid path, expected /api/{type} or /api/{type}/{slug}", 400);
   }
 
   const type = pathParts[1];
   const slug = pathParts[2];
 
   if (!d1) {
-    return Response.json({ item: null, usedBy: [], topUses: [] }, { headers: apiHeaders() });
+    return Response.json({ items: [] }, { headers: apiHeaders() });
   }
 
-  // Get the entity
+  // List all entities of this type
+  if (!slug) {
+    const result = await d1.prepare(
+      "SELECT * FROM catalog_entities WHERE type = ? ORDER BY slug"
+    ).bind(type).all();
+
+    const items = (result.results || []).map(rowToEntity);
+    return Response.json({ items }, { headers: apiHeaders() });
+  }
+
+  // Get single entity
   const result = await d1.prepare(
     "SELECT * FROM catalog_entities WHERE type = ? AND slug = ?"
   ).bind(type, slug).first();
@@ -108,7 +118,6 @@ export async function onRequestGet({ request, env }) {
 
   const item = rowToEntity(result);
 
-  // Get entities that use this entity (relations where to_type/to_slug match)
   const usedByResult = await d1.prepare(`
     SELECT DISTINCT ce.type, ce.slug, ce.title, ce.category, cr.label
     FROM catalog_relations cr
@@ -126,7 +135,6 @@ export async function onRequestGet({ request, env }) {
     label: row.label,
   }));
 
-  // Get top uses (same as usedBy but limited to top 10)
   const topUses = usedBy.slice(0, 10);
 
   return Response.json({ item, usedBy, topUses }, { headers: apiHeaders() });
@@ -153,10 +161,18 @@ export async function onRequestPost({ request, env }) {
   try {
     const body = await request.json();
     const action = body.action;
-    const sudo = await verifySudo(request, env);
+    const sudoPassword = body.sudoPassword || "";
+    
+    let sudoOk = false;
+    if (sudoPassword) {
+      sudoOk = sudoPassword === env.PECUNIES_SUDO_PASSWD;
+    } else {
+      const sudo = await verifySudo(request, env);
+      sudoOk = sudo.ok;
+    }
 
-    if (action === "update") {
-      if (!sudo.ok) {
+    if (action === "update" || action === "create") {
+      if (!sudoOk) {
         return errorJson("Unauthorized: sudo required", 401);
       }
 
@@ -221,7 +237,7 @@ export async function onRequestPost({ request, env }) {
     }
 
     if (action === "delete") {
-      if (!sudo.ok) {
+      if (!sudoOk) {
         return errorJson("Unauthorized: sudo required", 401);
       }
 
@@ -241,13 +257,12 @@ export async function onRequestPost({ request, env }) {
   }
 }
 
-export async function onRequestDelete({ request, env }) {
+export async function onRequestPut({ request, env }) {
   await ensureCatalogInfra(env);
   const d1 = catalogDb(env);
   const url = new URL(request.url);
   const pathParts = url.pathname.split("/").filter(Boolean);
   
-  // Expected path: /api/{type}/{slug}
   if (pathParts.length < 3) {
     return errorJson("Invalid path, expected /api/{type}/{slug}", 400);
   }
@@ -259,10 +274,105 @@ export async function onRequestDelete({ request, env }) {
     return errorJson("Catalog database not available", 503);
   }
 
-  const sudo = await verifySudo(request, env);
-  if (!sudo.ok) {
-    return errorJson("Unauthorized: sudo required", 401);
+  try {
+    const body = await request.json();
+    const entity = body.entity || body;
+    const sudoPassword = body.sudoPassword || "";
+    
+    if (sudoPassword && sudoPassword !== env.PECUNIES_SUDO_PASSWD) {
+      return errorJson("Unauthorized: invalid sudo password", 401);
+    }
+    if (!sudoPassword) {
+      const sudo = await verifySudo(request, env);
+      if (!sudo.ok) return errorJson("Unauthorized: sudo required", 401);
+    }
+
+    const row = {
+      type: entity.type || type,
+      slug: entity.slug || slug,
+      title: entity.title,
+      category: entity.category,
+      description: entity.description,
+      tags_json: JSON.stringify(entity.tags || []),
+      years_of_experience: entity.yearsOfExperience || null,
+      summary: entity.summary || null,
+      avatar: entity.avatar || null,
+      status: entity.status || null,
+      metadata_json: entity.metadata ? JSON.stringify(entity.metadata) : null,
+      details_json: entity.details ? JSON.stringify(entity.details) : null,
+      updated_at: new Date().toISOString(),
+    };
+    
+    await d1.prepare(`
+      INSERT INTO catalog_entities (
+        type, slug, title, category, description, tags_json, years_of_experience,
+        summary, avatar, status, metadata_json, details_json, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(type, slug) DO UPDATE SET
+        title = excluded.title,
+        category = excluded.category,
+        description = excluded.description,
+        tags_json = excluded.tags_json,
+        years_of_experience = excluded.years_of_experience,
+        summary = excluded.summary,
+        avatar = excluded.avatar,
+        status = excluded.status,
+        metadata_json = excluded.metadata_json,
+        details_json = excluded.details_json,
+        updated_at = excluded.updated_at
+    `).bind(
+      row.type, row.slug, row.title, row.category, row.description, row.tags_json,
+      row.years_of_experience, row.summary, row.avatar, row.status,
+      row.metadata_json, row.details_json, row.updated_at
+    ).run();
+
+    if (entity.related && Array.isArray(entity.related)) {
+      await d1.prepare("DELETE FROM catalog_relations WHERE from_type = ? AND from_slug = ?")
+        .bind(row.type, row.slug).run();
+      
+      for (const rel of entity.related) {
+        await d1.prepare(`
+          INSERT INTO catalog_relations (from_type, from_slug, relation_type, to_type, to_slug, label)
+          VALUES (?, ?, 'related', ?, ?, ?)
+        `).bind(row.type, row.slug, rel.type, rel.slug, rel.label || null).run();
+      }
+    }
+
+    return Response.json({ entity: rowToEntity(row) }, { headers: apiHeaders() });
+  } catch (e) {
+    return errorJson(String(e.message || e), 500);
   }
+}
+
+export async function onRequestDelete({ request, env }) {
+  await ensureCatalogInfra(env);
+  const d1 = catalogDb(env);
+  const url = new URL(request.url);
+  const pathParts = url.pathname.split("/").filter(Boolean);
+  
+  if (pathParts.length < 3) {
+    return errorJson("Invalid path, expected /api/{type}/{slug}", 400);
+  }
+
+  const type = pathParts[1];
+  const slug = pathParts[2];
+
+  if (!d1) {
+    return errorJson("Catalog database not available", 503);
+  }
+
+  try {
+    const body = await request.json().catch(() => ({}));
+    const sudoPassword = body.sudoPassword || "";
+    
+    if (sudoPassword && sudoPassword !== env.PECUNIES_SUDO_PASSWD) {
+      return errorJson("Unauthorized: invalid sudo password", 401);
+    }
+    if (!sudoPassword) {
+      const sudo = await verifySudo(request, env);
+      if (!sudo.ok) return errorJson("Unauthorized: sudo required", 401);
+    }
+  } catch {}
 
   await d1.prepare("DELETE FROM catalog_entities WHERE type = ? AND slug = ?")
     .bind(type, slug).run();
@@ -274,6 +384,14 @@ export async function onRequestDelete({ request, env }) {
   return Response.json({ ok: true }, { headers: apiHeaders() });
 }
 
-export async function onRequest() {
-  return Response.json({ error: "Method not allowed" }, { status: 405, headers: jsonHeaders });
+export async function onRequestOptions() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      ...jsonHeaders,
+      Allow: "GET, POST, PUT, DELETE, OPTIONS",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+      "Access-Control-Allow-Headers": "authorization, content-type",
+    },
+  });
 }

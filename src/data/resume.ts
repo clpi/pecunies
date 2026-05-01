@@ -1,7 +1,10 @@
 export type ResumeSignal = {
+  id: string;
   label: string;
   value: string;
   detail: string;
+  accent: string;
+  mode: number;
 };
 
 export type ResumeExperience = {
@@ -62,24 +65,36 @@ export const resumeData = {
   ],
   signals: [
     {
+      id: 'cloud-footprint',
       label: 'Cloud footprint',
       value: '4 clouds',
       detail: 'AWS, Azure, GCP, and OCI across delivery, training, and production systems.',
+      accent: '#e7ff58',
+      mode: 0,
     },
     {
+      id: 'chain-operations',
       label: 'Chain operations',
       value: '8+ envs',
       detail: 'Managed and hardened multi-tier blockchain infrastructure with GitOps controls.',
+      accent: '#9dd6ff',
+      mode: 2,
     },
     {
+      id: 'reliability',
       label: 'Reliability',
       value: '99.9%',
       detail: 'Built CI/CD-backed cloud architecture with Prometheus and Grafana visibility.',
+      accent: '#ffffff',
+      mode: 1,
     },
     {
+      id: 'systems-projects',
       label: 'Systems projects',
       value: 'WASM + AWS',
       detail: 'Zig WebAssembly runtime work plus an AWS marketplace aggregator prototype.',
+      accent: '#f3efe8',
+      mode: 1,
     },
   ] as ResumeSignal[],
   experience: [

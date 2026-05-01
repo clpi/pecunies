@@ -1,4 +1,4 @@
-import { apiHeaders, errorJson, DEFAULT_AI_MODEL } from "./knowledge-store.js";
+import { apiHeaders, errorJson, DEFAULT_MODEL } from "./knowledge-store.js";
 import { resolveChatModel } from "./ai-models.js";
 
 const jsonHeaders = {
@@ -20,7 +20,7 @@ export async function onRequestGet({ request, env }) {
 
   return Response.json({ 
     models: [
-      { id: DEFAULT_AI_MODEL, name: "Default (Llama 3.1 8B)", default: true },
+      { id: DEFAULT_MODEL, name: "Default (Llama 3.1 8B)", default: true },
       { id: "@cf/meta/llama-3.1-8b-instruct", name: "Llama 3.1 8B Instruct" },
       { id: "@cf/meta/llama-3.1-70b-instruct", name: "Llama 3.1 70B Instruct" },
       { id: "@cf/qwen/qwen1.5-14b-chat", name: "Qwen 1.5 14B Chat" },

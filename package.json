@@ -12,7 +12,7 @@
     "test:sanity": "node scripts/sanity-check.mjs",
     "preview": "vite preview",
     "deploy:pages": "npm run build && npx wrangler pages deploy dist --project-name pecunies-chaos-portfolio",
-    "deploy:edge": "npx wrangler deploy --config workers/edge/wrangler.jsonc",
+    "deploy:edge": "npx wrangler deploy --keep-vars --config workers/edge/wrangler.jsonc",
     "deploy:booking-email": "npx wrangler deploy --config workers/booking-email/wrangler.jsonc",
     "deploy:mcp": "npx wrangler deploy --config workers/mcp/wrangler.jsonc",
     "deploy:cloudflare": "npm run deploy:pages && npm run deploy:booking-email && npm run deploy:edge && npm run deploy:mcp",

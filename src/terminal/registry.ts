@@ -18,12 +18,18 @@ import {
   fetchCatalog,
   fetchEntity,
   postComment,
-  fetchHistory,
+  updateComment,
+  deleteComment,
   authLogin,
   authSignup,
+  createPost,
+  fetchPosts,
+  fetchPost,
+  updatePost,
+  deletePost,
+  recordPostView,
   type CatalogEntity,
-  API_BASE,
-} from "../api";
+ } from "../api";
 
 function escapeHtml(value: string): string {
   return value
@@ -2021,80 +2027,149 @@ export function createCommandRegistry(): {
   commands.push({
     name: "post",
     aliases: ["article"],
-    usage: "post open <slug|path-fragment>",
+    usage: "post <open|edit|delete> <slug> [args...]",
     group: "Core",
     featured: true,
     fullPageView: true,
     description:
-      "Render a full markdown post from the published /api/posts index.",
-    async execute(_context, args) {
+      "Render, edit, or delete posts from the published /api/posts index.",
+    async execute(context, args) {
       const sub = (args[0] || "").toLowerCase();
-      if (sub !== "open" && sub !== "view")
+      
+      if (sub === "edit" || sub === "update") {
+        const slug = args[1]?.trim();
+        if (!slug) {
+          return {
+            kind: "system",
+            text: "Usage: post edit <slug>",
+            tone: "warn",
+          };
+        }
+        
+        const sudoPassword = await context.ensureSudoPassword();
+        if (!sudoPassword) {
+          return {
+            kind: "system",
+            text: "Post update cancelled.",
+            tone: "info",
+          };
+        }
+        
+        const existing = await fetchPost(slug);
+        if (!existing) {
+          return {
+            kind: "system",
+            text: `Post '${slug}' not found.`,
+            tone: "warn",
+          };
+        }
+        
+        const newMarkdown = args.slice(2).join(" ").trim();
+        if (!newMarkdown) {
+          return {
+            kind: "system",
+            text: "Usage: post edit <slug> <new markdown content>",
+            tone: "warn",
+          };
+        }
+        
+        try {
+          await updatePost(slug, {
+            markdown: newMarkdown,
+            sudoPassword,
+          });
+          return {
+            kind: "system",
+            text: `Post '${slug}' updated successfully.`,
+            tone: "success",
+          };
+        } catch (err) {
+          return {
+            kind: "system",
+            text: `Failed to update post: ${(err as Error).message}`,
+            tone: "warn",
+          };
+        }
+      }
+      
+      if (sub === "delete") {
+        const slug = args[1]?.trim();
+        if (!slug) {
+          return {
+            kind: "system",
+            text: "Usage: post delete <slug>",
+            tone: "warn",
+          };
+        }
+        
+        const sudoPassword = await context.ensureSudoPassword();
+        if (!sudoPassword) {
+          return {
+            kind: "system",
+            text: "Post deletion cancelled.",
+            tone: "info",
+          };
+        }
+        
+        try {
+          await deletePost(slug, sudoPassword);
+          return {
+            kind: "system",
+            text: `Post '${slug}' deleted successfully.`,
+            tone: "success",
+          };
+        } catch (err) {
+          return {
+            kind: "system",
+            text: `Failed to delete post: ${(err as Error).message}`,
+            tone: "warn",
+          };
+        }
+      }
+      
+      if (sub !== "open" && sub !== "view") {
         return {
           kind: "system",
-          text: "Usage: post open <slug|path-fragment>",
+          text: "Usage: post <open|edit|delete> <slug> [args...]",
           tone: "warn",
         };
+      }
+      
       const query = args.slice(1).join(" ").trim();
-      if (!query)
+      if (!query) {
         return {
           kind: "system",
           text: "Usage: post open <slug>",
           tone: "warn",
         };
+      }
       try {
-        const res = await fetch(`${API_BASE}/api/posts`);
-        const payload = (await res.json()) as {
-          posts?: Array<{
-            slug: string;
-            path: string;
-            title: string;
-            markdown: string;
-            description?: string;
-            published?: string;
-            updated?: string;
-            tags?: string[];
-            comments?: Array<{
-              id: number;
-              name: string;
-              message: string;
-              at: string;
-              replies?: Array<{
-                id: number;
-                name: string;
-                message: string;
-                at: string;
-              }>;
-            }>;
-          }>;
-        };
-        const list = payload.posts ?? [];
+        const list = await fetchPosts();
         const q = query.toLowerCase();
         let post = list.find((p) => p.slug.toLowerCase() === q);
-        if (!post)
+        if (!post) {
           post = list.find(
             (p) =>
               p.path.toLowerCase() === q ||
               p.path.toLowerCase().endsWith(`/${q}`) ||
               p.path.toLowerCase().endsWith(`/${q}.md`),
           );
-        if (!post)
+        }
+        if (!post) {
           post = list.find(
             (p) =>
               p.slug.toLowerCase().includes(q) ||
               p.path.toLowerCase().includes(q),
           );
-        if (!post)
+        }
+        if (!post) {
           return {
             kind: "system",
             text: `No post matching "${query}". Run posts for the index.`,
             tone: "warn",
           };
-        void fetch(`${API_BASE}/api/posts`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "view", path: post.path }),
-        }).catch(() => null);
+        }
+        void recordPostView(post.path);
         const comments = post.comments ?? [];
         const totalComments = comments.reduce(
           (total, entry) => total + 1 + (entry.replies?.length ?? 0),
@@ -2124,7 +2199,7 @@ export function createCommandRegistry(): {
                 return `<article class="post-comment-item">
                   <div class="post-comment-head">
                     <p class="post-comment-meta"><strong>${escapeHtml(entry.name || "anonymous")}</strong>${at ? ` <span>${escapeHtml(at)}</span>` : ""}</p>
-                    <button type="button" class="inline-link post-comment-reply-link" data-prepopulate-command="reply ${entry.id} ">reply</button>
+                    <button type="button" class="inline-link post-comment-reply-link" data-prepopulate-command="comment ${entry.id} ">reply</button>
                   </div>
                   <p class="post-comment-body">${escapeHtml(entry.message || "")}</p>
                   ${repliesHtml}
@@ -2332,15 +2407,15 @@ export function createCommandRegistry(): {
   });
 
   addOsCommand("comment", {
-    usage: "comment <post> <name> <message>",
-    group: "OS",
-    description: "Add a viewer comment to a markdown post.",
+    usage: "comment <slug|comment-id> <name> <message>",
+    group: "Social",
+    description: "Comment on a post or reply to a comment.",
   });
 
   addOsCommand("reply", {
-    usage: "reply <comment-id> <message>",
-    group: "OS",
-    description: "Reply to an existing comment on a markdown post.",
+    usage: "comment reply --to <type>/<slug> [--parent <id>] <message>",
+    group: "Social",
+    description: "Reply to a comment (alias for comment reply).",
   });
 
   addOsCommand("new", {
@@ -2716,36 +2791,24 @@ export function createCommandRegistry(): {
           };
         }
         try {
-          const slug =
-            title
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/g, "-")
-              .replace(/^-+|-+$/g, "") || `post-${Date.now().toString(36)}`;
-          const res = await fetch(`${API_BASE}/api/posts`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              action: "create",
-              slug,
-              title,
-              markdown: body,
-              tags,
-            }),
-          });
-          if (!res.ok) {
-            const err = (await res.json().catch(() => ({}))) as {
-              error?: string;
-            };
+          const sudoPassword = await _context.ensureSudoPassword();
+          if (!sudoPassword) {
             return {
               kind: "system",
-              tone: "warn",
-              text: `Post creation failed: ${err?.error ?? res.statusText}`,
+              tone: "info",
+              text: "Post creation cancelled.",
             };
           }
+          const post = await createPost({
+            title,
+            markdown: body,
+            tags,
+            sudoPassword,
+          });
           return {
             kind: "system",
             tone: "success",
-            text: `Post '${slug}' created. View it with: post open ${slug}`,
+            text: `Post '${post.slug}' created. View it with: post open ${post.slug}`,
           };
         } catch (err) {
           return {
@@ -3280,65 +3343,294 @@ export function createCommandRegistry(): {
     },
   });
 
-  // ── /reply ─────────────────────────────────────────────────────────────────
+  // ── /comment ───────────────────────────────────────────────────────────────
   commands.push({
-    name: "reply",
-    aliases: ["comment"],
-    usage: "reply --to <type>/<slug> [--parent <commentId>] <body...>",
+    name: "comment",
+    aliases: [],
+    usage: "comment <slug|commentId> <name> <message>",
     group: "Social",
     description:
-      "Post a comment or reply to an existing comment on any entity.",
+      "Comment on a post or reply to a comment. Use slug to comment on a post, or comment ID to reply.",
     tags: ["social", "comment", "interaction"],
     async execute(_ctx, args) {
-      const toIdx = args.indexOf("--to");
-      const parentIdx = args.indexOf("--parent");
-      const toVal = toIdx >= 0 ? args[toIdx + 1] : "";
-      const parentId = parentIdx >= 0 ? args[parentIdx + 1] : undefined;
+      const first = args[0] || "";
+      const isSubcommand = ["create", "edit", "delete", "reply", "list", "update", "del"].includes(first.toLowerCase());
 
-      const bodyStart = Math.max(
-        toIdx >= 0 ? toIdx + 2 : 0,
-        parentIdx >= 0 ? parentIdx + 2 : 0,
-      );
-      const body = args.slice(bodyStart).join(" ").trim();
+      if (isSubcommand) {
+        const sub = first.toLowerCase();
 
-      if (!toVal || !body) {
-        return {
-          kind: "system",
-          tone: "info",
-          text: [
-            "Usage:  reply --to <type>/<slug> [--parent <commentId>] <message>",
-            "  reply --to post/my-post Hello, world!",
-            "  reply --to skill/typescript --parent cmt_abc123 Agreed!",
-          ].join("\n"),
-        };
-      }
+        if (sub === "create") {
+          const postSlug = args[1]?.trim();
+          const name = args[2]?.trim();
+          const body = args.slice(3).join(" ").trim();
 
-      const [targetType, ...slugParts] = toVal.split("/");
-      const targetSlug = slugParts.join("/");
-      if (!targetType || !targetSlug)
+          if (!postSlug || !body) {
+            return {
+              kind: "system",
+              tone: "info",
+              text: "Usage: comment create <post-slug> <name> <message>",
+            };
+          }
+
+          const author = name || localStorage.getItem("pecunies.session.username") || "anon";
+          const authorEmail = localStorage.getItem("pecunies.session.email") || "";
+
+          try {
+            const comment = await postComment({
+              targetType: "post",
+              targetSlug: postSlug,
+              body,
+              authorUsername: author,
+              authorEmail,
+            });
+            return {
+              kind: "system",
+              tone: "success",
+              text: `Comment posted (id: ${comment.id}) on post/${postSlug}`,
+            };
+          } catch (err) {
+            return {
+              kind: "system",
+              tone: "warn",
+              text: `Failed to post comment: ${(err as Error).message}`,
+            };
+          }
+        }
+
+        if (sub === "edit" || sub === "update") {
+          const commentId = args[1]?.trim();
+          const newBody = args.slice(2).join(" ").trim();
+
+          if (!commentId || !newBody) {
+            return {
+              kind: "system",
+              tone: "info",
+              text: "Usage: comment edit <commentId> <new body>",
+            };
+          }
+
+          const sudoPassword = localStorage.getItem("pecunies.sudo.password") || "";
+          if (!sudoPassword) {
+            return {
+              kind: "system",
+              tone: "warn",
+              text: "Sudo password required. Run 'su' first.",
+            };
+          }
+
+          try {
+            await updateComment(commentId, newBody, sudoPassword);
+            return {
+              kind: "system",
+              tone: "success",
+              text: `Comment ${commentId} updated.`,
+            };
+          } catch (err) {
+            return {
+              kind: "system",
+              tone: "warn",
+              text: `Failed to update comment: ${(err as Error).message}`,
+            };
+          }
+        }
+
+        if (sub === "delete" || sub === "del") {
+          const commentId = args[1]?.trim();
+
+          if (!commentId) {
+            return {
+              kind: "system",
+              tone: "info",
+              text: "Usage: comment delete <commentId>",
+            };
+          }
+
+          const sudoPassword = localStorage.getItem("pecunies.sudo.password") || "";
+          if (!sudoPassword) {
+            return {
+              kind: "system",
+              tone: "warn",
+              text: "Sudo password required. Run 'su' first.",
+            };
+          }
+
+          try {
+            await deleteComment(commentId, sudoPassword);
+            return {
+              kind: "system",
+              tone: "success",
+              text: `Comment ${commentId} deleted.`,
+            };
+          } catch (err) {
+            return {
+              kind: "system",
+              tone: "warn",
+              text: `Failed to delete comment: ${(err as Error).message}`,
+            };
+          }
+        }
+
+        if (sub === "reply") {
+          const toIdx = args.indexOf("--to");
+          const parentIdx = args.indexOf("--parent");
+          const toVal = toIdx >= 0 ? args[toIdx + 1] : "";
+          const parentId = parentIdx >= 0 ? args[parentIdx + 1] : undefined;
+
+          const bodyStart = Math.max(
+            toIdx >= 0 ? toIdx + 2 : 0,
+            parentIdx >= 0 ? parentIdx + 2 : 0,
+          );
+          const body = args.slice(bodyStart).join(" ").trim();
+
+          if (!toVal || !body) {
+            return {
+              kind: "system",
+              tone: "info",
+              text: [
+                "Usage:  comment reply --to <type>/<slug> [--parent <commentId>] <message>",
+                "  comment reply --to post/my-post Hello, world!",
+              ].join("\n"),
+            };
+          }
+
+          const [targetType, ...slugParts] = toVal.split("/");
+          const targetSlug = slugParts.join("/");
+          if (!targetType || !targetSlug) {
+            return {
+              kind: "system",
+              tone: "warn",
+              text: "Invalid --to format. Use type/slug e.g. post/my-post",
+            };
+          }
+
+          const author = localStorage.getItem("pecunies.session.username") || "anon";
+          const authorEmail = localStorage.getItem("pecunies.session.email") || "";
+
+          try {
+            const comment = await postComment({
+              targetType,
+              targetSlug,
+              body,
+              authorUsername: author,
+              authorEmail,
+              parentId,
+            });
+            return {
+              kind: "system",
+              tone: "success",
+              text: `Reply posted (id: ${comment.id}) on ${targetType}/${targetSlug}${parentId ? ` [reply to ${parentId}]` : ""}`,
+            };
+          } catch (err) {
+            return {
+              kind: "system",
+              tone: "warn",
+              text: `Failed to post reply: ${(err as Error).message}`,
+            };
+          }
+        }
+
+        if (sub === "list") {
+          const targetType = args[1]?.trim();
+          const targetSlug = args[2]?.trim();
+
+          if (!targetType || !targetSlug) {
+            return {
+              kind: "system",
+              tone: "info",
+              text: "Usage: comment list <type> <slug>",
+            };
+          }
+
+          try {
+            const { fetchComments } = await import("../api");
+            const comments = await fetchComments(targetType, targetSlug);
+            if (!comments.length) {
+              return {
+                kind: "system",
+                tone: "info",
+                text: `No comments found for ${targetType}/${targetSlug}`,
+              };
+            }
+            const lines = comments.map((c) => {
+              const at = new Date(c.createdAt).toLocaleString();
+              return `[${c.id}] ${c.author} (${at}): ${c.body}${c.replyCount ? ` [${c.replyCount} replies]` : ""}`;
+            });
+            return {
+              kind: "system",
+              tone: "success",
+              text: `Comments on ${targetType}/${targetSlug}:\n${lines.join("\n")}`,
+            };
+          } catch (err) {
+            return {
+              kind: "system",
+              tone: "warn",
+              text: `Failed to list comments: ${(err as Error).message}`,
+            };
+          }
+        }
+
         return {
           kind: "system",
           tone: "warn",
-          text: "Invalid --to format. Use type/slug e.g. post/my-post",
+          text: "Usage: comment <slug|commentId> <name> <message>",
         };
+      }
 
-      const author =
-        localStorage.getItem("pecunies.session.username") || "anon";
+      const target = first.trim();
+      const name = args[1]?.trim();
+      const body = args.slice(2).join(" ").trim();
+
+      if (!target || !body) {
+        return {
+          kind: "system",
+          tone: "info",
+          text: "Usage: comment <post-slug|comment-id> <name> <message>\n  comment my-post Anonymous Hello!\n  comment 1720000000-abc123 Anonymous I agree!",
+        };
+      }
+
+      const author = name || localStorage.getItem("pecunies.session.username") || "anon";
       const authorEmail = localStorage.getItem("pecunies.session.email") || "";
+
+      const isTimestampId = /^\d{10,}-[a-z0-9]{5,}$/.test(target);
+      const isNumericId = /^\d+$/.test(target);
+      const isCommentId = isTimestampId || isNumericId;
+
+      if (isCommentId) {
+        try {
+          const comment = await postComment({
+            targetType: "post",
+            targetSlug: "",
+            body,
+            authorUsername: author,
+            authorEmail,
+            parentId: target,
+          });
+          return {
+            kind: "system",
+            tone: "success",
+            text: `Reply posted (id: ${comment.id})`,
+          };
+        } catch (err) {
+          return {
+            kind: "system",
+            tone: "warn",
+            text: `Failed to post reply: ${(err as Error).message}`,
+          };
+        }
+      }
 
       try {
         const comment = await postComment({
-          targetType,
-          targetSlug,
+          targetType: "post",
+          targetSlug: target,
           body,
           authorUsername: author,
           authorEmail,
-          parentId,
         });
         return {
           kind: "system",
           tone: "success",
-          text: `Comment posted (id: ${comment.id}) on ${targetType}/${targetSlug}${parentId ? ` [reply to ${parentId}]` : ""}`,
+          text: `Comment posted (id: ${comment.id}) on post/${target}`,
         };
       } catch (err) {
         return {
@@ -3349,42 +3641,17 @@ export function createCommandRegistry(): {
       }
     },
   });
-
-  // ── /redo ──────────────────────────────────────────────────────────────────
   commands.push({
-    name: "redo",
-    aliases: ["!!"],
-    usage: "redo [n]",
-    group: "Shell",
-    description:
-      "Re-run the last command, or the Nth most recent from history.",
-    tags: ["shell", "history", "utility"],
-    async execute(_ctx, args) {
-      const n = Math.max(1, parseInt(args[0] || "1", 10));
-      const sessionId =
-        localStorage.getItem("pecunies.session.id") || "default";
-      try {
-        const history = await fetchHistory(sessionId, n + 1);
-        const entry = history[n - 1];
-        if (!entry)
-          return {
-            kind: "system",
-            tone: "warn",
-            text: "No command history found.",
-          };
-        return {
-          kind: "os",
-          command: entry.command,
-          tone: "info",
-        };
-      } catch {
-        return {
-          kind: "system",
-          tone: "warn",
-          text: "Could not fetch command history.",
-        };
-      }
-    },
+    name: "reply",
+    aliases: [],
+    usage: "reply --to <type>/<slug> [--parent <commentId>] <body...>",
+    group: "Social",
+    description: "Alias for comment reply. Posts a comment or reply to any entity.",
+    async execute(_ctx, args, raw) {
+      return commands
+        .find((c) => c.name === "comment")!
+        .execute(_ctx, ["reply", ...args], raw);
+      },
   });
 
   // ── /tool ──────────────────────────────────────────────────────────────────

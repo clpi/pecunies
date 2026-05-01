@@ -1,4 +1,4 @@
-import { apiHeaders, errorJson, db } from "../../knowledge-store.js";
+import { apiHeaders, errorJson } from "../../knowledge-store.js";
 
 const jsonHeaders = {
   "Content-Type": "application/json; charset=utf-8",
@@ -146,6 +146,95 @@ export async function onRequestPost({ request, env }) {
   } catch (e) {
     return errorJson(String(e.message || e), 500);
   }
+}
+
+export async function onRequestPut({ request, env }) {
+  await ensureCommentsInfra(env);
+  const d1 = commentsDb(env);
+  const url = new URL(request.url);
+  const pathParts = url.pathname.split("/").filter(Boolean);
+  
+  if (pathParts.length < 4) {
+    return errorJson("Invalid path, expected /api/posts/{slug}/comments", 400);
+  }
+
+  const postSlug = pathParts[2];
+
+  if (!d1) {
+    return errorJson("Comments database not available", 503);
+  }
+
+  const sudo = await verifySudo(request, env);
+  if (!sudo.ok) {
+    return errorJson("Unauthorized: sudo required", 401);
+  }
+
+  try {
+    const body = await request.json();
+    const commentId = body.commentId;
+    const newBody = body.body;
+
+    if (!commentId || !newBody) {
+      return errorJson("commentId and body required", 400);
+    }
+
+    const existing = await d1.prepare(
+      "SELECT id, target_slug FROM comments WHERE id = ? AND target_type = 'post'"
+    ).bind(commentId).first();
+
+    if (!existing || existing.target_slug !== postSlug) {
+      return errorJson("Comment not found", 404);
+    }
+
+    await d1.prepare(
+      "UPDATE comments SET body = ? WHERE id = ?"
+    ).bind(newBody, commentId).run();
+
+    return Response.json({
+      comment: {
+        id: commentId,
+        body: newBody,
+        updatedAt: new Date().toISOString(),
+      }
+    }, { headers: apiHeaders() });
+  } catch (e) {
+    return errorJson(String(e.message || e), 500);
+  }
+}
+
+export async function onRequestDelete({ request, env }) {
+  await ensureCommentsInfra(env);
+  const d1 = commentsDb(env);
+  const url = new URL(request.url);
+  const pathParts = url.pathname.split("/").filter(Boolean);
+  
+  if (pathParts.length < 4) {
+    return errorJson("Invalid path, expected /api/posts/{slug}/comments", 400);
+  }
+
+  const postSlug = pathParts[2];
+  const commentId = url.searchParams.get("id");
+
+  if (!d1) {
+    return errorJson("Comments database not available", 503);
+  }
+
+  const sudo = await verifySudo(request, env);
+  if (!sudo.ok) {
+    return errorJson("Unauthorized: sudo required", 401);
+  }
+
+  if (!commentId) {
+    return errorJson("id query parameter required", 400);
+  }
+
+  await d1.prepare("DELETE FROM comments WHERE id = ? AND target_type = 'post' AND target_slug = ?")
+    .bind(commentId, postSlug).run();
+
+  await d1.prepare("DELETE FROM comments WHERE parent_id = ?")
+    .bind(commentId).run();
+
+  return Response.json({ ok: true }, { headers: apiHeaders() });
 }
 
 export async function onRequest() {

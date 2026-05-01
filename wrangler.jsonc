@@ -8,7 +8,7 @@
     "binding": "AI",
   },
   "vars": {
-    "OOKING_EMAIL_URL": "https://pecunies-booking-email.mtrl.workers.dev",
+    "BOOKING_EMAIL_URL": "https://pecunies-booking-email.mtrl.workers.dev",
     "AI_GATEWAY_ID": "pecunies",
     "AI_SEARCH_INSTANCE": "pecunies-knowledge",
   },
@@ -40,13 +40,6 @@
   //     }
   //   ]
   // },
-  "secrets_store_secrets": [
-    {
-      "binding": "PECUNIES_SUDO_PASSWD",
-      "store_id": "pecunies",
-      "secret_name": "PECUNIES_SUDO_PASSWD",
-    },
-  ],
   "kv_namespaces": [
     {
       "binding": "PORTFOLIO_OS",

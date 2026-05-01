@@ -1,4 +1,4 @@
-import { apiHeaders, errorJson, db } from "./knowledge-store.js";
+import { apiHeaders, errorJson } from "./knowledge-store.js";
 
 const jsonHeaders = {
   "Content-Type": "application/json; charset=utf-8",
@@ -115,15 +115,30 @@ export async function onRequestPost({ request, env }) {
     const action = body.action;
 
     if (action === "create") {
-      const targetType = body.targetType;
-      const targetSlug = body.targetSlug;
+      let targetType = body.targetType;
+      let targetSlug = body.targetSlug;
       const commentBody = body.body;
       const authorUsername = body.authorUsername || "anonymous";
       const authorEmail = body.authorEmail;
       const parentId = body.parentId || null;
 
-      if (!targetType || !targetSlug || !commentBody) {
-        return errorJson("targetType, targetSlug, and body required", 400);
+      if (!commentBody) {
+        return errorJson("body required", 400);
+      }
+
+      if (parentId && (!targetType || !targetSlug)) {
+        const parent = await d1.prepare(
+          "SELECT target_type, target_slug FROM comments WHERE id = ?"
+        ).bind(parentId).first();
+        if (!parent) {
+          return errorJson("Parent comment not found", 404);
+        }
+        targetType = parent.target_type;
+        targetSlug = parent.target_slug;
+      }
+
+      if (!targetType || !targetSlug) {
+        return errorJson("targetType and targetSlug required (or parentId to infer)", 400);
       }
 
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
@@ -144,6 +159,44 @@ export async function onRequestPost({ request, env }) {
           author,
           body: commentBody,
           createdAt,
+        }
+      }, { headers: apiHeaders() });
+    }
+
+    if (action === "update") {
+      const commentId = body.commentId;
+      if (!commentId) {
+        return errorJson("commentId required", 400);
+      }
+
+      const newBody = body.body;
+      if (!newBody) {
+        return errorJson("body required", 400);
+      }
+
+      const sudo = await verifySudo(request, env);
+      if (!sudo.ok) {
+        return errorJson("Unauthorized: sudo required", 401);
+      }
+
+      const existing = await d1.prepare(
+        "SELECT id, author, body FROM comments WHERE id = ?"
+      ).bind(commentId).first();
+
+      if (!existing) {
+        return errorJson("Comment not found", 404);
+      }
+
+      await d1.prepare(
+        "UPDATE comments SET body = ? WHERE id = ?"
+      ).bind(newBody, commentId).run();
+
+      return Response.json({
+        comment: {
+          id: existing.id,
+          author: existing.author,
+          body: newBody,
+          updatedAt: new Date().toISOString(),
         }
       }, { headers: apiHeaders() });
     }
@@ -172,6 +225,64 @@ export async function onRequestPost({ request, env }) {
   }
 }
 
+export async function onRequestPut({ request, env }) {
+  await ensureCommentsInfra(env);
+  const d1 = commentsDb(env);
+  
+  if (!d1) {
+    return errorJson("Comments database not available", 503);
+  }
+
+  try {
+    const body = await request.json();
+    const sudoPassword = body.sudoPassword || "";
+    
+    if (sudoPassword && sudoPassword !== env.PECUNIES_SUDO_PASSWD) {
+      return errorJson("Unauthorized: invalid sudo password", 401);
+    }
+    if (!sudoPassword) {
+      const sudo = await verifySudo(request, env);
+      if (!sudo.ok) return errorJson("Unauthorized: sudo required", 401);
+    }
+
+    const url = new URL(request.url);
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    const commentId = pathParts[pathParts.length - 1];
+
+    if (!commentId || commentId === "comments") {
+      return errorJson("commentId required in path", 400);
+    }
+
+    const newBody = body.body;
+    if (!newBody) {
+      return errorJson("body required", 400);
+    }
+
+    const existing = await d1.prepare(
+      "SELECT id, author, body FROM comments WHERE id = ?"
+    ).bind(commentId).first();
+
+    if (!existing) {
+      return errorJson("Comment not found", 404);
+    }
+
+    await d1.prepare(
+      "UPDATE comments SET body = ? WHERE id = ?"
+    ).bind(newBody, commentId).run();
+
+    return Response.json({
+      comment: {
+        id: existing.id,
+        author: existing.author,
+        body: newBody,
+        updatedAt: new Date().toISOString(),
+      }
+    }, { headers: apiHeaders() });
+  } catch (e) {
+    return errorJson(String(e.message || e), 500);
+  }
+}
+
 export async function onRequestDelete({ request, env }) {
   await ensureCommentsInfra(env);
   const d1 = commentsDb(env);
@@ -180,16 +291,29 @@ export async function onRequestDelete({ request, env }) {
     return errorJson("Comments database not available", 503);
   }
 
-  const sudo = await verifySudo(request, env);
-  if (!sudo.ok) {
-    return errorJson("Unauthorized: sudo required", 401);
-  }
+  try {
+    const body = await request.json().catch(() => ({}));
+    const sudoPassword = body.sudoPassword || "";
+    
+    if (sudoPassword && sudoPassword !== env.PECUNIES_SUDO_PASSWD) {
+      return errorJson("Unauthorized: invalid sudo password", 401);
+    }
+    if (!sudoPassword) {
+      const sudo = await verifySudo(request, env);
+      if (!sudo.ok) return errorJson("Unauthorized: sudo required", 401);
+    }
+  } catch {}
 
   const url = new URL(request.url);
-  const commentId = url.searchParams.get("id");
+  const pathParts = url.pathname.split("/").filter(Boolean);
+  let commentId = pathParts[pathParts.length - 1];
+  
+  if (!commentId || commentId === "comments") {
+    commentId = url.searchParams.get("id") || body.commentId;
+  }
 
   if (!commentId) {
-    return errorJson("id query parameter required", 400);
+    return errorJson("commentId required", 400);
   }
 
   await d1.prepare("DELETE FROM comments WHERE id = ? OR parent_id = ?")
@@ -198,6 +322,14 @@ export async function onRequestDelete({ request, env }) {
   return Response.json({ ok: true }, { headers: apiHeaders() });
 }
 
-export async function onRequest() {
-  return Response.json({ error: "Method not allowed" }, { status: 405, headers: jsonHeaders });
+export async function onRequestOptions() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      ...jsonHeaders,
+      Allow: "GET, POST, PUT, DELETE, OPTIONS",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+      "Access-Control-Allow-Headers": "authorization, content-type",
+    },
+  });
 }

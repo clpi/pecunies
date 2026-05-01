@@ -1,4 +1,4 @@
-import { apiHeaders, errorJson, db } from "./knowledge-store.js";
+import { apiHeaders, errorJson } from "./knowledge-store.js";
 
 const CATALOG_TYPES = {
   tag: { command: "tag" },

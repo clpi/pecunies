@@ -4,7 +4,7 @@
 	"compatibility_date": "2026-03-23",
 	"$schema": "https://raw.githubusercontent.com/cloudflare/wrangler/main/schema.json",
 	"vars": {
-		"OOKING_EMAIL_URL": "https://pecunies-booking-email.mtrl.workers.dev",
+		"BOOKING_EMAIL_URL": "https://pecunies-booking-email.mtrl.workers.dev",
 		"AI_GATEWAY_ID": "pecunies",
 		"AI_SEARCH_INSTANCE": "pecunies-knowledge"
 	},

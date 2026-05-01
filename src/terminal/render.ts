@@ -329,7 +329,6 @@ function highlightCommandTokens(text: string): string {
   let html = "";
   let lastIndex = 0;
   for (const match of text.matchAll(commandLike)) {
-    const full = match[0] ?? "";
     const prefix = match[1] ?? "";
     const commandText = match[2] ?? "";
     const commandName = match[3]?.toLowerCase() ?? "";
@@ -338,7 +337,7 @@ function highlightCommandTokens(text: string): string {
     if (!commandText || !_knownCommandNames.has(commandName)) continue;
 
     html += escapeHtml(text.slice(lastIndex, start));
-    html += `<span class="cmd-token cmd-token--preview-wrap"><button type="button" class="cmd-token cmd-token--name" data-command-preview="${escapeAttribute(commandText)}" data-prepopulate-command="${escapeAttribute(commandText)}" title="Stage command">${escapeHtml(commandText)}</button><button type="button" class="cmd-token-info" data-man-command="${escapeAttribute(commandName)}" aria-label="Open man page for ${escapeAttribute(commandName)}">ⓘ</button></span>`;
+    html += `<span class="cmd-token cmd-token--preview-wrap"><button type="button" class="cmd-token cmd-token--name" data-command-preview="${escapeAttribute(commandText)}" data-prepopulate-command="${escapeAttribute(commandText)}" title="Stage command">${escapeHtml(commandText)}</button></span>`;
     lastIndex = start + commandText.length;
   }
   html += escapeHtml(text.slice(lastIndex));
@@ -510,9 +509,9 @@ function renderSection(
         <section class="output-block">
           ${heading}
           <div class="output-grid">
-            ${section.groups.map(renderTagGroup).join("")}
+            ${section.groups.map((group, gi) => renderTagGroupWithContext(group, viewId, sectionIndex, gi)).join("")}
           </div>
-          <button type="button" class="add-skill-btn" data-add-entity-type="skill" aria-label="Add skill" title="Add skill">+</button>
+          <button type="button" class="add-skill-btn" data-add-entity-type="skill" data-add-entity-context="view:${escapeAttribute(viewId)}" aria-label="Add skill" title="Add skill">+</button>
         </section>
       `;
 
@@ -714,7 +713,9 @@ function renderTimelineItem(
   const rowCommand = item.link?.command ?? "";
   const link = item.link?.href
     ? `<a class="inline-link timeline-link" href="${escapeAttribute(item.link.href)}" target="_blank" rel="noreferrer">${escapeHtml(item.link.label)}</a>`
-    : "";
+    : rowCommand
+      ? `<button type="button" class="inline-link timeline-link" data-command="${escapeAttribute(rowCommand)}">${escapeHtml(item.link!.label)}</button>`
+      : "";
   const rowCommandAttr = rowCommand
     ? ` data-command="${escapeAttribute(rowCommand)}" tabindex="0" role="button"`
     : "";
@@ -742,8 +743,9 @@ function renderTimelineItem(
   `;
 }
 
-function renderTagGroup(group: TagGroup): string {
+function renderTagGroupWithContext(group: TagGroup, viewId = "", sectionIndex = 0, groupIndex = 0): string {
   const categorySlug = entitySlug(group.title);
+  const context = `view:${viewId}:s${sectionIndex}:g${groupIndex}`;
   return `
     <article class="output-record output-record-compact">
       <p class="record-title"><button type="button" class="category-link" data-command="skill --cat ${escapeAttribute(categorySlug)}" data-entity-type="skill-category" data-entity-slug="${escapeAttribute(categorySlug)}" data-entity-title="${escapeAttribute(group.title)}">${escapeHtml(group.title)}</button></p>
@@ -756,9 +758,10 @@ function renderTagGroup(group: TagGroup): string {
             const yearsAttr = skill.years
               ? ` data-entity-years="${escapeAttribute(skill.years)}"`
               : "";
-            return `<button type="button" class="action-chip action-chip--skill" data-command="skill ${escapeAttribute(slug)}" data-entity-type="skill" data-entity-slug="${escapeAttribute(slug)}" data-entity-title="${escapeAttribute(skill.name)}"${yearsAttr}><span class="skill-chip-label">${escapeHtml(skill.name)}</span>${skill.years ? `<span class="skill-chip-years">${escapeHtml(skill.years)}</span>` : ""}</button>`;
+            return `<button type="button" class="action-chip action-chip--skill" data-command="skill ${escapeAttribute(slug)}" data-entity-type="skill" data-entity-slug="${escapeAttribute(slug)}" data-entity-title="${escapeAttribute(skill.name)}" data-entity-context="${escapeAttribute(context)}"${yearsAttr}><span class="skill-chip-label">${escapeHtml(skill.name)}</span>${skill.years ? `<span class="skill-chip-years">${escapeHtml(skill.years)}</span>` : ""}</button>`;
           })
           .join("")}
+        <button type="button" class="add-skill-btn" data-add-entity-type="skill" data-add-entity-context="${escapeAttribute(context)}" aria-label="Add skill to ${escapeAttribute(group.title)}" title="Add skill to ${escapeAttribute(group.title)}">+</button>
       </div>
     </article>
   `;

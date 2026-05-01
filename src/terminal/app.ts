@@ -16,6 +16,21 @@ import {
   fetchAutocompleteSuggestions,
   type AutocompleteSuggestion,
   API_BASE,
+  deleteEntity,
+  fetchContentOverrides,
+  fetchSessionConfig,
+  fetchEntity,
+  fetchPosts,
+  fetchTagUsage,
+  mutateTag,
+  recordCommand as apiRecordCommand,
+  recordMetric as apiRecordMetric,
+  recordScore,
+  resetSessionConfig,
+  saveContentOverride,
+  setSessionConfig,
+  upsertEntity,
+  verifySudoPassword,
   upsertSignal,
   deleteSignal,
 } from "../api";
@@ -394,9 +409,9 @@ export class TerminalApp {
   >();
   private pendingEditKey: string | null = null;
   private pendingEditBtn: HTMLElement | null = null;
+  private pendingSudoResolve: ((password: string | null) => void) | null = null;
   private sudoUnlocked = false;
   private sudoPassword = "";
-  private pendingSudoResolve: ((password: string | null) => void) | null = null;
   private ehpHideTimer: ReturnType<typeof setTimeout> | null = null;
   private ehpShowTimer: ReturnType<typeof setTimeout> | null = null;
   private ehpAnchor: HTMLElement | null = null;
@@ -1082,7 +1097,7 @@ export class TerminalApp {
         event.target.closest("#sudo-cancel-btn") ||
         event.target.closest(".sudo-modal-backdrop")
       ) {
-        this.hideSudoModal();
+        this.cancelSudoModal();
         return;
       }
       if (event.target.closest("#sudo-confirm-btn")) {
@@ -1095,7 +1110,7 @@ export class TerminalApp {
         void this.verifySudoAndEdit();
       }
       if (event.key === "Escape") {
-        this.hideSudoModal();
+        this.cancelSudoModal();
       }
     });
 
@@ -1150,7 +1165,6 @@ export class TerminalApp {
     const sudoPassword = await this.ensureSudoPassword();
     if (!sudoPassword) return;
     try {
-      const { deleteEntity } = await import("../api");
       await deleteEntity(type as never, slug, sudoPassword);
       this.apiTagCacheStale = true;
 
@@ -1349,8 +1363,13 @@ export class TerminalApp {
     pop.dataset.currentType = type;
     pop.dataset.currentSlug = slug;
     pop.dataset.currentCommand =
-      type === "link" && chip.dataset.entityUrl ? "" : `${type} ${slug}`;
+      type === "skill-category"
+        ? `skill --cat ${slug}`
+        : type === "link" && chip.dataset.entityUrl
+          ? ""
+          : `${type} ${slug}`;
     pop.dataset.currentHref = chip.dataset.entityUrl ?? "";
+    pop.dataset.currentContext = chip.dataset.entityContext ?? "";
 
     const q = (sel: string) => pop.querySelector<HTMLElement>(sel);
     const typeBadge = q(".ehp-type-badge");
@@ -1364,25 +1383,31 @@ export class TerminalApp {
     const fallbackTitle = chip.dataset.entityTitle || slug;
     const fallbackYears = chip.dataset.entityYears || "";
     const fallbackUrl = chip.dataset.entityUrl || "";
-    if (typeBadge) typeBadge.textContent = type;
+    if (typeBadge) typeBadge.textContent = type === "skill-category" ? "category" : type;
     if (nameEl) nameEl.textContent = fallbackTitle;
     if (descEl)
       descEl.textContent =
         type === "skill"
           ? "Skill details loading…"
-          : type === "link"
-            ? "Quick link details loading…"
-            : "Loading entity details…";
+          : type === "skill-category"
+            ? `Skills in the ${fallbackTitle} category.`
+            : type === "link"
+              ? "Quick link details loading…"
+              : "Loading entity details…";
     if (countEl) countEl.textContent = fallbackYears;
     if (usesList)
       usesList.innerHTML = fallbackUrl
         ? `<li><span class="ehp-use-type">url</span>${this.escapeHtml(fallbackUrl)}</li>`
-        : "<li>Fetching from API…</li>";
-    if (nav) nav.hidden = true;
+        : type === "skill-category"
+          ? `<li><span class="ehp-use-type">click</span>view all skills in this category</li>`
+          : "<li>Fetching from API…</li>";
+    if (nav) nav.hidden = !pop.dataset.currentCommand;
     if (remove) remove.hidden = true;
     this.positionEntityPopover(chip);
 
-    void this.enrichCatalogEntityPopover(type, slug);
+    if (type !== "skill-category") {
+      void this.enrichCatalogEntityPopover(type, slug);
+    }
   }
 
   private hideEntityPopover(): void {
@@ -1400,7 +1425,6 @@ export class TerminalApp {
 
   private async enrichTagUsage(slug: string): Promise<void> {
     try {
-      const { fetchTagUsage } = await import("../api");
       const data = await fetchTagUsage(slug);
       const entry = this.tagUsageCache.get(slug) ?? {
         count: 0,
@@ -1433,7 +1457,6 @@ export class TerminalApp {
     slug: string,
   ): Promise<void> {
     try {
-      const { fetchEntity } = await import("../api");
       const result = await fetchEntity(type as never, slug);
       if (
         !result ||
@@ -1448,6 +1471,7 @@ export class TerminalApp {
       const descEl = q(".ehp-desc");
       const countEl = q(".ehp-count");
       const usesList = q(".ehp-uses");
+      const nav = q(".ehp-navigate");
       if (nameEl) nameEl.textContent = item.title || item.slug;
       if (descEl)
         descEl.textContent =
@@ -1479,6 +1503,7 @@ export class TerminalApp {
               .join("")
           : "<li>No linked uses yet.</li>";
       }
+      if (nav) nav.hidden = false;
     } catch {
       const q = (sel: string) =>
         this.entityHoverPopover.querySelector<HTMLElement>(sel);
@@ -1491,8 +1516,9 @@ export class TerminalApp {
   private async ensureSudoPassword(): Promise<string | null> {
     if (this.sudoUnlocked && this.sudoPassword) return this.sudoPassword;
 
-    // Use the custom modal instead of native prompt
     return new Promise((resolve) => {
+      this.pendingEditKey = null;
+      this.pendingEditBtn = null;
       this.sudoModalInput.value = "";
       this.sudoModalInput.autocomplete = "off";
       this.sudoModalError.hidden = true;
@@ -1518,19 +1544,34 @@ export class TerminalApp {
   ): Promise<boolean> {
     const parsed = this.parseEntityContext(context);
     if (!parsed) return false;
+    const sudoPassword = await this.ensureSudoPassword();
+    if (!sudoPassword) return false;
     try {
-      const { mutateTag } = await import("../api");
       await mutateTag({
         type: parsed.type as never,
         slug: parsed.slug,
         tag,
         add,
+        sudoPassword,
       });
       this.apiTagCacheStale = true;
       return true;
     } catch {
       return false;
     }
+  }
+
+  private refreshActiveView(): void {
+    const currentRoute = this.activeView?.route ?? "";
+    if (!currentRoute) return;
+    const currentCommand = this.routeMap.get(currentRoute);
+    if (!currentCommand) return;
+    void this.execute(currentCommand.name, {
+      echo: false,
+      syncHash: false,
+      focus: false,
+      recordHistory: false,
+    });
   }
 
   private removeTagFromContext(slug: string): void {
@@ -1583,7 +1624,6 @@ export class TerminalApp {
       }
 
       try {
-        const { fetchEntity, upsertEntity } = await import("../api");
         const entity = await fetchEntity(parsed.type as never, parsed.slug);
         if (!entity) {
           resolve(false);
@@ -1612,11 +1652,7 @@ export class TerminalApp {
         );
         this.apiTagCacheStale = true;
 
-        // Refresh the view to show updated data
-        const currentRoute = this.currentView?.route;
-        if (currentRoute) {
-          void this.navigate(currentRoute);
-        }
+        this.refreshActiveView();
 
         resolve(true);
       } catch {
@@ -1675,6 +1711,7 @@ export class TerminalApp {
 
   private showAddEntityInput(btn: HTMLElement): void {
     const type = btn.dataset.addEntityType ?? "link";
+    const context = btn.dataset.addEntityContext ?? "";
     const wrap = document.createElement("span");
     wrap.className = "add-entity-input-wrap";
     const input = document.createElement("input");
@@ -1699,17 +1736,30 @@ export class TerminalApp {
         wrap.replaceWith(btn);
         return;
       }
-      void this.persistNewEntity(type, raw, slugify).then((entity) => {
+      void this.persistNewEntity(type, raw, slugify, context).then((entity) => {
         wrap.replaceWith(btn);
         if (!entity) return;
         if (type === "skill") {
           const chip = document.createElement("button");
           chip.type = "button";
+          chip.className = "action-chip action-chip--skill";
           chip.dataset.command = `skill ${entity.slug}`;
           chip.dataset.entityType = "skill";
           chip.dataset.entitySlug = entity.slug;
           chip.dataset.entityTitle = entity.title;
-          chip.textContent = entity.title;
+          if (entity.yearsOfExperience)
+            chip.dataset.entityYears = `${entity.yearsOfExperience} years`;
+          if (context) chip.dataset.entityContext = context;
+          const label = document.createElement("span");
+          label.className = "skill-chip-label";
+          label.textContent = entity.title;
+          chip.appendChild(label);
+          if (entity.yearsOfExperience) {
+            const years = document.createElement("span");
+            years.className = "skill-chip-years";
+            years.textContent = `${entity.yearsOfExperience} years`;
+            chip.appendChild(years);
+          }
           btn.parentElement?.insertBefore(chip, btn);
         } else {
           const chip = document.createElement("button");
@@ -1721,6 +1771,7 @@ export class TerminalApp {
           chip.dataset.entityTitle = entity.title;
           if (entity.metadata?.url)
             chip.dataset.entityUrl = entity.metadata.url;
+          if (context) chip.dataset.entityContext = context;
           chip.textContent = entity.title;
           btn.parentElement?.insertBefore(chip, btn);
         }
@@ -1740,6 +1791,7 @@ export class TerminalApp {
     type: string,
     raw: string,
     slugify: (value: string) => string,
+    context = "",
   ): Promise<any | null> {
     const [labelRaw, urlRaw] = raw.split("|").map((part) => part.trim());
     const title = labelRaw || raw;
@@ -1754,27 +1806,43 @@ export class TerminalApp {
     if (!sudoPassword) return null;
 
     try {
-      const { upsertEntity } = await import("../api");
+      const category = context ? this.extractCategoryFromContext(context) : (type === "skill" ? "custom" : "quick-link");
       const entity = {
         type: type as never,
         slug: slugify(cleanTitle),
         title: cleanTitle,
-        category: type === "skill" ? "custom" : "quick-link",
+        category,
         description:
           type === "skill"
             ? `${cleanTitle} skill.`
             : `Quick link for ${cleanTitle}.`,
-        tags: type === "skill" ? ["skills"] : ["links", "quick-link"],
+        tags: type === "skill" ? ["skills", category.toLowerCase()] : ["links", "quick-link"],
         yearsOfExperience: yearsMatch ? Number(yearsMatch[1]) : undefined,
         metadata:
           type === "link" && urlRaw
             ? { url: urlRaw, source: "quick-link" }
-            : {},
+            : undefined,
       };
       return await upsertEntity(entity, sudoPassword);
     } catch {
       return null;
     }
+  }
+
+  private extractCategoryFromContext(context: string): string {
+    const parts = context.split(":");
+    if (parts.length >= 4 && parts[2]?.startsWith("s") && parts[3]?.startsWith("g")) {
+      const sectionIdx = parseInt(parts[2]?.slice(1) ?? "0", 10);
+      const groupIdx = parseInt(parts[3]?.slice(1) ?? "0", 10);
+      const view = this.activeView;
+      if (view) {
+        const section = view.sections[sectionIdx];
+        if (section?.type === "tag-groups" && section.groups[groupIdx]) {
+          return section.groups[groupIdx].title;
+        }
+      }
+    }
+    return "custom";
   }
 
   // ── In-place editing ────────────────────────────────────────────────────
@@ -1814,8 +1882,22 @@ export class TerminalApp {
     this.sudoModalInput.value = "";
   }
 
+  private cancelSudoModal(): void {
+    const resolve = this.pendingSudoResolve;
+    this.pendingSudoResolve = null;
+    this.hideSudoModal();
+    resolve?.(null);
+  }
+
   private async verifySudoAndEdit(): Promise<void> {
     if (this.sudoUnlocked) {
+      const resolve = this.pendingSudoResolve;
+      this.pendingSudoResolve = null;
+      if (resolve) {
+        this.hideSudoModal();
+        resolve(this.sudoPassword);
+        return;
+      }
       const key = this.pendingEditKey;
       const btn = this.pendingEditBtn;
       this.hideSudoModal();
@@ -1826,22 +1908,27 @@ export class TerminalApp {
     }
     const password = this.sudoModalInput.value;
     if (!password) return;
+    const key = this.pendingEditKey;
+    const btn = this.pendingEditBtn;
     try {
-      const { verifySudoPassword } = await import("../api");
       const result = await verifySudoPassword(password);
       if (result.ok) {
         this.sudoUnlocked = true;
         this.sudoPassword = password;
-        const key = this.pendingEditKey;
-        const btn = this.pendingEditBtn;
+        const resolve = this.pendingSudoResolve;
+        this.pendingSudoResolve = null;
         this.hideSudoModal();
+        if (resolve) {
+          resolve(password);
+          return;
+        }
         if (key) this.enableEditing(key);
         this.setEditBtnState(btn, "ok");
         window.setTimeout(() => this.setEditBtnState(btn, "idle"), 1200);
       } else {
-        this.setEditBtnState(this.pendingEditBtn, "error");
+        this.setEditBtnState(btn, "error");
         window.setTimeout(
-          () => this.setEditBtnState(this.pendingEditBtn, "spinner"),
+          () => this.setEditBtnState(btn, "spinner"),
           700,
         );
         this.sudoModalError.textContent = "Incorrect password.";
@@ -1850,7 +1937,7 @@ export class TerminalApp {
         this.sudoModalInput.focus();
       }
     } catch {
-      this.setEditBtnState(this.pendingEditBtn, "error");
+      this.setEditBtnState(btn, "error");
       this.sudoModalError.textContent = "Authentication error.";
       this.sudoModalError.hidden = false;
     }
@@ -1910,7 +1997,6 @@ export class TerminalApp {
   // ── Content overrides (persisted via API) ───────────────────────────────
   private async loadContentOverrides(): Promise<void> {
     try {
-      const { fetchContentOverrides } = await import("../api");
       const overrides = await fetchContentOverrides();
       for (const [k, v] of Object.entries(overrides)) {
         this.contentOverrides.set(k, v);
@@ -1935,7 +2021,6 @@ export class TerminalApp {
     value: string,
   ): Promise<void> {
     try {
-      const { saveContentOverride } = await import("../api");
       await saveContentOverride(key, value);
     } catch {
       /* ignore */
@@ -2751,24 +2836,6 @@ export class TerminalApp {
     this.persistShellProfile();
   }
 
-  private parseConfigOutput(output: string): Record<string, unknown> {
-    const parsed: Record<string, unknown> = {};
-    const lines = output.split("\n");
-    for (const line of lines) {
-      const idx = line.indexOf(":");
-      if (idx <= 0) continue;
-      const key = line.slice(0, idx).trim();
-      const rawValue = line.slice(idx + 1).trim();
-      if (!key) continue;
-      try {
-        parsed[key] = JSON.parse(rawValue);
-      } catch {
-        parsed[key] = rawValue;
-      }
-    }
-    return parsed;
-  }
-
   private configEditorHtml(config: Record<string, unknown>): string {
     const theme = String(config.theme ?? "auto");
     const fontSize = Number(config.font_size ?? FONT_SIZE_DEFAULT);
@@ -2844,27 +2911,15 @@ export class TerminalApp {
 
   private async fetchConfigState(): Promise<Record<string, unknown>> {
     try {
-      const response = await fetch("/api/os", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: this.sessionId,
-          command: "config list",
-          visibleContext: this.visibleContext(),
-        }),
-      });
-      const payload = (await response
-        .json()
-        .catch(() => null)) as OsResponse | null;
+      const payload = await fetchSessionConfig(this.sessionId);
       if (payload?.config && typeof payload.config === "object") {
-        this.applyOsConfig(payload.config as Record<string, unknown>);
+        this.applyOsConfig(payload.config);
       }
       if (typeof payload?.cwd === "string" && payload.cwd.trim()) {
         this.osCurrentDir = payload.cwd.trim();
         if (!this.chatMode && !this.gameMode) this.setShellPrompt();
       }
-      if (!response.ok) return {};
-      return this.parseConfigOutput(payload?.output ?? "");
+      return payload?.config ?? {};
     } catch {
       return {};
     }
@@ -2933,7 +2988,7 @@ export class TerminalApp {
     ];
 
     for (const [key, value] of updates) {
-      await this.sendOsCommand(`config set ${key} ${this.shellQuote(value)}`);
+      await this.setConfigQuiet(key, value);
     }
     if (updates[0]?.[1] === "auto") {
       await this.execute("theme auto");
@@ -2951,7 +3006,17 @@ export class TerminalApp {
   }
 
   private async resetConfigEditorValues(): Promise<void> {
-    await this.sendOsCommand("config reset");
+    try {
+      const payload = await resetSessionConfig(this.sessionId);
+      if (payload?.config && typeof payload.config === "object") {
+        this.applyOsConfig(payload.config);
+      }
+      if (typeof payload?.cwd === "string" && payload.cwd.trim()) {
+        this.osCurrentDir = payload.cwd.trim();
+      }
+    } catch {
+      await this.sendOsCommand("config reset");
+    }
     await this.execute("theme auto");
     const config = await this.fetchConfigState();
     this.lines.push({
@@ -2987,28 +3052,16 @@ export class TerminalApp {
 
   private async setConfigQuiet(key: string, value: string): Promise<void> {
     try {
-      const response = await fetch("/api/os", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: this.sessionId,
-          command: `config set ${key} ${this.shellQuote(value)}`,
-          visibleContext: this.visibleContext(),
-        }),
-      });
-      const payload = (await response
-        .json()
-        .catch(() => null)) as OsResponse | null;
+      const payload = await setSessionConfig(this.sessionId, key, value);
       if (payload?.config && typeof payload.config === "object")
-        this.applyOsConfig(payload.config as Record<string, unknown>);
+        this.applyOsConfig(payload.config);
+      if (typeof payload?.cwd === "string" && payload.cwd.trim()) {
+        this.osCurrentDir = payload.cwd.trim();
+      }
       this.persistShellProfile();
     } catch {
       /* Config persistence is best-effort. */
     }
-  }
-
-  private shellQuote(value: string): string {
-    return JSON.stringify(String(value ?? ""));
   }
 
   private loadShellProfile(): void {
@@ -3418,6 +3471,7 @@ export class TerminalApp {
         this.updatePromptIdentityUi();
         return true;
       },
+      ensureSudoPassword: () => this.ensureSudoPassword(),
       getSystemPrompt: () => this.systemPromptInjection,
       setSystemPrompt: (text) => {
         this.systemPromptInjection = text.trim().slice(0, 1200);
@@ -4416,16 +4470,7 @@ export class TerminalApp {
 
   private async recordMetric(route: string): Promise<void> {
     try {
-      await fetch(`${API_BASE}/api/metrics`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          sessionId: this.sessionId,
-          route,
-        }),
-      });
+      await apiRecordMetric(route, this.sessionId);
     } catch {
       // Analytics are best-effort and should not affect navigation.
     }
@@ -4433,32 +4478,7 @@ export class TerminalApp {
 
   private async loadPosts(): Promise<void> {
     try {
-      const response = await fetch(`${API_BASE}/api/posts`);
-      const payload = (await response.json()) as {
-        posts?: Array<{
-          title: string;
-          slug: string;
-          path: string;
-          markdown: string;
-          published?: string;
-          description?: string;
-          tags?: string[];
-          comments?: Array<{
-            id?: number;
-            name: string;
-            message: string;
-            at: string;
-            replies?: Array<{
-              id?: number;
-              name: string;
-              message: string;
-              at: string;
-            }>;
-          }>;
-        }>;
-      };
-      if (!response.ok) throw new Error("posts fetch failed");
-      const posts = Array.isArray(payload.posts) ? payload.posts : [];
+      const posts = await fetchPosts();
 
       this.lines.push({
         id: this.makeId(),
@@ -4547,14 +4567,14 @@ export class TerminalApp {
                 <p class="record-summary post-excerpt">${this.escapeHtml(post.description ?? this.markdownPreview(post.markdown))}</p>
                 <div class="record-meta post-card-actions">
                   <button type="button" class="post-comments-action" data-command="post open ${this.escapeAttribute(post.slug)}">${this.escapeHtml(commentCountLabel(comments))}</button>
-                  <span>comment <code>${this.escapeHtml(post.slug)}</code> &lt;name&gt; &lt;message&gt;</span>
+                  <button type="button" class="inline-link post-comment-quick-btn" data-prepopulate-command="comment ${this.escapeAttribute(post.slug)} ">comment</button>
                 </div>
                 ${
                   comments
                     ? `<div class="output-copy post-comments-preview">${commentList
                         .map(
                           (comment) =>
-                            `<p><strong>${this.escapeHtml(comment.name)}</strong>: ${this.escapeHtml(comment.message)}</p>`,
+                            `<p class="post-preview-comment"><span class="post-preview-comment-author"><strong>${this.escapeHtml(comment.name)}</strong></span>: <span class="post-preview-comment-body">${this.escapeHtml(comment.message)}</span> <button type="button" class="inline-link post-preview-reply-btn" data-prepopulate-command="comment ${comment.id} ">reply</button></p>`,
                         )
                         .join("")}</div>`
                     : ""
@@ -4889,18 +4909,7 @@ export class TerminalApp {
 
   private async recordCommand(command: string): Promise<void> {
     try {
-      await fetch(`${API_BASE}/api/os`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          sessionId: this.sessionId,
-          command,
-          recordOnly: true,
-          visibleContext: this.visibleContext(),
-        }),
-      });
+      await apiRecordCommand(this.sessionId, command);
     } catch {
       // Persistence is best-effort; the terminal should keep working offline.
     }
@@ -5561,17 +5570,7 @@ export class TerminalApp {
     name: string,
   ): Promise<void> {
     try {
-      await fetch("/api/os", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          sessionId: this.sessionId,
-          command: `score ${game} ${score} ${name}`,
-          visibleContext: this.visibleContext(),
-        }),
-      });
+      await recordScore({ game, score, name });
     } catch {
       // Scores are best-effort; gameplay should not depend on persistence.
     }
@@ -6073,8 +6072,8 @@ export class TerminalApp {
   private async handleSignalEdit(signalId: string): Promise<void> {
     const signal = resumeData.signals.find((s) => s.id === signalId);
     if (!signal) {
-      this.lines.push(this.responseLine(`Signal ${signalId} not found.`, "error"));
-      this.render();
+      this.lines.push(this.responseLine(`Signal ${signalId} not found.`, "warn"));
+      this.renderLog();
       return;
     }
 
@@ -6088,7 +6087,7 @@ export class TerminalApp {
     this.lines.push(
       this.responseLine("Enter new value (or press Enter to keep current):", "info"),
     );
-    this.render();
+    this.renderLog();
     this.inputElement.focus();
 
     const newValue = await this.waitForInput();
@@ -6097,13 +6096,19 @@ export class TerminalApp {
     this.lines.push(
       this.responseLine(`Enter new detail (or press Enter to keep current):`, "info"),
     );
-    this.render();
+    this.renderLog();
     this.inputElement.focus();
 
     const newDetail = await this.waitForInput();
     const detailToSet = newDetail.trim() || signal.detail || "";
 
     try {
+      const sudoPassword = await this.ensureSudoPassword();
+      if (!sudoPassword) {
+        this.lines.push(this.responseLine("Signal update cancelled.", "info"));
+        this.renderLog();
+        return;
+      }
       await upsertSignal({
         signalId,
         signalLabel: signal.label,
@@ -6111,44 +6116,51 @@ export class TerminalApp {
         signalDetail: detailToSet || undefined,
         signalAccent: signal.accent,
         signalMode: signal.mode,
+        sudoPassword,
       });
       this.lines.push(this.responseLine(`Signal updated successfully.`, "success"));
       
       signal.value = valueToSet;
       signal.detail = detailToSet || "";
       
-      this.render();
+      this.renderLog();
     } catch (error) {
       this.lines.push(
-        this.responseLine(`Failed to update signal: ${error instanceof Error ? error.message : String(error)}`, "error"),
+        this.responseLine(`Failed to update signal: ${error instanceof Error ? error.message : String(error)}`, "warn"),
       );
-      this.render();
+      this.renderLog();
     }
   }
 
   private async handleSignalRemove(signalId: string): Promise<void> {
     const signal = resumeData.signals.find((s) => s.id === signalId);
     if (!signal) {
-      this.lines.push(this.responseLine(`Signal ${signalId} not found.`, "error"));
-      this.render();
+      this.lines.push(this.responseLine(`Signal ${signalId} not found.`, "warn"));
+      this.renderLog();
       return;
     }
 
     this.lines.push(
       this.responseLine(`Remove signal: ${signal.label}? (y/N)`, "warn"),
     );
-    this.render();
+    this.renderLog();
     this.inputElement.focus();
 
     const confirmation = await this.waitForInput();
     if (confirmation.trim().toLowerCase() !== "y") {
       this.lines.push(this.responseLine("Cancelled.", "info"));
-      this.render();
+      this.renderLog();
       return;
     }
 
     try {
-      await deleteSignal(signalId);
+      const sudoPassword = await this.ensureSudoPassword();
+      if (!sudoPassword) {
+        this.lines.push(this.responseLine("Signal removal cancelled.", "info"));
+        this.renderLog();
+        return;
+      }
+      await deleteSignal(signalId, sudoPassword);
       this.lines.push(this.responseLine(`Signal removed successfully.`, "success"));
       
       const index = resumeData.signals.findIndex((s) => s.id === signalId);
@@ -6156,12 +6168,12 @@ export class TerminalApp {
         resumeData.signals.splice(index, 1);
       }
       
-      this.render();
+      this.renderLog();
     } catch (error) {
       this.lines.push(
-        this.responseLine(`Failed to remove signal: ${error instanceof Error ? error.message : String(error)}`, "error"),
+        this.responseLine(`Failed to remove signal: ${error instanceof Error ? error.message : String(error)}`, "warn"),
       );
-      this.render();
+      this.renderLog();
     }
   }
 

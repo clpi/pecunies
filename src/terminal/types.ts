@@ -217,6 +217,8 @@ export type CommandContext = {
   /** Session Workers AI model (chat / ask / identity). */
   getAiModel: () => string;
   setAiModel: (model: string) => boolean;
+  /** Prompt for the current sudo password when a frontend CRUD action needs it. */
+  ensureSudoPassword: () => Promise<string | null>;
   /** Session system prompt injection (chat / identity). */
   getSystemPrompt: () => string;
   setSystemPrompt: (text: string) => void;

@@ -556,7 +556,7 @@ export async function postPayload(path, markdown, env) {
   let comments = [];
   const db = postsDb(env);
   if (db) {
-    const rows = await db
+    const pmRows = await db
       .prepare(
         `SELECT id, name, message, kind, parent_id, created_at as at
          FROM post_messages
@@ -566,16 +566,39 @@ export async function postPayload(path, markdown, env) {
       )
       .bind(path)
       .all();
-    const raw = Array.isArray(rows?.results) ? rows.results : [];
+    const pmRaw = Array.isArray(pmRows?.results) ? pmRows.results : [];
+
+    const slug = slugFromPath(path);
+    let cRows = { results: [] };
+    try {
+      cRows = await db
+        .prepare(
+          `SELECT id, author, body as message, parent_id, created_at as at
+           FROM comments
+           WHERE target_type = 'post' AND target_slug = ?
+           ORDER BY created_at ASC
+           LIMIT 200`,
+        )
+        .bind(slug)
+        .all();
+    } catch {
+      // comments table may not exist yet.
+    }
+    const cRaw = Array.isArray(cRows?.results) ? cRows.results : [];
+
+    const raw = [...pmRaw, ...cRaw];
     const commentMap = new Map();
     const orderedComments = [];
+    const seenIds = new Set();
     for (const row of raw) {
       const kind = String(row?.kind || "comment");
-      const id = Number(row?.id ?? 0) || 0;
+      const id = String(row?.id ?? "");
       if (kind === "reply") continue;
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
       const comment = {
-        id,
-        name: String(row?.name || "anonymous"),
+        id: typeof row?.id === "number" ? row.id : id,
+        name: String(row?.name || row?.author || "anonymous"),
         message: String(row?.message || ""),
         at: String(row?.at || ""),
         replies: [],
@@ -584,13 +607,13 @@ export async function postPayload(path, markdown, env) {
       orderedComments.push(comment);
     }
     for (const row of raw) {
-      if (String(row?.kind || "") !== "reply") continue;
-      const parentId = Number(row?.parent_id ?? 0) || 0;
+      if (String(row?.kind || "comment") !== "reply") continue;
+      const parentId = String(row?.parent_id ?? "");
       const parent = commentMap.get(parentId);
       if (!parent) continue;
       parent.replies.push({
-        id: Number(row?.id ?? 0) || 0,
-        name: String(row?.name || "anonymous"),
+        id: typeof row?.id === "number" ? row.id : String(row?.id ?? ""),
+        name: String(row?.name || row?.author || "anonymous"),
         message: String(row?.message || ""),
         at: String(row?.at || ""),
       });
@@ -775,6 +798,88 @@ export async function onRequest() {
     { error: "Method not allowed." },
     { status: 405, headers: jsonHeaders },
   );
+}
+
+async function verifySudo(request, env) {
+  const authHeader = request.headers.get("authorization") || "";
+  const sudoPassword = env.PECUNIES_SUDO_PASSWD;
+  if (!sudoPassword) return { ok: false, configured: false };
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : authHeader.trim();
+  return { ok: token === sudoPassword, configured: true };
+}
+
+export async function onRequestPut({ request, env }) {
+  await ensureContentInfra(env);
+  const db = postsDb(env);
+  const url = new URL(request.url);
+  const pathParts = url.pathname.split("/").filter(Boolean);
+  const slug = pathParts[pathParts.length - 1];
+
+  if (!slug || slug === "posts") {
+    return Response.json({ error: "Post slug required in path." }, { status: 400, headers: jsonHeaders });
+  }
+
+  let body = null;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: "Invalid JSON body." }, { status: 400, headers: jsonHeaders });
+  }
+
+  const sudoPassword = body.sudoPassword || "";
+  if (sudoPassword && sudoPassword !== env.PECUNIES_SUDO_PASSWD) {
+    return errorJson("Unauthorized: invalid sudo password", 401);
+  }
+  if (!sudoPassword) {
+    const sudo = await verifySudo(request, env);
+    if (!sudo.ok) return errorJson("Unauthorized: sudo required", 401);
+  }
+
+  const markdown = String(body.markdown || "");
+  if (!markdown) {
+    return Response.json({ error: "markdown is required." }, { status: 400, headers: jsonHeaders });
+  }
+
+  const { meta } = parseFrontmatter(markdown);
+  const title = String(body.title || meta.title || slug);
+  const path = `/posts/${slug}.md`;
+
+  await syncPostToStorage(env, path, markdown);
+
+  return Response.json({ item: { slug, title, path, markdown } }, { headers: apiHeaders() });
+}
+
+export async function onRequestDelete({ request, env }) {
+  await ensureContentInfra(env);
+  const db = postsDb(env);
+  const url = new URL(request.url);
+  const pathParts = url.pathname.split("/").filter(Boolean);
+  const slug = pathParts[pathParts.length - 1];
+
+  if (!slug || slug === "posts") {
+    return Response.json({ error: "Post slug required in path." }, { status: 400, headers: jsonHeaders });
+  }
+
+  let body = null;
+  try {
+    body = await request.json().catch(() => ({}));
+  } catch {
+    body = {};
+  }
+
+  const sudoPassword = body.sudoPassword || "";
+  if (sudoPassword && sudoPassword !== env.PECUNIES_SUDO_PASSWD) {
+    return errorJson("Unauthorized: invalid sudo password", 401);
+  }
+  if (!sudoPassword) {
+    const sudo = await verifySudo(request, env);
+    if (!sudo.ok) return errorJson("Unauthorized: sudo required", 401);
+  }
+
+  const path = `/posts/${slug}.md`;
+  await deletePostFromStorage(env, path);
+
+  return Response.json({ ok: true }, { headers: apiHeaders() });
 }
 
 function escapeXml(s) {
