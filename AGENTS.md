@@ -1,3 +1,15 @@
+# AGENTS.md
+
+## Front (pecunies.com)
+
+### Don't touch
+- The background is perfect, don't mess with it.
+- The CRT effect is perfect across the board, don't mess with.
+- The frosted glass effect on the navbar and the session identity popover background is perfect.
+
+### Data
+- All backend/persisted elements should go through api.pecunies.com worker.
+
 ## Learned User Preferences
 - Prefers macOS-like terminal window behavior (traffic-light controls, dock-style minimize/restore).
 - Prefers active theme accents to consistently drive key UI elements like nav selection and brand indicator.

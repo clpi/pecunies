@@ -5,6 +5,7 @@ import {
   TAG_INDEX,
   type TagContentItem,
 } from "../data/content-tags";
+import { baseCommandForType } from "../data/catalog";
 import { terminalThemes, type ThemeName } from "./palette";
 import type {
   CommandDefinition,
@@ -13,6 +14,15 @@ import type {
   ViewDefinition,
   ViewStat,
 } from "./types";
+import {
+  fetchCatalog,
+  fetchEntity,
+  postComment,
+  fetchHistory,
+  authLogin,
+  authSignup,
+  type CatalogEntity,
+} from "../api";
 
 function escapeHtml(value: string): string {
   return value
@@ -87,6 +97,41 @@ function intersectTagItems(
     out.push(normalizeTagItem(base));
   }
   return out.sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function buildCatalogTagIndex(
+  entities: CatalogEntity[],
+): Record<string, TagContentItem[]> {
+  const out: Record<string, TagContentItem[]> = {};
+  for (const entity of entities) {
+    if (entity.type === "tag") continue;
+    const command = `${baseCommandForType(entity.type)} ${entity.slug}`;
+    const entry: TagContentItem = {
+      label: entity.title || entity.slug,
+      type: entity.type,
+      command,
+    };
+    for (const rawTag of entity.tags ?? []) {
+      const tag = String(rawTag).trim().toLowerCase();
+      if (!tag) continue;
+      if (!out[tag]) out[tag] = [];
+      out[tag]!.push(entry);
+    }
+  }
+  return out;
+}
+
+function mergeTagIndexes(
+  ...indexes: Record<string, TagContentItem[]>[]
+): Record<string, TagContentItem[]> {
+  const out: Record<string, TagContentItem[]> = {};
+  for (const index of indexes) {
+    for (const [tag, items] of Object.entries(index)) {
+      if (!out[tag]) out[tag] = [];
+      out[tag]!.push(...items);
+    }
+  }
+  return out;
 }
 
 function buildTagsView(
@@ -444,6 +489,7 @@ export function createCommandRegistry(): {
           period: item.period,
           summary: item.summary,
           bullets: item.bullets,
+          link: { label: "Open →", command: `experience ${item.slug}` },
         })),
       },
     ],
@@ -574,6 +620,49 @@ export function createCommandRegistry(): {
             lines: [
               `Use explain project ${project.slug} for an AI summary.`,
               "Return with projects to compare all portfolio projects.",
+            ],
+          },
+        ],
+      } satisfies ViewDefinition,
+    ]),
+  ) as Record<string, ViewDefinition>;
+
+  const experienceDetailViews = Object.fromEntries(
+    resumeData.experience.map((item) => [
+      item.slug,
+      {
+        id: `experience-${item.slug}`,
+        route: `experience/${item.slug}`,
+        prompt: `./experience --open ${item.slug}`,
+        eyebrow: item.company,
+        title: item.role,
+        description: item.summary,
+        theme: "orange",
+        tags: ["career", "work", "deep-dive"],
+        logline: `Loaded experience detail: ${item.role} at ${item.company}.`,
+        actions: [
+          { label: "Back to experience", command: "experience" },
+          { label: "Resume", command: "resume" },
+          { label: "Projects", command: "projects" },
+        ],
+        sections: [
+          {
+            type: "note",
+            heading: "Overview",
+            lines: [item.summary, `${item.period} · ${item.location}`],
+          },
+          {
+            type: "timeline",
+            heading: "Highlights",
+            items: [
+              {
+                role: item.role,
+                company: item.company,
+                location: item.location,
+                period: item.period,
+                summary: item.summary,
+                bullets: item.bullets,
+              },
             ],
           },
         ],
@@ -1009,14 +1098,14 @@ export function createCommandRegistry(): {
   };
 
   const tagsView: ViewDefinition = {
-    id: 'tags',
-    route: 'tags',
-    prompt: 'search tag',
-    eyebrow: 'Tags',
-    title: 'Tag filter and browse',
-    description: 'Browse all tags and find views by tag.',
-    theme: 'frost',
-    logline: 'Loaded tags.',
+    id: "tags",
+    route: "tags",
+    prompt: "search tag",
+    eyebrow: "Tags",
+    title: "Tag filter and browse",
+    description: "Browse all tags and find views by tag.",
+    theme: "frost",
+    logline: "Loaded tags.",
     sections: [],
   };
 
@@ -1496,12 +1585,28 @@ export function createCommandRegistry(): {
     description: "Load the resume-backed landing view.",
   });
 
-  addViewCommand("experience", {
-    aliases: ["work"],
-    usage: "experience",
+  commands.push({
+    name: "experience",
+    aliases: ["experiences", "work"],
+    usage: "experience [slug]",
     group: "Core",
     featured: true,
-    description: "Show the work timeline with role-by-role details.",
+    description:
+      "Show the work timeline. Pass a slug to open a role detail view.",
+    execute(_context, args): CommandOutcome {
+      const slug = String(args[0] ?? "")
+        .trim()
+        .toLowerCase();
+      if (!slug) return { kind: "view", view: staticViews["experience"] };
+      const view = experienceDetailViews[slug];
+      if (!view)
+        return {
+          kind: "system",
+          text: `Unknown role "${slug}". Try experience for the full list.`,
+          tone: "warn",
+        };
+      return { kind: "view", view };
+    },
   });
 
   addViewCommand("timeline", {
@@ -1849,8 +1954,7 @@ export function createCommandRegistry(): {
       if (!context.setAiModel(id)) {
         return {
           kind: "system",
-          text:
-            "Invalid Workers AI model id. Use an id such as @cf/meta/llama-3.1-8b-instruct (tab-complete after model).",
+          text: "Invalid Workers AI model id. Use an id such as @cf/meta/llama-3.1-8b-instruct (tab-complete after model).",
           tone: "warn",
         };
       }
@@ -2230,7 +2334,8 @@ export function createCommandRegistry(): {
   addOsCommand("new", {
     usage: "new <type> [--title=<t>] [--tags=<a,b>] [args...]",
     group: "OS",
-    description: "Create new data type instances (post, workflow, step, trigger, job, hook, tool, skill).",
+    description:
+      "Create new data type instances (post, workflow, step, trigger, job, hook, tool, skill).",
   });
 
   addOsCommand("workflow", {
@@ -2545,20 +2650,98 @@ export function createCommandRegistry(): {
   commands.push({
     name: "new",
     aliases: ["create"],
-    usage: "new [split|tab|window]",
+    usage:
+      "new [split|tab|window|post] [--title <title>] [--body <text>] [--tags <t1,t2>]",
     group: "Window",
-    description: "Create a new split, tab, or window. Defaults to new tab.",
-    execute(_context, args) {
+    description:
+      "Create a new split, tab, window, or post. Use `new post --title ... --body ...` to draft a post via the API.",
+    async execute(_context, args) {
       const target = args[0]?.toLowerCase();
       if (target === "split") {
         return {
           kind: "system",
-          text: "Split created below. Use /move to navigate between panes.",
+          text: "Split created below. Use /move to navigate.",
           tone: "success",
         };
       }
       if (target === "window") {
         return { kind: "system", text: "New window opened.", tone: "success" };
+      }
+      if (target === "post") {
+        const titleIdx = args.indexOf("--title");
+        const bodyIdx = args.indexOf("--body");
+        const tagsIdx = args.indexOf("--tags");
+        const title =
+          titleIdx >= 0
+            ? args
+                .slice(titleIdx + 1, bodyIdx > titleIdx ? bodyIdx : undefined)
+                .join(" ")
+                .replace(/^--\S+.*/, "")
+            : "";
+        const body =
+          bodyIdx >= 0
+            ? args
+                .slice(bodyIdx + 1)
+                .filter((a, i, arr) => {
+                  // stop at next flag
+                  if (i > 0 && String(arr[i - 1]).startsWith("--")) return true;
+                  return !a.startsWith("--");
+                })
+                .join(" ")
+            : "";
+        const tags =
+          tagsIdx >= 0
+            ? String(args[tagsIdx + 1] || "")
+                .split(",")
+                .map((t) => t.trim())
+                .filter(Boolean)
+            : [];
+        if (!title && !body) {
+          return {
+            kind: "system",
+            tone: "info",
+            text: "Usage: new post --title <title> --body <body text> [--tags tag1,tag2]",
+          };
+        }
+        try {
+          const slug =
+            title
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, "-")
+              .replace(/^-+|-+$/g, "") || `post-${Date.now().toString(36)}`;
+          const res = await fetch("/api/posts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "create",
+              slug,
+              title,
+              markdown: body,
+              tags,
+            }),
+          });
+          if (!res.ok) {
+            const err = (await res.json().catch(() => ({}))) as {
+              error?: string;
+            };
+            return {
+              kind: "system",
+              tone: "warn",
+              text: `Post creation failed: ${err?.error ?? res.statusText}`,
+            };
+          }
+          return {
+            kind: "system",
+            tone: "success",
+            text: `Post '${slug}' created. View it with: post open ${slug}`,
+          };
+        } catch (err) {
+          return {
+            kind: "system",
+            tone: "warn",
+            text: `Error: ${(err as Error).message}`,
+          };
+        }
       }
       return {
         kind: "system",
@@ -2952,10 +3135,19 @@ export function createCommandRegistry(): {
     description:
       "Browse content tags, filter by tag name/prefix, or select multiple tags (AND filter).",
     tags: ["portfolio", "tooling", "terminal"],
-    execute(_context, args) {
+    async execute(_context, args) {
+      let catalogTagIndex: Record<string, TagContentItem[]> = {};
+      try {
+        catalogTagIndex = buildCatalogTagIndex(await fetchCatalog());
+      } catch {
+        catalogTagIndex = {};
+      }
       return {
         kind: "view",
-        view: buildTagsView(args.join(" "), buildCommandTagIndex()),
+        view: buildTagsView(
+          args.join(" "),
+          mergeTagIndexes(buildCommandTagIndex(), catalogTagIndex),
+        ),
       };
     },
   });
@@ -3013,9 +3205,856 @@ export function createCommandRegistry(): {
     },
   });
 
+  // ── /auth ──────────────────────────────────────────────────────────────────
+  commands.push({
+    name: "auth",
+    aliases: ["login", "signup"],
+    usage:
+      "auth [login|signup] [--email <email>] [--user <username>] [--name <name>]",
+    group: "Identity",
+    description: "Login or sign up. Stores session identity locally.",
+    tags: ["auth", "identity", "user"],
+    async execute(_ctx, args) {
+      const sub = args[0]?.toLowerCase() || "login";
+      const emailIdx = args.indexOf("--email");
+      const userIdx = args.indexOf("--user");
+      const nameIdx = args.indexOf("--name");
+      const email = emailIdx >= 0 ? args[emailIdx + 1] : "";
+      const username = userIdx >= 0 ? args[userIdx + 1] : "";
+      const fullName = nameIdx >= 0 ? args.slice(nameIdx + 1).join(" ") : "";
+
+      if (!email) {
+        return {
+          kind: "system",
+          tone: "info",
+          text: [
+            "Usage:",
+            "  auth login  --email <email>",
+            "  auth signup --email <email> --user <username> [--name <full name>]",
+            "",
+            "Stores session as localStorage pecunies.session.*",
+          ].join("\n"),
+        };
+      }
+
+      try {
+        let user;
+        if (sub === "signup") {
+          if (!username)
+            return {
+              kind: "system",
+              tone: "warn",
+              text: "--user <username> required for signup.",
+            };
+          user = await authSignup({ email, username, fullName });
+        } else {
+          user = await authLogin(email);
+        }
+        localStorage.setItem("pecunies.session.email", user.email);
+        localStorage.setItem("pecunies.session.username", user.username);
+        localStorage.setItem("pecunies.session.fullName", user.fullName);
+        return {
+          kind: "system",
+          tone: "success",
+          text: `Authenticated as ${user.username} <${user.email}>. Session saved.`,
+        };
+      } catch (err) {
+        return {
+          kind: "system",
+          tone: "warn",
+          text: String((err as Error).message),
+        };
+      }
+    },
+  });
+
+  // ── /reply ─────────────────────────────────────────────────────────────────
+  commands.push({
+    name: "reply",
+    aliases: ["comment"],
+    usage: "reply --to <type>/<slug> [--parent <commentId>] <body...>",
+    group: "Social",
+    description:
+      "Post a comment or reply to an existing comment on any entity.",
+    tags: ["social", "comment", "interaction"],
+    async execute(_ctx, args) {
+      const toIdx = args.indexOf("--to");
+      const parentIdx = args.indexOf("--parent");
+      const toVal = toIdx >= 0 ? args[toIdx + 1] : "";
+      const parentId = parentIdx >= 0 ? args[parentIdx + 1] : undefined;
+
+      const bodyStart = Math.max(
+        toIdx >= 0 ? toIdx + 2 : 0,
+        parentIdx >= 0 ? parentIdx + 2 : 0,
+      );
+      const body = args.slice(bodyStart).join(" ").trim();
+
+      if (!toVal || !body) {
+        return {
+          kind: "system",
+          tone: "info",
+          text: [
+            "Usage:  reply --to <type>/<slug> [--parent <commentId>] <message>",
+            "  reply --to post/my-post Hello, world!",
+            "  reply --to skill/typescript --parent cmt_abc123 Agreed!",
+          ].join("\n"),
+        };
+      }
+
+      const [targetType, ...slugParts] = toVal.split("/");
+      const targetSlug = slugParts.join("/");
+      if (!targetType || !targetSlug)
+        return {
+          kind: "system",
+          tone: "warn",
+          text: "Invalid --to format. Use type/slug e.g. post/my-post",
+        };
+
+      const author =
+        localStorage.getItem("pecunies.session.username") || "anon";
+      const authorEmail = localStorage.getItem("pecunies.session.email") || "";
+
+      try {
+        const comment = await postComment({
+          targetType,
+          targetSlug,
+          body,
+          authorUsername: author,
+          authorEmail,
+          parentId,
+        });
+        return {
+          kind: "system",
+          tone: "success",
+          text: `Comment posted (id: ${comment.id}) on ${targetType}/${targetSlug}${parentId ? ` [reply to ${parentId}]` : ""}`,
+        };
+      } catch (err) {
+        return {
+          kind: "system",
+          tone: "warn",
+          text: `Failed to post comment: ${(err as Error).message}`,
+        };
+      }
+    },
+  });
+
+  // ── /redo ──────────────────────────────────────────────────────────────────
+  commands.push({
+    name: "redo",
+    aliases: ["!!"],
+    usage: "redo [n]",
+    group: "Shell",
+    description:
+      "Re-run the last command, or the Nth most recent from history.",
+    tags: ["shell", "history", "utility"],
+    async execute(_ctx, args) {
+      const n = Math.max(1, parseInt(args[0] || "1", 10));
+      const sessionId =
+        localStorage.getItem("pecunies.session.id") || "default";
+      try {
+        const history = await fetchHistory(sessionId, n + 1);
+        const entry = history[n - 1];
+        if (!entry)
+          return {
+            kind: "system",
+            tone: "warn",
+            text: "No command history found.",
+          };
+        return {
+          kind: "os",
+          command: entry.command,
+          tone: "info",
+        };
+      } catch {
+        return {
+          kind: "system",
+          tone: "warn",
+          text: "Could not fetch command history.",
+        };
+      }
+    },
+  });
+
+  // ── /tool ──────────────────────────────────────────────────────────────────
+  commands.push({
+    name: "tool",
+    aliases: ["tools"],
+    usage: "tool [slug]",
+    group: "Catalog",
+    route: "tool",
+    fullPageView: true,
+    description:
+      "List or inspect tools. Each tool shows its tags, description, and where it's used.",
+    tags: ["catalog", "tooling", "agents"],
+    async execute(_ctx, args) {
+      const slug = args[0]?.toLowerCase().trim();
+      try {
+        if (slug) {
+          const result = await fetchEntity("tool", slug);
+          if (!result)
+            return {
+              kind: "system",
+              tone: "warn",
+              text: `Tool '${slug}' not found.`,
+            };
+          return {
+            kind: "view",
+            view: buildEntityDetailView(result.item, result.usedBy),
+          };
+        }
+        const tools = await fetchCatalog("tool");
+        return {
+          kind: "view",
+          view: buildEntityListView("tool", "Tools", tools),
+        };
+      } catch (err) {
+        return {
+          kind: "system",
+          tone: "warn",
+          text: `Error: ${(err as Error).message}`,
+        };
+      }
+    },
+  });
+
+  // ── /skill ─────────────────────────────────────────────────────────────────
+  commands.push({
+    name: "skill",
+    aliases: ["skills"],
+    usage: "skill [slug|--cat <category>|--years <n>]",
+    group: "Catalog",
+    route: "skill",
+    fullPageView: true,
+    description:
+      "Browse skills. Filter by category or minimum years of experience.",
+    tags: ["catalog", "skills", "resume"],
+    async execute(_ctx, args) {
+      const slug = args.find((a) => !a.startsWith("--"));
+      const catIdx = args.indexOf("--cat");
+      const yearsIdx = args.indexOf("--years");
+      const catFilter = catIdx >= 0 ? args[catIdx + 1] : null;
+      const yearsMin =
+        yearsIdx >= 0 ? parseFloat(args[yearsIdx + 1] || "0") : null;
+
+      try {
+        if (slug) {
+          const result = await fetchEntity("skill", slug);
+          if (!result)
+            return {
+              kind: "system",
+              tone: "warn",
+              text: `Skill '${slug}' not found.`,
+            };
+          return {
+            kind: "view",
+            view: buildEntityDetailView(result.item, result.usedBy),
+          };
+        }
+        let skills = await fetchCatalog("skill");
+        if (catFilter)
+          skills = skills.filter((s) =>
+            s.category?.toLowerCase().includes(catFilter.toLowerCase()),
+          );
+        if (yearsMin !== null)
+          skills = skills.filter(
+            (s) => (s.yearsOfExperience ?? 0) >= yearsMin!,
+          );
+        return {
+          kind: "view",
+          view: buildEntityListView("skill", "Skills", skills),
+        };
+      } catch (err) {
+        return {
+          kind: "system",
+          tone: "warn",
+          text: `Error: ${(err as Error).message}`,
+        };
+      }
+    },
+  });
+
+  // ── /step ──────────────────────────────────────────────────────────────────
+  commands.push({
+    name: "step",
+    aliases: ["steps"],
+    usage: "step [slug]",
+    group: "Workflows",
+    route: "step",
+    fullPageView: true,
+    description:
+      "List or inspect workflow steps. Each step shows the jobs and workflows it's used in.",
+    tags: ["workflow", "step", "automation"],
+    async execute(_ctx, args) {
+      const slug = args[0]?.toLowerCase().trim();
+      try {
+        if (slug) {
+          const result = await fetchEntity("step", slug);
+          if (!result)
+            return {
+              kind: "system",
+              tone: "warn",
+              text: `Step '${slug}' not found.`,
+            };
+          return {
+            kind: "view",
+            view: buildEntityDetailView(result.item, result.usedBy),
+          };
+        }
+        const items = await fetchCatalog("step");
+        return {
+          kind: "view",
+          view: buildEntityListView("step", "Steps", items),
+        };
+      } catch (err) {
+        return {
+          kind: "system",
+          tone: "warn",
+          text: `Error: ${(err as Error).message}`,
+        };
+      }
+    },
+  });
+
+  // ── /workflow ──────────────────────────────────────────────────────────────
+  commands.push({
+    name: "workflow",
+    aliases: ["workflows"],
+    usage: "workflow [slug]",
+    group: "Workflows",
+    route: "workflow",
+    fullPageView: true,
+    description:
+      "List or inspect workflows. Shows executions, steps, tags, and description.",
+    tags: ["workflow", "automation", "orchestration"],
+    async execute(_ctx, args) {
+      const slug = args[0]?.toLowerCase().trim();
+      try {
+        if (slug) {
+          const result = await fetchEntity("workflow", slug);
+          if (!result)
+            return {
+              kind: "system",
+              tone: "warn",
+              text: `Workflow '${slug}' not found.`,
+            };
+          return {
+            kind: "view",
+            view: buildEntityDetailView(result.item, result.usedBy),
+          };
+        }
+        const items = await fetchCatalog("workflow");
+        return {
+          kind: "view",
+          view: buildEntityListView("workflow", "Workflows", items),
+        };
+      } catch (err) {
+        return {
+          kind: "system",
+          tone: "warn",
+          text: `Error: ${(err as Error).message}`,
+        };
+      }
+    },
+  });
+
+  // ── /execution ─────────────────────────────────────────────────────────────
+  commands.push({
+    name: "execution",
+    aliases: ["executions", "exec"],
+    usage: "execution [slug]",
+    group: "Workflows",
+    route: "execution",
+    fullPageView: true,
+    description:
+      "View execution logs. Shows pass/fail, duration, steps run, trigger, and output.",
+    tags: ["workflow", "execution", "logs"],
+    async execute(_ctx, args) {
+      const slug = args[0]?.toLowerCase().trim();
+      try {
+        if (slug) {
+          const result = await fetchEntity("execution", slug);
+          if (!result)
+            return {
+              kind: "system",
+              tone: "warn",
+              text: `Execution '${slug}' not found.`,
+            };
+          return {
+            kind: "view",
+            view: buildEntityDetailView(result.item, result.usedBy),
+          };
+        }
+        const items = await fetchCatalog("execution");
+        return {
+          kind: "view",
+          view: buildEntityListView("execution", "Executions", items),
+        };
+      } catch (err) {
+        return {
+          kind: "system",
+          tone: "warn",
+          text: `Error: ${(err as Error).message}`,
+        };
+      }
+    },
+  });
+
+  // ── /agents ────────────────────────────────────────────────────────────────
+  commands.push({
+    name: "agents",
+    aliases: ["agent"],
+    usage: "agents [slug]",
+    group: "AI",
+    route: "agent",
+    fullPageView: true,
+    description:
+      "List or inspect agents. Shows system prompt, skills, tools, hooks, and triggers.",
+    tags: ["ai", "agent", "automation"],
+    async execute(_ctx, args) {
+      const slug = args[0]?.toLowerCase().trim();
+      try {
+        if (slug) {
+          const result = await fetchEntity("agent", slug);
+          if (!result)
+            return {
+              kind: "system",
+              tone: "warn",
+              text: `Agent '${slug}' not found.`,
+            };
+          return {
+            kind: "view",
+            view: buildEntityDetailView(result.item, result.usedBy),
+          };
+        }
+        const items = await fetchCatalog("agent");
+        return {
+          kind: "view",
+          view: buildEntityListView("agent", "Agents", items),
+        };
+      } catch (err) {
+        return {
+          kind: "system",
+          tone: "warn",
+          text: `Error: ${(err as Error).message}`,
+        };
+      }
+    },
+  });
+
+  // ── /hook ──────────────────────────────────────────────────────────────────
+  commands.push({
+    name: "hook",
+    aliases: ["hooks"],
+    usage: "hook [slug]",
+    group: "Automation",
+    route: "hook",
+    fullPageView: true,
+    description:
+      "List or inspect hooks. Shows trigger events, target action, tags, and where used.",
+    tags: ["automation", "hook", "trigger"],
+    async execute(_ctx, args) {
+      const slug = args[0]?.toLowerCase().trim();
+      try {
+        if (slug) {
+          const result = await fetchEntity("hook", slug);
+          if (!result)
+            return {
+              kind: "system",
+              tone: "warn",
+              text: `Hook '${slug}' not found.`,
+            };
+          return {
+            kind: "view",
+            view: buildEntityDetailView(result.item, result.usedBy),
+          };
+        }
+        const items = await fetchCatalog("hook");
+        return {
+          kind: "view",
+          view: buildEntityListView("hook", "Hooks", items),
+        };
+      } catch (err) {
+        return {
+          kind: "system",
+          tone: "warn",
+          text: `Error: ${(err as Error).message}`,
+        };
+      }
+    },
+  });
+
+  // ── /triggers ──────────────────────────────────────────────────────────────
+  commands.push({
+    name: "triggers",
+    aliases: ["trigger"],
+    usage: "triggers [slug]",
+    group: "Automation",
+    route: "trigger",
+    fullPageView: true,
+    description:
+      "List or inspect triggers. Shows event type, condition, action, tags, and where used.",
+    tags: ["automation", "trigger", "event"],
+    async execute(_ctx, args) {
+      const slug = args[0]?.toLowerCase().trim();
+      try {
+        if (slug) {
+          const result = await fetchEntity("trigger", slug);
+          if (!result)
+            return {
+              kind: "system",
+              tone: "warn",
+              text: `Trigger '${slug}' not found.`,
+            };
+          return {
+            kind: "view",
+            view: buildEntityDetailView(result.item, result.usedBy),
+          };
+        }
+        const items = await fetchCatalog("trigger");
+        return {
+          kind: "view",
+          view: buildEntityListView("trigger", "Triggers", items),
+        };
+      } catch (err) {
+        return {
+          kind: "system",
+          tone: "warn",
+          text: `Error: ${(err as Error).message}`,
+        };
+      }
+    },
+  });
+
+  // ── /users ─────────────────────────────────────────────────────────────────
+  commands.push({
+    name: "users",
+    aliases: ["user"],
+    usage: "users [username]",
+    group: "Identity",
+    route: "user",
+    fullPageView: true,
+    description:
+      "List or inspect users. Each user has their own page with tags, bio, and avatar.",
+    tags: ["identity", "user", "social"],
+    async execute(_ctx, args) {
+      const slug = args[0]?.toLowerCase().trim();
+      try {
+        if (slug) {
+          const result = await fetchEntity("user", slug);
+          if (!result)
+            return {
+              kind: "system",
+              tone: "warn",
+              text: `User '${slug}' not found.`,
+            };
+          return {
+            kind: "view",
+            view: buildEntityDetailView(result.item, result.usedBy),
+          };
+        }
+        const items = await fetchCatalog("user");
+        return {
+          kind: "view",
+          view: buildEntityListView("user", "Users", items),
+        };
+      } catch (err) {
+        return {
+          kind: "system",
+          tone: "warn",
+          text: `Error: ${(err as Error).message}`,
+        };
+      }
+    },
+  });
+
+  // ── /job ───────────────────────────────────────────────────────────────────
+  commands.push({
+    name: "job",
+    aliases: ["jobs", "cron"],
+    usage: "job [slug]",
+    group: "Automation",
+    route: "job",
+    fullPageView: true,
+    description:
+      "List or inspect background jobs (cron). Shows schedule, steps, tags, and run history.",
+    tags: ["automation", "job", "cron", "background"],
+    async execute(_ctx, args) {
+      const slug = args[0]?.toLowerCase().trim();
+      try {
+        if (slug) {
+          const result = await fetchEntity("job", slug);
+          if (!result)
+            return {
+              kind: "system",
+              tone: "warn",
+              text: `Job '${slug}' not found.`,
+            };
+          return {
+            kind: "view",
+            view: buildEntityDetailView(result.item, result.usedBy),
+          };
+        }
+        const items = await fetchCatalog("job");
+        return {
+          kind: "view",
+          view: buildEntityListView("job", "Background Jobs", items),
+        };
+      } catch (err) {
+        return {
+          kind: "system",
+          tone: "warn",
+          text: `Error: ${(err as Error).message}`,
+        };
+      }
+    },
+  });
+
+  // ── /systemprompt ──────────────────────────────────────────────────────────
+  commands.push({
+    name: "systemprompt",
+    aliases: ["sysprompt", "sp"],
+    usage: "systemprompt [slug]",
+    group: "AI",
+    route: "systemprompt",
+    fullPageView: true,
+    description:
+      "List or inspect system prompts. Shows injection text, context sources, where used, and tags.",
+    tags: ["ai", "systemprompt", "agent"],
+    async execute(_ctx, args) {
+      const slug = args[0]?.toLowerCase().trim();
+      try {
+        if (slug) {
+          const result = await fetchEntity("systemprompt", slug);
+          if (!result)
+            return {
+              kind: "system",
+              tone: "warn",
+              text: `System prompt '${slug}' not found.`,
+            };
+          return {
+            kind: "view",
+            view: buildEntityDetailView(result.item, result.usedBy),
+          };
+        }
+        const items = await fetchCatalog("systemprompt");
+        return {
+          kind: "view",
+          view: buildEntityListView("systemprompt", "System Prompts", items),
+        };
+      } catch (err) {
+        return {
+          kind: "system",
+          tone: "warn",
+          text: `Error: ${(err as Error).message}`,
+        };
+      }
+    },
+  });
+
+  // ── /data ──────────────────────────────────────────────────────────────────
+  commands.push({
+    name: "data",
+    aliases: ["datasource", "sources"],
+    usage: "data [slug|--type <category>]",
+    group: "AI",
+    route: "data",
+    fullPageView: true,
+    description:
+      "List data sources available to agents and skills. Shows type, schema, tags, and where used.",
+    tags: ["ai", "data", "knowledge"],
+    async execute(_ctx, args) {
+      const slug = args.find((a) => !a.startsWith("--"));
+      const typeIdx = args.indexOf("--type");
+      const typeFilter = typeIdx >= 0 ? args[typeIdx + 1] : null;
+      try {
+        if (slug) {
+          const result = await fetchEntity(
+            "data" as CatalogEntity["type"],
+            slug,
+          );
+          if (!result)
+            return {
+              kind: "system",
+              tone: "warn",
+              text: `Data source '${slug}' not found.`,
+            };
+          return {
+            kind: "view",
+            view: buildEntityDetailView(result.item, result.usedBy),
+          };
+        }
+        let items = await fetchCatalog("data" as CatalogEntity["type"]);
+        if (typeFilter)
+          items = items.filter((s) =>
+            s.category?.toLowerCase().includes(typeFilter.toLowerCase()),
+          );
+        return {
+          kind: "view",
+          view: buildEntityListView("data", "Data Sources", items),
+        };
+      } catch (err) {
+        return {
+          kind: "system",
+          tone: "warn",
+          text: `Error: ${(err as Error).message}`,
+        };
+      }
+    },
+  });
+
   return {
     commands,
     featuredCommands: commands.filter((command) => command.featured),
+  };
+}
+
+// ─── Generic entity view builders ─────────────────────────────────────────────
+
+function buildEntityListView(
+  type: string,
+  title: string,
+  items: CatalogEntity[],
+): ViewDefinition {
+  const grouped = new Map<string, CatalogEntity[]>();
+  for (const item of items) {
+    const cat = item.category || "General";
+    if (!grouped.has(cat)) grouped.set(cat, []);
+    grouped.get(cat)!.push(item);
+  }
+  const sections: ViewDefinition["sections"] =
+    items.length === 0
+      ? [
+          {
+            type: "note",
+            heading: "Empty",
+            lines: [`No ${type}s found. Create one via the API.`],
+          },
+        ]
+      : Array.from(grouped.entries()).map(([cat, catItems]) => ({
+          type: "command-list" as const,
+          heading: cat,
+          items: catItems.map((item) => ({
+            name: item.title,
+            usage: `${type} ${item.slug}`,
+            description: item.description || item.summary || "",
+            command: `${type} ${item.slug}`,
+            group: cat,
+            tags: item.tags,
+          })),
+        }));
+
+  return {
+    id: `${type}-list`,
+    route: type,
+    prompt: `./${type} --list`,
+    eyebrow: title,
+    title,
+    description: `All ${title.toLowerCase()} in the catalog.`,
+    theme: "frost",
+    logline: `Listing ${items.length} ${title.toLowerCase()}.`,
+    tags: [type, "catalog"],
+    sections,
+    stats: [{ label: "Total", value: String(items.length) }],
+    actions: [{ label: `New ${type}`, command: `new ${type}` }],
+  };
+}
+
+function buildEntityDetailView(
+  item: CatalogEntity,
+  usedBy: CatalogEntity[],
+): ViewDefinition {
+  const sections: ViewDefinition["sections"] = [];
+
+  if (item.description || item.summary) {
+    sections.push({
+      type: "note",
+      heading: "About",
+      lines: [item.description || item.summary || ""].concat(
+        item.details ?? [],
+      ),
+    });
+  }
+
+  if (item.metadata && Object.keys(item.metadata).length > 0) {
+    sections.push({
+      type: "metrics",
+      heading: "Properties",
+      items: Object.entries(item.metadata).map(([k, v]) => ({
+        label: k.replace(/_/g, " "),
+        value: String(v),
+      })),
+    });
+  }
+
+  if (item.tags?.length) {
+    sections.push({
+      type: "tag-index",
+      heading: "Tags",
+      allTags: item.tags.map((t) => ({ slug: t, count: 0 })),
+      items: item.tags.map((t) => ({
+        label: t,
+        type: "command",
+        command: `tags ${t}`,
+      })),
+    });
+  }
+
+  if (item.related?.length) {
+    sections.push({
+      type: "command-list",
+      heading: "Related",
+      items: item.related.map((ref) => ({
+        name: ref.label || ref.slug,
+        usage: `${ref.type} ${ref.slug}`,
+        description: `${ref.type}: ${ref.slug}`,
+        command: `${ref.type} ${ref.slug}`,
+        group: ref.type,
+      })),
+    });
+  }
+
+  if (usedBy.length > 0) {
+    sections.push({
+      type: "command-list",
+      heading: "Used By",
+      items: usedBy.slice(0, 24).map((e) => ({
+        name: e.title,
+        usage: `${e.type} ${e.slug}`,
+        description: e.description || "",
+        command: `${e.type} ${e.slug}`,
+        group: e.type,
+      })),
+    });
+  }
+
+  if (sections.length === 0) {
+    sections.push({
+      type: "note",
+      heading: item.title,
+      lines: ["No details available yet."],
+    });
+  }
+
+  return {
+    id: `${item.type}-${item.slug}`,
+    route: `${item.type}/${item.slug}`,
+    prompt: `./${item.type} ${item.slug}`,
+    eyebrow: item.type.charAt(0).toUpperCase() + item.type.slice(1),
+    title: item.title,
+    description: item.description || item.summary || "",
+    theme: "frost",
+    logline: `${item.type}: ${item.title}`,
+    tags: item.tags,
+    stats: [
+      { label: "Type", value: item.type },
+      { label: "Slug", value: item.slug },
+      ...(item.category ? [{ label: "Category", value: item.category }] : []),
+      ...(item.yearsOfExperience
+        ? [{ label: "Experience", value: `${item.yearsOfExperience}y` }]
+        : []),
+      ...(item.status ? [{ label: "Status", value: item.status }] : []),
+    ],
+    sections,
   };
 }
 

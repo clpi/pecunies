@@ -1358,7 +1358,25 @@ async function handlePendingAuth(command, state, env, visibleContext, request) {
 }
 
 async function verifyPassword(env, value) {
-  return value === (env.PECUNIES_SUDO_PASSWD || "PECUnies797++");
+  const password = String(value || "").trim();
+  if (!password) return false;
+
+  const localExpected = String(env.PECUNIES_SUDO_PASSWD || "").trim();
+  if (localExpected) {
+    return password === localExpected;
+  }
+
+  try {
+    const response = await fetch("https://api.pecunies.com/api/sudo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    const data = await response.json().catch(() => ({}));
+    return Boolean(response.ok && data?.ok);
+  } catch {
+    return false;
+  }
 }
 
 function hasRoot(state) {
@@ -2218,17 +2236,24 @@ async function addReply(args, env, state) {
 
   const target = await resolveCommentId(commentId, env);
   if (!target || !target.postPath) {
-    return { output: `reply: no comment matching "${commentIdRaw}"`, status: 404 };
+    return {
+      output: `reply: no comment matching "${commentIdRaw}"`,
+      status: 404,
+    };
   }
 
-  const author = sanitizeUsername(String(mergeConfigDefaults(state?.config).name || "guest"));
+  const author = sanitizeUsername(
+    String(mergeConfigDefaults(state?.config).name || "guest"),
+  );
   await recordPostEvent(env, target.postPath, "message", {
     name: author,
     message: message.slice(0, 1200),
     kind: "reply",
     parentId: target.id,
   });
-  return { output: `reply added to comment ${target.id} on ${target.postPath}` };
+  return {
+    output: `reply added to comment ${target.id} on ${target.postPath}`,
+  };
 }
 
 async function writeUserFile(env, _state, rawPath, content, options = {}) {

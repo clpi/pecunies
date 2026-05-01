@@ -1,9 +1,6 @@
-import { COMMAND_TAGS } from '../data/content-tags';
-import { resumeData } from '../data/resume';
-import {
-  WORKERS_AI_TEXT_MODELS,
-  formatWorkersAiModelLabel,
-} from './ai-models';
+import { COMMAND_TAGS } from "../data/content-tags";
+import { resumeData } from "../data/resume";
+import { WORKERS_AI_TEXT_MODELS, formatWorkersAiModelLabel } from "./ai-models";
 import type {
   CommandDefinition,
   CommandHelpItem,
@@ -17,34 +14,70 @@ import type {
   ViewAction,
   ViewDefinition,
   ViewStat,
-} from './types';
+} from "./types";
 
 type ShellRenderOptions = {
   featuredCommands: CommandDefinition[];
 };
 
+function renderTagChip(tag: string, compact = false, context = ""): string {
+  const cls = compact ? "content-tag content-tag--compact" : "content-tag";
+  const contextAttr = context
+    ? ` data-entity-context="${escapeAttribute(context)}"`
+    : "";
+  return `<button type="button" class="${cls}" data-command="tags ${escapeAttribute(tag)}" data-entity-tag="${escapeAttribute(tag)}"${contextAttr}>#${escapeHtml(tag)}</button>`;
+}
+
+function entitySlug(value: string): string {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/https?:\/\//, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function splitSkillLabel(value: string): { name: string; years: string } {
+  const match = String(value || "").match(
+    /^(.*?)\s+-\s+([0-9.]+\+?\s+years?)$/i,
+  );
+  return {
+    name: (match?.[1] ?? value).trim(),
+    years: (match?.[2] ?? "").trim(),
+  };
+}
+
+function editWrap(key: string, inner: string, block = true): string {
+  const tag = block ? "div" : "span";
+  const cls = block
+    ? "editable-wrap editable-wrap--block"
+    : "editable-wrap editable-wrap--inline";
+  return `<${tag} class="${cls}">${inner}<button class="edit-btn" type="button" data-edit-key="${escapeAttribute(key)}" aria-label="Edit" tabindex="-1">✎</button></${tag}>`;
+}
+
 export function renderShell({ featuredCommands }: ShellRenderOptions): string {
   const labels = new Map<string, string>([
-    ['about', 'About'],
-    ['resume', 'Resume'],
-    ['timeline', 'Timeline'],
-    ['projects', 'Projects'],
-    ['skills', 'Skills'],
-    ['posts', 'Posts'],
-    ['links', 'Links'],
-    ['pdf', 'PDF'],
-    ['chat', 'Chat'],
+    ["about", "About"],
+    ["resume", "Resume"],
+    ["timeline", "Timeline"],
+    ["projects", "Projects"],
+    ["skills", "Skills"],
+    ["posts", "Posts"],
+    ["links", "Links"],
+    ["pdf", "PDF"],
+    ["chat", "Chat"],
   ]);
 
   const navSequence = [
-    'about',
-    'resume',
-    'projects',
-    'posts',
-    'links',
-    'chat',
+    "about",
+    "resume",
+    "projects",
+    "posts",
+    "links",
+    "chat",
   ] as const;
-  const featuredByName = new Map(featuredCommands.map((command) => [command.name, command]));
+  const featuredByName = new Map(
+    featuredCommands.map((command) => [command.name, command]),
+  );
   const navLinks = navSequence
     .map((name) => featuredByName.get(name))
     .filter((command): command is CommandDefinition => Boolean(command))
@@ -55,7 +88,7 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
         </button>
       `,
     )
-    .join('');
+    .join("");
   const rssNavButton = `
     <a class="nav-link" href="/api/rss" target="_blank" rel="noopener noreferrer" aria-label="RSS feed">RSS</a>
   `;
@@ -177,7 +210,7 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
                 ${WORKERS_AI_TEXT_MODELS.map(
                   (id) =>
                     `<option value="${escapeAttribute(id)}">${escapeHtml(id)}</option>`,
-                ).join('')}
+                ).join("")}
               </select>
               <label class="identity-popover-label" for="identity-email">Email (optional)</label>
               <input
@@ -236,6 +269,34 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
         <span class="shell-resize-handle shell-resize-se" data-resize="se" aria-hidden="true"></span>
         <span class="shell-resize-handle shell-resize-sw" data-resize="sw" aria-hidden="true"></span>
       </section>
+
+      <!-- Entity hover popover (tag / skill) -->
+      <div id="entity-hover-popover" class="entity-hover-popover" role="tooltip" hidden>
+        <button class="ehp-dismiss" type="button" aria-label="Dismiss">✕</button>
+        <div class="ehp-type-badge"></div>
+        <p class="ehp-name"></p>
+        <p class="ehp-desc"></p>
+        <div class="ehp-meta"><span class="ehp-count"></span></div>
+        <ul class="ehp-uses"></ul>
+        <div class="ehp-footer">
+          <button class="ehp-navigate" type="button">View page →</button>
+          <button class="ehp-remove" type="button" aria-label="Remove tag">Remove</button>
+        </div>
+      </div>
+
+      <!-- Sudo auth modal for in-place editing -->
+      <div id="sudo-edit-modal" class="sudo-edit-modal" role="dialog" aria-modal="true" aria-labelledby="sudo-modal-label" hidden>
+        <div class="sudo-modal-backdrop"></div>
+        <div class="sudo-modal-content">
+          <p class="sudo-modal-label" id="sudo-modal-label">[sudo] Password required to edit:</p>
+          <input class="sudo-modal-input" id="sudo-modal-input" type="password" autocomplete="current-password" placeholder="password" />
+          <p class="sudo-modal-error" id="sudo-modal-error" hidden></p>
+          <div class="sudo-modal-actions">
+            <button class="ghost-button sudo-modal-cancel" type="button" id="sudo-cancel-btn">Cancel</button>
+            <button class="submit-button sudo-modal-confirm" type="button" id="sudo-confirm-btn">Authenticate</button>
+          </div>
+        </div>
+      </div>
       <button class="terminal-dock is-active" id="terminal-dock" type="button" aria-label="Minimize terminal window">
         <span></span>
         Terminal
@@ -244,10 +305,44 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
   `;
 }
 
+let _knownCommandNames = new Set<string>();
+
+export function setKnownCommandNames(names: string[]): void {
+  _knownCommandNames = new Set(names);
+}
+
+/** Wrap recognized command names in accent-colored clickable spans. */
+function highlightCommandTokens(text: string): string {
+  const stripped = text.replace(/^\//, "");
+  const tokens = stripped.split(/(\s+)/);
+  let isFirst = true;
+  return tokens
+    .map((tok) => {
+      if (/^\s+$/.test(tok)) return tok;
+      const lower = tok.replace(/^\//, "").toLowerCase();
+      if (isFirst) {
+        isFirst = false;
+        if (_knownCommandNames.has(lower)) {
+          return `<button type="button" class="cmd-token cmd-token--name" data-command="${escapeAttribute(lower)}" data-prepopulate-command="${escapeAttribute(lower)}" title="/${escapeAttribute(lower)}: click to use">${escapeHtml(tok)}</button>`;
+        }
+        return `<span class="cmd-token cmd-token--unknown">${escapeHtml(tok)}</span>`;
+      }
+      if (tok.startsWith("--") || tok.startsWith("-")) {
+        return `<span class="cmd-token cmd-token--flag">${escapeHtml(tok)}</span>`;
+      }
+      if (tok.startsWith("#")) {
+        const tag = tok.slice(1);
+        return `<button type="button" class="cmd-token cmd-token--tag content-tag" data-command="${escapeAttribute(`tags ${tag}`)}" data-entity-tag="${escapeAttribute(tag)}">${escapeHtml(tok)}</button>`;
+      }
+      return `<span class="cmd-token cmd-token--arg">${escapeHtml(tok)}</span>`;
+    })
+    .join("");
+}
+
 export function renderLog(lines: SessionLine[]): string {
   return lines
     .map((line) => {
-      if (line.kind === 'command') {
+      if (line.kind === "command") {
         return `
           <li class="log-line log-line-command" data-line-id="${escapeAttribute(line.id)}">
             <span class="log-prefix">guest@pecunies:~$</span>
@@ -256,39 +351,39 @@ export function renderLog(lines: SessionLine[]): string {
         `;
       }
 
-      if (line.kind === 'system') {
+      if (line.kind === "system") {
         return `
           <li class="log-line log-line-system is-${escapeAttribute(line.tone)}" data-line-id="${escapeAttribute(line.id)}">
             <span class="log-label">[${escapeHtml(line.label)}]</span>
-            <span class="log-copy">${escapeHtml(line.text)}</span>
+            <span class="log-copy">${highlightCommandTokens(line.text)}</span>
           </li>
         `;
       }
 
-      if (line.kind === 'pretty-response') {
+      if (line.kind === "pretty-response") {
         const copyButton = line.copyable
           ? `<button class="pretty-copy-button" type="button" data-copy-pretty-id="${escapeAttribute(line.id)}" aria-label="Copy response"></button>`
-          : '';
+          : "";
         const displayModel = formatWorkersAiModelLabel(line.model);
         const metaHeader =
           displayModel || copyButton
             ? `<div class="pretty-output-meta">
-                 <span class="pretty-output-model">${displayModel ? escapeHtml(displayModel) : ''}</span>
+                 <span class="pretty-output-model">${displayModel ? escapeHtml(displayModel) : ""}</span>
                  ${copyButton}
                </div>`
-            : '';
+            : "";
         const traceSection =
           line.traceHtml && line.traceText
-            ? renderTraceSection(line.traceHtml, line.traceLabel ?? 'Trace')
-            : '';
+            ? renderTraceSection(line.traceHtml, line.traceLabel ?? "Trace")
+            : "";
         const shellClass = [
-          'pretty-output-shell',
-          line.model ? 'pretty-output-shell--ai' : '',
-          line.copyable && !line.model ? 'pretty-output-shell--file-copy' : '',
+          "pretty-output-shell",
+          line.model ? "pretty-output-shell--ai" : "",
+          line.copyable && !line.model ? "pretty-output-shell--file-copy" : "",
         ]
           .filter(Boolean)
-          .join(' ');
-        const quoteAttr = line.model ? ' data-chat-quote-source="1"' : '';
+          .join(" ");
+        const quoteAttr = line.model ? ' data-chat-quote-source="1"' : "";
         return `
           <li class="log-line log-line-pretty" data-line-id="${escapeAttribute(line.id)}"${quoteAttr}>
             <div class="${shellClass}">
@@ -300,7 +395,7 @@ export function renderLog(lines: SessionLine[]): string {
         `;
       }
 
-      if (line.kind === 'view') {
+      if (line.kind === "view") {
         return `
           <li class="log-line log-line-view" data-line-id="${escapeAttribute(line.id)}">
             ${line.html}
@@ -311,16 +406,27 @@ export function renderLog(lines: SessionLine[]): string {
       return `
         <li class="log-line log-line-response is-${escapeAttribute(line.tone)}" data-line-id="${escapeAttribute(line.id)}">
           <span class="log-label">&gt;</span>
-          <span class="log-copy">${escapeHtml(line.text)}</span>
+          <span class="log-copy">${highlightCommandTokens(line.text)}</span>
         </li>
       `;
     })
-    .join('');
+    .join("");
 }
 
 export function renderView(view: ViewDefinition): string {
-  const actionsMarkup = view.actions?.length ? renderActions(view.actions, 'view-actions') : '';
-  const sectionsMarkup = view.sections.map(renderSection).join('');
+  const actionsMarkup = view.actions?.length
+    ? renderActions(view.actions, "view-actions", view.id)
+    : `<div class="view-actions"><button type="button" class="add-quick-link-btn" data-add-entity-type="link" data-add-entity-context="view:${escapeAttribute(view.id)}" aria-label="Add quick link" title="Add quick link">+</button></div>`;
+  const sectionsMarkup = view.sections
+    .map((s, i) => renderSection(s, view.id, i))
+    .join("");
+
+  const tagRow = view.tags?.length
+    ? `<div class="view-tag-row" aria-label="Content tags">
+        ${view.tags.map((tag) => renderTagChip(tag, false, `view:${view.id}`)).join("")}
+        <button type="button" class="add-tag-btn" data-add-tag-context="${escapeAttribute(`view:${view.id}`)}" aria-label="Add tag" title="Add tag">+</button>
+      </div>`
+    : "";
 
   return `
     <div class="terminal-view is-live">
@@ -329,21 +435,10 @@ export function renderView(view: ViewDefinition): string {
           <span class="terminal-kicker">${escapeHtml(view.eyebrow)}</span>
           <code>${escapeHtml(view.prompt)}</code>
         </div>
-        <h1 class="terminal-title">${escapeHtml(view.title)}</h1>
-        <p class="terminal-copy">${escapeHtml(view.description)}</p>
-        ${view.note ? `<p class="terminal-note">${escapeHtml(view.note)}</p>` : ''}
-        ${
-          view.tags?.length
-            ? `<div class="view-tag-row" aria-label="Content tags">
-                ${view.tags
-                  .map(
-                    (tag) =>
-                      `<button type="button" class="content-tag" data-command="tags ${escapeAttribute(tag)}">#${escapeHtml(tag)}</button>`,
-                  )
-                  .join('')}
-              </div>`
-            : ''
-        }
+        ${editWrap(`view:${view.id}:title`, `<h1 class="terminal-title" data-edit-key="${escapeAttribute(`view:${view.id}:title`)}">${escapeHtml(view.title)}</h1>`)}
+        ${editWrap(`view:${view.id}:desc`, `<p class="terminal-copy" data-edit-key="${escapeAttribute(`view:${view.id}:desc`)}">${escapeHtml(view.description)}</p>`)}
+        ${view.note ? `<p class="terminal-note">${escapeHtml(view.note)}</p>` : ""}
+        ${tagRow}
         ${actionsMarkup}
       </header>
 
@@ -354,72 +449,91 @@ export function renderView(view: ViewDefinition): string {
   `;
 }
 
-function renderSection(section: TerminalSection): string {
+function renderSection(
+  section: TerminalSection,
+  viewId = "",
+  sectionIndex = 0,
+): string {
+  const hKey = `view:${viewId}:s${sectionIndex}:h`;
+  const heading = editWrap(
+    hKey,
+    `<h2 class="output-heading" data-edit-key="${escapeAttribute(hKey)}">${escapeHtml(section.heading)}</h2>`,
+  );
+
   switch (section.type) {
-    case 'paragraphs':
+    case "paragraphs":
       return `
         <section class="output-block">
-          <h2 class="output-heading">${escapeHtml(section.heading)}</h2>
+          ${heading}
           <div class="output-copy">
-            ${section.body.map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join('')}
+            ${section.body
+              .map((paragraph, pi) =>
+                editWrap(
+                  `view:${viewId}:s${sectionIndex}:p${pi}`,
+                  `<p data-edit-key="${escapeAttribute(`view:${viewId}:s${sectionIndex}:p${pi}`)}">${escapeHtml(paragraph)}</p>`,
+                ),
+              )
+              .join("")}
           </div>
         </section>
       `;
 
-    case 'metrics':
+    case "metrics":
       return `
         <section class="output-block">
-          <h2 class="output-heading">${escapeHtml(section.heading)}</h2>
+          ${heading}
           <div class="terminal-stat-grid">
-            ${section.items.map(renderStat).join('')}
+            ${section.items.map(renderStat).join("")}
           </div>
         </section>
       `;
 
-    case 'timeline':
+    case "timeline":
       return `
         <section class="output-block">
-          <h2 class="output-heading">${escapeHtml(section.heading)}</h2>
+          ${heading}
           <div class="timeline-rail">
-            ${section.items.map(renderTimelineItem).join('')}
+            ${section.items.map((item, itemIndex) => renderTimelineItem(item, viewId, sectionIndex, itemIndex)).join("")}
           </div>
+          <button type="button" class="add-experience-btn" data-add-entity-type="work" data-add-entity-context="view:${escapeAttribute(viewId)}" aria-label="Add experience" title="Add experience">+</button>
         </section>
       `;
 
-    case 'tag-groups':
+    case "tag-groups":
       return `
         <section class="output-block">
-          <h2 class="output-heading">${escapeHtml(section.heading)}</h2>
+          ${heading}
           <div class="output-grid">
-            ${section.groups.map(renderTagGroup).join('')}
+            ${section.groups.map(renderTagGroup).join("")}
           </div>
+          <button type="button" class="add-skill-btn" data-add-entity-type="skill" aria-label="Add skill" title="Add skill">+</button>
         </section>
       `;
 
-    case 'projects':
+    case "projects":
       return `
         <section class="output-block">
-          <h2 class="output-heading">${escapeHtml(section.heading)}</h2>
+          ${heading}
           <div class="output-records">
-            ${section.items.map(renderProjectCard).join('')}
+            ${section.items.map(renderProjectCard).join("")}
           </div>
         </section>
       `;
 
-    case 'contact':
+    case "contact":
       return `
         <section class="output-block">
-          <h2 class="output-heading">${escapeHtml(section.heading)}</h2>
+          ${heading}
           <div class="output-grid">
-            ${section.items.map(renderContactCard).join('')}
+            ${section.items.map(renderContactCard).join("")}
           </div>
         </section>
       `;
 
-    case 'education':
+    case "education":
       return `
         <section class="output-block">
-          <h2 class="output-heading">${escapeHtml(section.heading)}</h2>
+          ${heading}
           <article class="output-record">
             <div class="record-topline">
               <p>
@@ -432,30 +546,30 @@ function renderSection(section: TerminalSection): string {
               </div>
             </div>
             <ul class="output-list">
-              ${section.item.highlights.map((highlight) => `<li>${escapeHtml(highlight)}</li>`).join('')}
+              ${section.item.highlights.map((highlight) => `<li>${escapeHtml(highlight)}</li>`).join("")}
             </ul>
           </article>
         </section>
       `;
 
-    case 'command-list':
+    case "command-list":
       return `
         <section class="output-block">
-          <h2 class="output-heading">${escapeHtml(section.heading)}</h2>
+          ${heading}
           <div class="command-list">
-            ${section.items.map(renderCommandHelpItem).join('')}
+            ${section.items.map(renderCommandHelpItem).join("")}
           </div>
         </section>
       `;
 
-    case 'pdf':
+    case "pdf":
       return `
         <section class="output-block pdf-panel">
-          <h2 class="output-heading">${escapeHtml(section.heading)}</h2>
+          ${heading}
           <p class="terminal-copy">${escapeHtml(section.summary)}</p>
           <div class="pdf-layout">
             <div class="pdf-preview-strip">
-              ${section.previews.map(renderPdfPreview).join('')}
+              ${section.previews.map(renderPdfPreview).join("")}
             </div>
             <div class="pdf-frame">
               <iframe
@@ -468,52 +582,64 @@ function renderSection(section: TerminalSection): string {
         </section>
       `;
 
-    case 'note':
+    case "note":
       return `
         <section class="output-block note-panel">
-          <h2 class="output-heading">${escapeHtml(section.heading)}</h2>
+          ${heading}
           <div class="output-copy">
-            ${section.html ? section.html : section.lines.map((line) => `<p>${escapeHtml(line)}</p>`).join('')}
+            ${
+              section.html
+                ? section.html
+                : section.lines
+                    .map((line, li) =>
+                      editWrap(
+                        `view:${viewId}:s${sectionIndex}:n${li}`,
+                        `<p data-edit-key="${escapeAttribute(`view:${viewId}:s${sectionIndex}:n${li}`)}">${escapeHtml(line)}</p>`,
+                      ),
+                    )
+                    .join("")
+            }
           </div>
         </section>
       `;
 
-    case 'tag-index':
-      {
-        const selected = new Set((section.selectedTags ?? []).map((tag) => tag.toLowerCase()));
-        const buildTagCommand = (slug: string): string => {
-          const next = new Set(selected);
-          if (next.has(slug)) {
-            next.delete(slug);
-          } else {
-            next.add(slug);
-          }
-          const tokens = Array.from(next);
-          return tokens.length ? `tags ${tokens.join(' ')}` : 'tags';
-        };
+    case "tag-index": {
+      const selected = new Set(
+        (section.selectedTags ?? []).map((tag) => tag.toLowerCase()),
+      );
+      const buildTagCommand = (slug: string): string => {
+        const next = new Set(selected);
+        if (next.has(slug)) {
+          next.delete(slug);
+        } else {
+          next.add(slug);
+        }
+        const tokens = Array.from(next);
+        return tokens.length ? `tags ${tokens.join(" ")}` : "tags";
+      };
       return `
         <section class="output-block tag-index-panel">
           <h2 class="output-heading">${escapeHtml(section.heading)}</h2>
           ${
             section.description
               ? `<p class="terminal-copy tag-index-desc">${escapeHtml(section.description)}</p>`
-              : ''
+              : ""
           }
           ${
             section.filter
               ? `<p class="tag-index-active">Filtering: <strong>#${escapeHtml(section.filter)}</strong></p>`
-              : ''
+              : ""
           }
           <div class="tag-cloud" role="list">
             ${section.allTags
               .map(
                 (t) => `
-              <button type="button" class="tag-cloud-chip${selected.has(t.slug) ? ' is-active' : ''}" data-command="${escapeAttribute(buildTagCommand(t.slug))}" role="listitem">
+              <button type="button" class="tag-cloud-chip${selected.has(t.slug) ? " is-active" : ""}" data-command="${escapeAttribute(buildTagCommand(t.slug))}" data-entity-tag="${escapeAttribute(t.slug)}" role="listitem">
                 <span class="tag-cloud-name">#${escapeHtml(t.slug)}</span>
                 <span class="tag-cloud-count">${t.count}</span>
               </button>`,
               )
-              .join('')}
+              .join("")}
           </div>
           <h3 class="output-heading output-heading-sub">Matching content</h3>
           <div class="tag-result-list">
@@ -526,11 +652,11 @@ function renderSection(section: TerminalSection): string {
                 <code class="tag-result-cmd">${escapeHtml(item.command)}</code>
               </button>`,
               )
-              .join('')}
+              .join("")}
           </div>
         </section>
       `;
-      }
+    }
   }
 }
 
@@ -538,7 +664,7 @@ function renderStat(stat: ViewStat): string {
   const content = `
     <span>${escapeHtml(stat.label)}</span>
     <strong>${escapeHtml(stat.value)}</strong>
-    ${stat.detail ? `<small>${escapeHtml(stat.detail)}</small>` : ''}
+    ${stat.detail ? `<small>${escapeHtml(stat.detail)}</small>` : ""}
   `;
 
   if (stat.command) {
@@ -556,31 +682,38 @@ function renderStat(stat: ViewStat): string {
   `;
 }
 
-function renderTimelineItem(item: TimelineItem): string {
-  const link = item.link
-    ? item.link.command
-      ? `<button class="inline-link timeline-link" type="button" data-command="${escapeAttribute(item.link.command)}">${escapeHtml(item.link.label)}</button>`
-      : item.link.href
-        ? `<a class="inline-link timeline-link" href="${escapeAttribute(item.link.href)}" target="_blank" rel="noreferrer">${escapeHtml(item.link.label)}</a>`
-        : ''
-    : '';
+function renderTimelineItem(
+  item: TimelineItem,
+  viewId = "",
+  sectionIndex = 0,
+  itemIndex = 0,
+): string {
+  const rowCommand = item.link?.command ?? "";
+  const link = item.link?.href
+    ? `<a class="inline-link timeline-link" href="${escapeAttribute(item.link.href)}" target="_blank" rel="noreferrer">${escapeHtml(item.link.label)}</a>`
+    : "";
+  const rowCommandAttr = rowCommand
+    ? ` data-command="${escapeAttribute(rowCommand)}" tabindex="0" role="button"`
+    : "";
+  const rowClass = rowCommand ? "timeline-item is-clickable" : "timeline-item";
+  const baseKey = `view:${viewId}:s${sectionIndex}:t${itemIndex}`;
   return `
-    <article class="timeline-item">
+    <article class="${rowClass}"${rowCommandAttr}>
       <div class="timeline-marker" aria-hidden="true"></div>
       <div class="record-topline">
         <p>
-          <strong>${escapeHtml(item.role)}</strong>
-          <span>${escapeHtml(item.company)}</span>
+          ${editWrap(`${baseKey}:role`, `<strong data-edit-key="${escapeAttribute(`${baseKey}:role`)}">${escapeHtml(item.role)}</strong>`, false)}
+          ${editWrap(`${baseKey}:company`, `<span data-edit-key="${escapeAttribute(`${baseKey}:company`)}">${escapeHtml(item.company)}</span>`, false)}
         </p>
         <div class="record-meta">
-          <span>${escapeHtml(item.location)}</span>
-          <span>${escapeHtml(item.period)}</span>
+          ${editWrap(`${baseKey}:location`, `<span data-edit-key="${escapeAttribute(`${baseKey}:location`)}">${escapeHtml(item.location)}</span>`, false)}
+          ${editWrap(`${baseKey}:period`, `<span data-edit-key="${escapeAttribute(`${baseKey}:period`)}">${escapeHtml(item.period)}</span>`, false)}
         </div>
       </div>
-      <p class="record-summary">${escapeHtml(item.summary)}</p>
+      ${editWrap(`${baseKey}:summary`, `<p class="record-summary" data-edit-key="${escapeAttribute(`${baseKey}:summary`)}">${escapeHtml(item.summary)}</p>`)}
       ${link}
       <ul class="output-list">
-        ${item.bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join('')}
+        ${item.bullets.map((bullet, bulletIndex) => editWrap(`${baseKey}:b${bulletIndex}`, `<li data-edit-key="${escapeAttribute(`${baseKey}:b${bulletIndex}`)}">${escapeHtml(bullet)}</li>`)).join("")}
       </ul>
     </article>
   `;
@@ -590,17 +723,28 @@ function renderTagGroup(group: TagGroup): string {
   return `
     <article class="output-record output-record-compact">
       <p class="record-title">${escapeHtml(group.title)}</p>
-      ${group.note ? `<p class="record-summary">${escapeHtml(group.note)}</p>` : ''}
+      ${group.note ? `<p class="record-summary">${escapeHtml(group.note)}</p>` : ""}
       <div class="tag-list">
-        ${group.items.map((item) => `<span>${escapeHtml(item)}</span>`).join('')}
+        ${group.items
+          .map((item) => {
+            const skill = splitSkillLabel(item);
+            const slug = entitySlug(skill.name);
+            const yearsAttr = skill.years
+              ? ` data-entity-years="${escapeAttribute(skill.years)}"`
+              : "";
+            return `<button type="button" data-command="skill ${escapeAttribute(slug)}" data-entity-type="skill" data-entity-slug="${escapeAttribute(slug)}" data-entity-title="${escapeAttribute(skill.name)}"${yearsAttr}><span>${escapeHtml(skill.name)}</span>${skill.years ? `<span class="tag-list-meta">${escapeHtml(skill.years)}</span>` : ""}</button>`;
+          })
+          .join("")}
       </div>
     </article>
   `;
 }
 
 function renderProjectCard(project: ProjectCard): string {
-  const clickableClass = project.command ? ' project-card is-clickable' : '';
-  const commandAttr = project.command ? ` data-command="${escapeAttribute(project.command)}"` : '';
+  const clickableClass = project.command ? " project-card is-clickable" : "";
+  const commandAttr = project.command
+    ? ` data-command="${escapeAttribute(project.command)}"`
+    : "";
   return `
     <article class="output-record${clickableClass}"${commandAttr}>
       <div class="record-topline">
@@ -613,7 +757,7 @@ function renderProjectCard(project: ProjectCard): string {
       </div>
       <p class="record-summary">${escapeHtml(project.summary)}</p>
       <ul class="output-list">
-        ${project.details.map((detail) => `<li>${escapeHtml(detail)}</li>`).join('')}
+        ${project.details.map((detail) => `<li>${escapeHtml(detail)}</li>`).join("")}
       </ul>
       ${
         project.link
@@ -622,7 +766,7 @@ function renderProjectCard(project: ProjectCard): string {
               ${escapeHtml(project.link.label)}
             </a>
           `
-          : ''
+          : ""
       }
     </article>
   `;
@@ -646,18 +790,15 @@ function renderContactCard(item: ContactCard): string {
 }
 
 function renderCommandHelpItem(item: CommandHelpItem): string {
-  const tagList = item.tags?.length ? item.tags : COMMAND_TAGS[item.name] ?? [];
+  const tagList = item.tags?.length
+    ? item.tags
+    : (COMMAND_TAGS[item.name] ?? []);
   const tagRow =
     tagList.length > 0
       ? `<div class="command-help-tags" aria-label="Tags">
-          ${tagList
-            .map(
-              (t) =>
-                `<button type="button" class="content-tag content-tag--compact" data-command="tags ${escapeAttribute(t)}">#${escapeHtml(t)}</button>`,
-            )
-            .join('')}
+          ${tagList.map((t) => renderTagChip(t, true)).join("")}
         </div>`
-      : '';
+      : "";
   return `
     <article
       class="command-card is-clickable"
@@ -685,10 +826,15 @@ function renderPdfPreview(preview: PdfPreview): string {
   `;
 }
 
-function renderActions(actions: ViewAction[], className: string): string {
+function renderActions(
+  actions: ViewAction[],
+  className: string,
+  viewId = "",
+): string {
   return `
     <div class="${className}">
-      ${actions.map(renderAction).join('')}
+      ${actions.map(renderAction).join("")}
+      <button type="button" class="add-quick-link-btn" data-add-entity-type="link" data-add-entity-context="view:${escapeAttribute(viewId)}" aria-label="Add quick link" title="Add quick link">+</button>
     </div>
   `;
 }
@@ -705,7 +851,7 @@ function renderTraceSection(traceHtml: string, label: string): string {
 function renderAction(action: ViewAction): string {
   if (action.command) {
     return `
-      <button class="action-chip" type="button" data-command="${escapeAttribute(action.command)}">
+      <button class="action-chip" type="button" data-command="${escapeAttribute(action.command)}" data-entity-type="command" data-entity-slug="${escapeAttribute(action.command.split(/\s+/)[0] ?? action.command)}" data-entity-title="/${escapeAttribute(action.command)}">
         /${escapeHtml(action.command)}
       </button>
     `;
@@ -716,23 +862,27 @@ function renderAction(action: ViewAction): string {
       <a
         class="action-chip"
         href="${escapeAttribute(action.href)}"
-        ${action.external ? 'target="_blank" rel="noreferrer"' : ''}
+        data-entity-type="link"
+        data-entity-slug="${escapeAttribute(entitySlug(action.label || action.href))}"
+        data-entity-title="${escapeAttribute(action.label)}"
+        data-entity-url="${escapeAttribute(action.href)}"
+        ${action.external ? 'target="_blank" rel="noreferrer"' : ""}
       >
         ${escapeHtml(action.label)}
       </a>
     `;
   }
 
-  return '';
+  return "";
 }
 
 function escapeHtml(value: string): string {
   return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function escapeAttribute(value: string): string {

@@ -1,96 +1,98 @@
 {
-	"name": "pecunies-portfolio-edge",
-	"main": "src/index.ts",
-	"compatibility_date": "2026-03-23",
-	"logpush": true,
-	"$schema": "https://raw.githubusercontent.com/cloudflare/wrangler/main/schema.json",
+  "name": "pecunies-portfolio-edge",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-03-23",
+  "logpush": true,
+  "$schema": "https://raw.githubusercontent.com/cloudflare/wrangler/main/schema.json",
 
-	"vars": {
-		"OOKING_EMAIL_URL": "https://pecunies-booking-email.mtrl.workers.dev",
-		"AI_GATEWAY_ID": "pecunies",
-		"AI_SEARCH_INSTANCE": "pecunies-knowledge"
-	},
-	// "durable_objects": {
-	//   "bindings": [
-	//     {
-	//       "name": "PECUNIES_STATE",
-	//       "script_name": "pecunies-state",
-	//       "class_name": "PecuniesState",
-	//     }
-	//   ]
-	// },
-	// "secrets": {
-	//   "required": [
-	//     "PECUNIES_SUDO_PASSWD"
-	//   ]
-	// },
-	"r2_buckets": [
-		{
-			"bucket_name": "pecunies-posts",
-			"binding": "POSTS",
-			"remote": true
-		},
-		{
-			"bucket_name": "pecunies-assets",
-			"binding": "STATIC",
-			"remote": true
-		}
-	],
-	"observability": {
-		"traces": {
-			"enabled": true,
-			"head_sampling_rate": 0.05
-		},
-		"logs": {
-			"invocation_logs": true,
-			"head_sampling_rate": 1
-		},
-		"enabled": true,
-		"head_sampling_rate": 1 // optional. default = 1.
-	},
-	"ai": {
-		"binding": "AI"
-	},
-	"pipelines": [
-		{
-			"pipeline": "6b533e8c6fb14fb99997e3c32c6c2fae",
-			"binding": "PECUNIESPL_STREAM"
-		}
-	],
-	"routes": [
-		{
-			"pattern": "pecunies.com/*",
-			"zone_name": "pecunies.com"
-		},
-		{
-			"pattern": "www.pecunies.com/*",
-			"zone_name": "pecunies.com"
-		},
-		{
-			"pattern": "api.pecunies.com/*",
-			"zone_name": "pecunies.com"
-		}
-	],
-	"kv_namespaces": [
-		{
-			"binding": "PORTFOLIO_OS",
-			"id": "3dde2866b8c341fb8fd803bf81ad23a3"
-		}
-	],
-	"d1_databases": [
-		{
-			"binding": "DB",
-			"database_name": "pecunies-db",
-			"database_id": "a65bd06c-16c0-446d-a047-605ad1e6abc2",
-			"remote": true
-		}
-	]
-	// "migrations": [
-	//   {
-	//     "tag": "v1",
-	//     "new_sqlite_classes": [
-	//       "PecuniesState"
-	//     ]
-	//   }
-	// ]
+  "vars": {
+    "OOKING_EMAIL_URL": "https://pecunies-booking-email.mtrl.workers.dev",
+    "AI_GATEWAY_ID": "pecunies",
+    "AI_SEARCH_INSTANCE": "pecunies-knowledge",
+  },
+  // "durable_objects": {
+  //   "bindings": [
+  //     {
+  //       "name": "PECUNIES_STATE",
+  //       "script_name": "pecunies-state",
+  //       "class_name": "PecuniesState",
+  //     }
+  //   ]
+  // },
+  "secrets_store_secrets": [
+    {
+      "binding": "PECUNIES_SUDO_PASSWD",
+      "store_id": "pecunies",
+      "secret_name": "PECUNIES_SUDO_PASSWD",
+    },
+  ],
+  "r2_buckets": [
+    {
+      "bucket_name": "pecunies-posts",
+      "binding": "POSTS",
+      "remote": true,
+    },
+    {
+      "bucket_name": "pecunies-assets",
+      "binding": "STATIC",
+      "remote": true,
+    },
+  ],
+  "observability": {
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.05,
+    },
+    "logs": {
+      "invocation_logs": true,
+      "head_sampling_rate": 1,
+    },
+    "enabled": true,
+    "head_sampling_rate": 1, // optional. default = 1.
+  },
+  "ai": {
+    "binding": "AI",
+  },
+  "pipelines": [
+    {
+      "pipeline": "6b533e8c6fb14fb99997e3c32c6c2fae",
+      "binding": "PECUNIESPL_STREAM",
+    },
+  ],
+  "routes": [
+    {
+      "pattern": "pecunies.com/*",
+      "zone_name": "pecunies.com",
+    },
+    {
+      "pattern": "www.pecunies.com/*",
+      "zone_name": "pecunies.com",
+    },
+    {
+      "pattern": "api.pecunies.com/*",
+      "zone_name": "pecunies.com",
+    },
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "PORTFOLIO_OS",
+      "id": "3dde2866b8c341fb8fd803bf81ad23a3",
+    },
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pecunies-db",
+      "database_id": "a65bd06c-16c0-446d-a047-605ad1e6abc2",
+      "remote": true,
+    },
+  ],
+  // "migrations": [
+  //   {
+  //     "tag": "v1",
+  //     "new_sqlite_classes": [
+  //       "PecuniesState"
+  //     ]
+  //   }
+  // ]
 }
