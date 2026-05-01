@@ -47,6 +47,36 @@ export function workersAiModelShowsThinkingExpandable(model: string | undefined)
   return WORKERS_AI_THINKING_STYLE_MODEL_IDS.has(model.trim());
 }
 
+export function formatWorkersAiModelLabel(model: string | undefined): string {
+  const raw = String(model || '').trim();
+  if (!raw) return '';
+  const tail = raw.split('/').pop() || raw;
+  const cleaned = tail
+    .split('-')
+    .map((part) => {
+      const token = part.trim().toLowerCase();
+      return /^[a-z]+\d+(\.\d+)*$/i.test(token) ? token.replace(/\d.*$/g, '') : token;
+    })
+    .filter((token) => {
+      if (!token) return false;
+      if (/^\d+(\.\d+)*$/.test(token)) return false;
+      if (/^\d+(\.\d+)?[bm]$/.test(token)) return false;
+      if (/^a\d+b$/.test(token)) return false;
+      if (/^fp\d+$/.test(token)) return false;
+      if (/^v\d+(\.\d+)*$/.test(token)) return false;
+      if (['instruct', 'chat', 'it', 'awq', 'fast', 'distill', 'micro'].includes(token)) return false;
+      if (token.length < 2) return false;
+      return true;
+    })
+    .join(' ')
+    .trim();
+  const label = cleaned || tail;
+  return label
+    .split(/\s+/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 /** Accept Workers AI / Workers AI Hugging Face gateway model ids (not a guarantee the account has access). */
 export function isValidWorkersAiModelId(model: string): boolean {
   if (typeof model !== 'string') return false;

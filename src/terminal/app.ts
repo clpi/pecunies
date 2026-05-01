@@ -1595,7 +1595,7 @@ export class TerminalApp {
     ];
 
     for (const [key, value] of updates) {
-      await this.sendOsCommand(`config set ${key} ${value}`);
+      await this.sendOsCommand(`config set ${key} ${this.shellQuote(value)}`);
     }
     if (updates[0]?.[1] === 'auto') {
       await this.execute('theme auto');
@@ -1654,7 +1654,7 @@ export class TerminalApp {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionId: this.sessionId,
-          command: `config set ${key} ${value}`,
+          command: `config set ${key} ${this.shellQuote(value)}`,
           visibleContext: this.visibleContext(),
         }),
       });
@@ -1664,6 +1664,10 @@ export class TerminalApp {
     } catch {
       /* Config persistence is best-effort. */
     }
+  }
+
+  private shellQuote(value: string): string {
+    return JSON.stringify(String(value ?? ''));
   }
 
   private loadShellProfile(): void {

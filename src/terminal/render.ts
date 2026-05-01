@@ -1,6 +1,10 @@
 import { COMMAND_TAGS } from '../data/content-tags';
 import { resumeData } from '../data/resume';
-import { WORKERS_AI_TEXT_MODELS, workersAiModelShowsThinkingExpandable } from './ai-models';
+import {
+  WORKERS_AI_TEXT_MODELS,
+  formatWorkersAiModelLabel,
+  workersAiModelShowsThinkingExpandable,
+} from './ai-models';
 import type {
   CommandDefinition,
   CommandHelpItem,
@@ -262,10 +266,11 @@ export function renderLog(lines: SessionLine[]): string {
         const copyButton = line.copyable
           ? `<button class="pretty-copy-button" type="button" data-copy-pretty-id="${escapeAttribute(line.id)}" aria-label="Copy response"></button>`
           : '';
+        const displayModel = formatWorkersAiModelLabel(line.model);
         const metaHeader =
-          line.model || copyButton
+          displayModel || copyButton
             ? `<div class="pretty-output-meta">
-                 <span class="pretty-output-model">${line.model ? escapeHtml(line.model) : ''}</span>
+                 <span class="pretty-output-model">${displayModel ? escapeHtml(displayModel) : ''}</span>
                  ${copyButton}
                </div>`
             : '';
