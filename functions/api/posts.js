@@ -179,6 +179,7 @@ export async function ensureContentInfra(env) {
       name TEXT NOT NULL,
       message TEXT NOT NULL,
       kind TEXT NOT NULL,
+      parent_id INTEGER,
       created_at TEXT NOT NULL
     )`,
     `CREATE TABLE IF NOT EXISTS bookings (
@@ -209,6 +210,11 @@ export async function ensureContentInfra(env) {
   ];
   for (const sql of stmts) {
     await db.prepare(sql).run();
+  }
+  try {
+    await db.prepare(`ALTER TABLE post_messages ADD COLUMN parent_id INTEGER`).run();
+  } catch {
+    // Column already exists on established databases.
   }
 }
 
@@ -467,11 +473,14 @@ export async function recordPostEvent(env, postPath, event, details = {}) {
     const name = String(details.name || "anonymous").slice(0, 60);
     const message = String(details.message || "").slice(0, 2000);
     const kind = String(details.kind || "message").slice(0, 24);
-    await db
+    const parentIdRaw = Number(details.parentId ?? 0);
+    const parentId =
+      Number.isInteger(parentIdRaw) && parentIdRaw > 0 ? parentIdRaw : null;
+    const insert = await db
       .prepare(
-        "INSERT INTO post_messages (post_path, name, message, kind, created_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO post_messages (post_path, name, message, kind, parent_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
       )
-      .bind(postPath, name, message, kind, now)
+      .bind(postPath, name, message, kind, parentId, now)
       .run();
     await db
       .prepare(
@@ -481,6 +490,7 @@ export async function recordPostEvent(env, postPath, event, details = {}) {
       )
       .bind(postPath, now)
       .run();
+    return Number(insert?.meta?.last_row_id ?? 0) || null;
   }
 }
 
@@ -548,15 +558,44 @@ export async function postPayload(path, markdown, env) {
   if (db) {
     const rows = await db
       .prepare(
-        `SELECT name, message, created_at as at
+        `SELECT id, name, message, kind, parent_id, created_at as at
          FROM post_messages
-         WHERE post_path = ? AND kind = 'comment'
+         WHERE post_path = ? AND kind IN ('comment', 'reply')
          ORDER BY created_at ASC
-         LIMIT 100`,
+         LIMIT 200`,
       )
       .bind(path)
       .all();
-    comments = Array.isArray(rows?.results) ? rows.results : [];
+    const raw = Array.isArray(rows?.results) ? rows.results : [];
+    const commentMap = new Map();
+    const orderedComments = [];
+    for (const row of raw) {
+      const kind = String(row?.kind || "comment");
+      const id = Number(row?.id ?? 0) || 0;
+      if (kind === "reply") continue;
+      const comment = {
+        id,
+        name: String(row?.name || "anonymous"),
+        message: String(row?.message || ""),
+        at: String(row?.at || ""),
+        replies: [],
+      };
+      commentMap.set(id, comment);
+      orderedComments.push(comment);
+    }
+    for (const row of raw) {
+      if (String(row?.kind || "") !== "reply") continue;
+      const parentId = Number(row?.parent_id ?? 0) || 0;
+      const parent = commentMap.get(parentId);
+      if (!parent) continue;
+      parent.replies.push({
+        id: Number(row?.id ?? 0) || 0,
+        name: String(row?.name || "anonymous"),
+        message: String(row?.message || ""),
+        at: String(row?.at || ""),
+      });
+    }
+    comments = orderedComments;
   } else if (env.PORTFOLIO_OS) {
     comments =
       (await env.PORTFOLIO_OS.get(`comments:${path}`, { type: "json" })) ?? [];

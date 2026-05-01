@@ -191,7 +191,17 @@ export type SessionLine =
   | { id: string; kind: 'system'; label: string; text: string; tone: LogTone }
   | { id: string; kind: 'command'; text: string }
   | { id: string; kind: 'response'; text: string; tone: LogTone }
-  | { id: string; kind: 'pretty-response'; html: string; text: string; model?: string; copyable?: boolean }
+  | {
+      id: string;
+      kind: 'pretty-response';
+      html: string;
+      text: string;
+      model?: string;
+      copyable?: boolean;
+      traceHtml?: string;
+      traceText?: string;
+      traceLabel?: string;
+    }
   | { id: string; kind: 'view'; html: string; text: string };
 
 export type CommandContext = {

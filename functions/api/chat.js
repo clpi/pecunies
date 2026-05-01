@@ -116,7 +116,7 @@ function resolveToolsEnabled(body, state) {
   return false;
 }
 
-function buildChatToolImplementations(env) {
+function buildChatToolImplementations(env, onTrace = async () => {}) {
   return [
     {
       name: 'generate_command',
@@ -139,7 +139,11 @@ function buildChatToolImplementations(env) {
         required: ['goal'],
       },
       function: async (args) => {
+        await onTrace(`tool start: generate_command`);
         const r = executeGenerateCommandTool(args || {});
+        await onTrace(
+          r.ok ? `tool done: generate_command` : `tool error: generate_command`,
+        );
         return r.ok ? r.message : `Error: ${r.message}`;
       },
     },
@@ -155,7 +159,11 @@ function buildChatToolImplementations(env) {
         required: ['objective'],
       },
       function: async (args) => {
+        await onTrace(`tool start: compose_query`);
         const r = executeComposeQueryTool(args || {});
+        await onTrace(
+          r.ok ? `tool done: compose_query` : `tool error: compose_query`,
+        );
         return r.ok ? r.message : `Error: ${r.message}`;
       },
     },
@@ -172,7 +180,11 @@ function buildChatToolImplementations(env) {
         required: ['email', 'username'],
       },
       function: async (args) => {
+        await onTrace(`tool start: create_user`);
         const r = await executeChatTool(env, { tool: 'create_user', arguments: args || {} });
+        await onTrace(
+          r.ok ? `tool done: create_user` : `tool error: create_user`,
+        );
         return r.ok ? r.message : `Error: ${r.message}`;
       },
     },
@@ -189,11 +201,25 @@ function buildChatToolImplementations(env) {
         required: ['email', 'username'],
       },
       function: async (args) => {
+        await onTrace(`tool start: register_user`);
         const r = await executeChatTool(env, { tool: 'register_user', arguments: args || {} });
+        await onTrace(
+          r.ok ? `tool done: register_user` : `tool error: register_user`,
+        );
         return r.ok ? r.message : `Error: ${r.message}`;
       },
     },
   ];
+}
+
+function chunkTextForStream(text, chunkSize = 180) {
+  const body = String(text || '');
+  if (!body) return [];
+  const chunks = [];
+  for (let i = 0; i < body.length; i += chunkSize) {
+    chunks.push(body.slice(i, i + chunkSize));
+  }
+  return chunks;
 }
 
 const jsonHeaders = {
@@ -331,83 +357,113 @@ ${systemPrompt ? `\n\nSession system prompt injection:\n${systemPrompt}` : ''}`;
     { role: 'user', content: userContent },
   ];
 
-  let result;
+  const stream = new TransformStream();
+  const writer = stream.writable.getWriter();
+  const encoder = new TextEncoder();
+  const emit = async (payload) => {
+    await writer.write(encoder.encode(`${JSON.stringify(payload)}\n`));
+  };
 
-  try {
-    if (toolsEnabled) {
-      const tools = buildChatToolImplementations(env);
-      try {
-        result = await runWithTools(
-          env.AI,
-          activeModel,
-          { messages: chatMessages, tools },
-          { maxRecursiveToolRuns: 0, strictValidation: false, streamFinalResponse: false },
-        );
-      } catch (toolErr) {
-        await appendAiLog(env, {
-          source: 'chat',
-          sessionId,
-          model: activeModel,
-          query: message,
-          contextExcerpt,
-          error: `runWithTools: ${toolErr instanceof Error ? toolErr.message : String(toolErr)}`,
+  void (async () => {
+    let finalAnswer = '';
+    try {
+      await emit({ type: 'meta', model: activeModel, traceLabel: 'Thinking' });
+      await emit({ type: 'trace', text: `model selected: ${activeModel}` });
+      await emit({ type: 'trace', text: `tools enabled: ${toolsEnabled ? 'yes' : 'no'}` });
+      await emit({ type: 'trace', text: `session prompt injection: ${systemPrompt ? 'active' : 'none'}` });
+      await emit({ type: 'trace', text: `conversation history merged: ${mergedHistory.length} messages` });
+      await emit({ type: 'trace', text: `repository context hits: ${repositoryHits.length}` });
+      await emit({ type: 'trace', text: `session RAG notes loaded: ${Array.isArray(state.ragContext) ? state.ragContext.length : 0}` });
+
+      let result;
+
+      if (toolsEnabled) {
+        const tools = buildChatToolImplementations(env, async (text) => {
+          await emit({ type: 'trace', text });
         });
+        try {
+          result = await runWithTools(
+            env.AI,
+            activeModel,
+            { messages: chatMessages, tools },
+            { maxRecursiveToolRuns: 0, strictValidation: false, streamFinalResponse: false },
+          );
+        } catch (toolErr) {
+          await appendAiLog(env, {
+            source: 'chat',
+            sessionId,
+            model: activeModel,
+            query: message,
+            contextExcerpt,
+            error: `runWithTools: ${toolErr instanceof Error ? toolErr.message : String(toolErr)}`,
+          });
+          await emit({ type: 'trace', text: 'tool runtime failed; falling back to direct model call' });
+          result = await env.AI.run(activeModel, {
+            messages: chatMessages,
+            temperature: 0.2,
+            max_tokens: 700,
+          });
+        }
+      } else {
         result = await env.AI.run(activeModel, {
           messages: chatMessages,
           temperature: 0.2,
           max_tokens: 700,
         });
       }
-    } else {
-      result = await env.AI.run(activeModel, {
-        messages: chatMessages,
-        temperature: 0.2,
-        max_tokens: 700,
+
+      const answer =
+        typeof result?.response === 'string'
+          ? result.response
+          : typeof result?.text === 'string'
+            ? result.text
+            : 'I could not extract a text response from the Workers AI result.';
+      finalAnswer = answer;
+
+      await appendAiLog(env, {
+        source: 'chat',
+        sessionId,
+        model: activeModel,
+        query: message,
+        contextExcerpt,
+        response: finalAnswer,
       });
+
+      state.history.push({ at: new Date().toISOString(), command: `chat: ${message}` });
+      state.history = state.history.slice(-120);
+      if (!Array.isArray(state.chatHistory)) {
+        state.chatHistory = [];
+      }
+      state.chatHistory.push({ at: new Date().toISOString(), role: 'user', content: message });
+      state.chatHistory.push({ at: new Date().toISOString(), role: 'assistant', content: finalAnswer });
+      state.chatHistory = state.chatHistory.slice(-40);
+      await writeState(env, sessionId, state);
+
+      for (const delta of chunkTextForStream(finalAnswer)) {
+        await emit({ type: 'answer', delta });
+      }
+      await emit({ type: 'done', answer: finalAnswer, model: activeModel, traceLabel: 'Thinking' });
+    } catch (err) {
+      await appendAiLog(env, {
+        source: 'chat',
+        sessionId,
+        model: activeModel,
+        query: message,
+        contextExcerpt,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      await emit({ type: 'error', error: 'Workers AI request failed.' });
+    } finally {
+      await writer.close();
     }
-  } catch (err) {
-    await appendAiLog(env, {
-      source: 'chat',
-      sessionId,
-      model: activeModel,
-      query: message,
-      contextExcerpt,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return Response.json(
-      { error: 'Workers AI request failed.' },
-      { status: 502, headers: jsonHeaders },
-    );
-  }
+  })();
 
-  const answer =
-    typeof result?.response === 'string'
-      ? result.response
-      : typeof result?.text === 'string'
-        ? result.text
-        : 'I could not extract a text response from the Workers AI result.';
-  const finalAnswer = answer;
-
-  await appendAiLog(env, {
-    source: 'chat',
-    sessionId,
-    model: activeModel,
-    query: message,
-    contextExcerpt,
-    response: finalAnswer,
+  return new Response(stream.readable, {
+    headers: {
+      'Content-Type': 'application/x-ndjson; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
   });
-
-  state.history.push({ at: new Date().toISOString(), command: `chat: ${message}` });
-  state.history = state.history.slice(-120);
-  if (!Array.isArray(state.chatHistory)) {
-    state.chatHistory = [];
-  }
-  state.chatHistory.push({ at: new Date().toISOString(), role: 'user', content: message });
-  state.chatHistory.push({ at: new Date().toISOString(), role: 'assistant', content: finalAnswer });
-  state.chatHistory = state.chatHistory.slice(-40);
-  await writeState(env, sessionId, state);
-
-  return Response.json({ answer: finalAnswer, model: activeModel }, { headers: jsonHeaders });
 }
 
 export async function onRequest() {

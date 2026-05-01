@@ -55,8 +55,31 @@ type OsResponse = {
   config?: Record<string, unknown>;
   cwd?: string;
 };
-type ChatResponse = {
-  answer?: string;
+type ChatStreamEvent =
+  | {
+      type: 'meta';
+      model?: string;
+      traceLabel?: string;
+    }
+  | {
+      type: 'trace';
+      text?: string;
+    }
+  | {
+      type: 'answer';
+      delta?: string;
+    }
+  | {
+      type: 'error';
+      error?: string;
+    }
+  | {
+      type: 'done';
+      answer?: string;
+      model?: string;
+      traceLabel?: string;
+    };
+type ChatErrorResponse = {
   model?: string;
   error?: string;
 };
@@ -469,9 +492,11 @@ export class TerminalApp {
     });
     this.identitySystemPromptInput.addEventListener('input', () => {
       this.systemPromptInjection = this.identitySystemPromptInput.value.trim().slice(0, 1200);
+      this.persistShellProfile();
     });
     this.identitySystemPromptInput.addEventListener('change', () => {
       this.systemPromptInjection = this.identitySystemPromptInput.value.trim().slice(0, 1200);
+      this.persistShellProfile();
       void this.setConfigQuiet('system_prompt', this.systemPromptInjection);
     });
     document.addEventListener('click', (event) => {
@@ -1295,6 +1320,7 @@ export class TerminalApp {
       if (Number.isFinite(raw))
         this.applyTerminalFontSize(raw);
     }
+    this.persistShellProfile();
     this.updatePromptIdentityUi();
   }
 
@@ -1661,6 +1687,7 @@ export class TerminalApp {
       const payload = (await response.json().catch(() => null)) as OsResponse | null;
       if (payload?.config && typeof payload.config === 'object')
         this.applyOsConfig(payload.config as Record<string, unknown>);
+      this.persistShellProfile();
     } catch {
       /* Config persistence is best-effort. */
     }
@@ -2949,6 +2976,27 @@ export class TerminalApp {
     return this.escapeHtml(value).replaceAll('\n', ' ').replaceAll('\r', '');
   }
 
+  private parseChatStreamEvent(line: string): ChatStreamEvent | null {
+    const trimmed = line.trim();
+    if (!trimmed) return null;
+    try {
+      return JSON.parse(trimmed) as ChatStreamEvent;
+    } catch {
+      return null;
+    }
+  }
+
+  private renderTraceHtml(lines: string[]): string {
+    if (!lines.length) return '';
+    return `<ul class="pretty-thinking-list">${lines
+      .map((line) => `<li>${this.escapeHtml(line)}</li>`)
+      .join('')}</ul>`;
+  }
+
+  private renderTraceText(lines: string[]): string {
+    return lines.join('\n');
+  }
+
   private async sendChat(message: string): Promise<void> {
     if (this.chatPending) {
       this.lines.push(this.responseLine('A chat response is already running.', 'warn'));
@@ -2962,10 +3010,13 @@ export class TerminalApp {
     this.lines.push({
       id: pendingId,
       kind: 'pretty-response',
-      html: renderMarkdownToHtml('_Thinking…_'),
+      html: renderMarkdownToHtml(''),
       text: '',
       model: this.aiModel,
       copyable: true,
+      traceHtml: this.renderTraceHtml(['Opening chat stream…']),
+      traceText: 'Opening chat stream…',
+      traceLabel: 'Trace',
     });
     this.renderLog();
 
@@ -2974,6 +3025,7 @@ export class TerminalApp {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Accept: 'application/x-ndjson',
         },
         body: JSON.stringify({
           sessionId: this.sessionId,
@@ -2991,16 +3043,106 @@ export class TerminalApp {
             })),
         }),
       });
-
-      const payload = (await response.json().catch(() => null)) as ChatResponse | null;
-      const text = response.ok
-        ? payload?.answer ?? 'No answer returned.'
-        : payload?.error ?? `Chat request failed with status ${response.status}.`;
-
-      if (response.ok)
-        await this.streamMarkdownToLine(pendingId, text, payload?.model ?? this.aiModel);
-       else
+      if (!response.ok || !response.body) {
+        const payload = (await response.json().catch(() => null)) as ChatErrorResponse | null;
+        const text = payload?.error ?? `Chat request failed with status ${response.status}.`;
         this.replaceLine(pendingId, text, 'warn');
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let answer = '';
+      let model = this.aiModel;
+      let traceLabel = 'Trace';
+      const traceLines: string[] = [];
+
+      const syncPendingLine = (final = false): void => {
+        if (final)
+          this.replaceLineMarkdown(
+            pendingId,
+            answer,
+            model,
+            renderMarkdownToHtml,
+            traceLines,
+            traceLabel,
+          );
+        else
+          this.replaceLineStreaming(pendingId, answer, model, traceLines, traceLabel);
+        this.renderLog();
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          const event = this.parseChatStreamEvent(line);
+          if (!event) continue;
+          if (event.type === 'meta') {
+            if (event.model)
+              model = event.model;
+            if (event.traceLabel)
+              traceLabel = event.traceLabel;
+            syncPendingLine(false);
+            continue;
+          }
+          if (event.type === 'trace') {
+            const text = String(event.text ?? '').trim();
+            if (text) {
+              traceLines.push(text);
+              syncPendingLine(false);
+            }
+            continue;
+          }
+          if (event.type === 'answer') {
+            const delta = String(event.delta ?? '');
+            if (delta) {
+              answer += delta;
+              syncPendingLine(false);
+            }
+            continue;
+          }
+          if (event.type === 'error') {
+            this.replaceLine(pendingId, event.error ?? 'Chat stream failed.', 'warn');
+            this.renderLog();
+            return;
+          }
+          if (event.type === 'done') {
+            if (event.model)
+              model = event.model;
+            if (event.traceLabel)
+              traceLabel = event.traceLabel;
+            if (!answer && event.answer)
+              answer = event.answer;
+            syncPendingLine(true);
+          }
+        }
+
+        if (done)
+          break;
+      }
+
+      const tailEvent = this.parseChatStreamEvent(buffer.trim());
+      if (tailEvent?.type === 'done') {
+        if (tailEvent.model)
+          model = tailEvent.model;
+        if (tailEvent.traceLabel)
+          traceLabel = tailEvent.traceLabel;
+        if (!answer && tailEvent.answer)
+          answer = tailEvent.answer;
+      }
+      this.replaceLineMarkdown(
+        pendingId,
+        answer,
+        model,
+        renderMarkdownToHtml,
+        traceLines,
+        traceLabel,
+      );
     } catch {
       this.replaceLine(pendingId, 'Chat request failed before reaching the Cloudflare AI worker.', 'warn');
     } finally {
@@ -3206,10 +3348,29 @@ export class TerminalApp {
     this.renderLog();
   }
 
-  private replaceLineStreaming(id: string, raw: string, model?: string): void {
-    const html = `<pre class="streaming-output">${this.escapeHtml(raw)}</pre>`;
+  private replaceLineStreaming(
+    id: string,
+    raw: string,
+    model?: string,
+    traceLines: string[] = [],
+    traceLabel = 'Trace',
+  ): void {
+    const display = raw || '…';
+    const html = `<pre class="streaming-output">${this.escapeHtml(display)}</pre>`;
     this.lines = this.lines.map((line) =>
-      line.id === id ? { id, kind: 'pretty-response', html, text: raw, model, copyable: false } : line,
+      line.id === id
+        ? {
+            id,
+            kind: 'pretty-response',
+            html,
+            text: raw,
+            model,
+            copyable: false,
+            traceHtml: this.renderTraceHtml(traceLines),
+            traceText: this.renderTraceText(traceLines),
+            traceLabel,
+          }
+        : line,
     );
   }
 
@@ -3218,10 +3379,24 @@ export class TerminalApp {
     raw: string,
     model?: string,
     renderer: (markdown: string) => string = renderMarkdownToHtml,
+    traceLines: string[] = [],
+    traceLabel = 'Trace',
   ): void {
     const html = renderer(raw);
     this.lines = this.lines.map((line) =>
-      line.id === id ? { id, kind: 'pretty-response', html, text: raw, model, copyable: true } : line,
+      line.id === id
+        ? {
+            id,
+            kind: 'pretty-response',
+            html,
+            text: raw,
+            model,
+            copyable: true,
+            traceHtml: this.renderTraceHtml(traceLines),
+            traceText: this.renderTraceText(traceLines),
+            traceLabel,
+          }
+        : line,
     );
   }
 

@@ -449,6 +449,8 @@ const MANUALS = {
   su: "su\nAsk for the root password and grant a short-lived root session for protected filesystem operations.",
   comment:
     "comment <post> <name> <message>\nAdd a viewer comment to a markdown post. Example: comment terminal-portfolio-changelog alice nice post.",
+  reply:
+    "reply <comment-id> <message>\nReply to a stored post comment using the current session identity name. Example: reply 42 thanks for reading.",
   new: "new post --title=<title> --tags=<comma,tags> [--description=<text>] <body>\nCreate a dated markdown post under /posts/YYYY/MM/DD/ (sudo required). Body is the markdown after flags.",
   upload:
     "upload image <post-slug|/posts/path.md> <https://image-url> [alt text]\nFetch an image URL, store it under /public/posts, append a markdown image reference to the post body, and sync to D1/R2.",
@@ -554,6 +556,7 @@ const COMMAND_TAGS = {
   new: ["writing", "content", "terminal"],
   upload: ["writing", "content", "tooling"],
   post: ["writing", "content"],
+  reply: ["writing", "content", "social"],
   env: ["system", "tooling", "terminal"],
 };
 
@@ -1045,6 +1048,8 @@ async function runCommand(
       return { output: "Usage: su", status: 400 };
     case "comment":
       return addComment(parsed.args, env);
+    case "reply":
+      return addReply(parsed.args, env, state);
     case "date":
       return { output: new Date().toString() };
     case "dark":
@@ -2178,6 +2183,52 @@ async function addComment(args, env) {
   await env.PORTFOLIO_OS.put(key, JSON.stringify(comments.slice(-100)));
 
   return { output: `comment added to ${path}` };
+}
+
+async function resolveCommentId(commentId, env) {
+  const numericId = Number(commentId);
+  const db = env.POSTS_DB || env.DB || null;
+  if (!db || !Number.isInteger(numericId) || numericId < 1) {
+    return null;
+  }
+  const row = await db
+    .prepare(
+      `SELECT id, post_path, kind
+       FROM post_messages
+       WHERE id = ?
+       LIMIT 1`,
+    )
+    .bind(numericId)
+    .first();
+  if (!row) return null;
+  return {
+    id: Number(row.id ?? 0) || numericId,
+    postPath: String(row.post_path || ""),
+    kind: String(row.kind || "comment"),
+  };
+}
+
+async function addReply(args, env, state) {
+  const [commentIdRaw = "", ...messageParts] = args;
+  const message = messageParts.join(" ").trim();
+  const commentId = Number(commentIdRaw);
+  if (!Number.isInteger(commentId) || commentId < 1 || !message) {
+    return { output: "Usage: reply <comment-id> <message>", status: 400 };
+  }
+
+  const target = await resolveCommentId(commentId, env);
+  if (!target || !target.postPath) {
+    return { output: `reply: no comment matching "${commentIdRaw}"`, status: 404 };
+  }
+
+  const author = sanitizeUsername(String(mergeConfigDefaults(state?.config).name || "guest"));
+  await recordPostEvent(env, target.postPath, "message", {
+    name: author,
+    message: message.slice(0, 1200),
+    kind: "reply",
+    parentId: target.id,
+  });
+  return { output: `reply added to comment ${target.id} on ${target.postPath}` };
 }
 
 async function writeUserFile(env, _state, rawPath, content, options = {}) {

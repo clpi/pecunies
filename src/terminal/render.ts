@@ -3,7 +3,6 @@ import { resumeData } from '../data/resume';
 import {
   WORKERS_AI_TEXT_MODELS,
   formatWorkersAiModelLabel,
-  workersAiModelShowsThinkingExpandable,
 } from './ai-models';
 import type {
   CommandDefinition,
@@ -274,14 +273,10 @@ export function renderLog(lines: SessionLine[]): string {
                  ${copyButton}
                </div>`
             : '';
-        const showThinkingExpandable =
-          Boolean(line.model) && workersAiModelShowsThinkingExpandable(line.model);
-        const thinkingSection = showThinkingExpandable
-          ? `<details class="pretty-thinking">
-               <summary><span class="pretty-thinking-chevron">&gt;</span> <span class="pretty-thinking-label">Thinking</span></summary>
-               <p>Using portfolio profile, app command registry, visible terminal buffer, session history, RAG notes, metrics, leaderboard state, and files read in this session.</p>
-             </details>`
-          : '';
+        const traceSection =
+          line.traceHtml && line.traceText
+            ? renderTraceSection(line.traceHtml, line.traceLabel ?? 'Trace')
+            : '';
         const shellClass = [
           'pretty-output-shell',
           line.model ? 'pretty-output-shell--ai' : '',
@@ -295,7 +290,7 @@ export function renderLog(lines: SessionLine[]): string {
             <div class="${shellClass}">
               ${metaHeader}
               <div class="pretty-output markdown-body">${line.html}</div>
-              ${thinkingSection}
+              ${traceSection}
             </div>
           </li>
         `;
@@ -691,6 +686,15 @@ function renderActions(actions: ViewAction[], className: string): string {
     <div class="${className}">
       ${actions.map(renderAction).join('')}
     </div>
+  `;
+}
+
+function renderTraceSection(traceHtml: string, label: string): string {
+  return `
+    <details class="pretty-thinking" open>
+      <summary><span class="pretty-thinking-chevron">&gt;</span> <span class="pretty-thinking-label">${escapeHtml(label)}</span></summary>
+      <div class="pretty-thinking-body">${traceHtml}</div>
+    </details>
   `;
 }
 

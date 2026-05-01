@@ -2359,6 +2359,21 @@ a.output-record:hover {
   color: color-mix(in srgb, var(--ink) 32%, var(--muted) 68%);
 }
 
+.pretty-thinking-body {
+  margin-top: 6px;
+}
+
+.pretty-thinking-list {
+  margin: 0;
+  padding-left: 1rem;
+  font-family: var(--font-mono);
+  color: color-mix(in srgb, var(--ink) 52%, var(--muted) 48%);
+}
+
+.pretty-thinking-list li + li {
+  margin-top: 0.25rem;
+}
+
 .pretty-output {
   margin: 0;
   max-width: 100%;
