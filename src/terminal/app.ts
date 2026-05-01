@@ -1035,7 +1035,9 @@ export class TerminalApp {
         return;
       }
       if (event.target.closest(".ehp-navigate")) {
+        const command = this.entityHoverPopover.dataset.currentCommand ?? "";
         this.hideEntityPopover();
+        if (command) this.execute(command);
         return;
       }
       if (event.target.closest(".ehp-remove")) {

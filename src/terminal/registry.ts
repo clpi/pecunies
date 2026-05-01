@@ -430,6 +430,7 @@ export function createCommandRegistry(): {
           period: item.period,
           summary: item.summary,
           bullets: item.bullets,
+          link: { label: "Open →", command: `experience ${item.slug}` },
         })),
       },
       {
@@ -454,9 +455,19 @@ export function createCommandRegistry(): {
         })),
       },
       {
-        type: "education",
+        type: "timeline",
         heading: "Education",
-        item: { ...resumeData.education },
+        items: [
+          {
+            role: resumeData.education.degree,
+            company: resumeData.education.school,
+            location: resumeData.education.location,
+            period: resumeData.education.period,
+            summary: "Formal engineering education and coursework.",
+            bullets: resumeData.education.highlights,
+            link: { label: "Open →", command: "education" },
+          },
+        ],
       },
     ],
   };

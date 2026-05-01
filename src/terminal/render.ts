@@ -743,9 +743,10 @@ function renderTimelineItem(
 }
 
 function renderTagGroup(group: TagGroup): string {
+  const categorySlug = entitySlug(group.title);
   return `
     <article class="output-record output-record-compact">
-      <p class="record-title">${escapeHtml(group.title)}</p>
+      <p class="record-title"><button type="button" class="category-link" data-command="skill --cat ${escapeAttribute(categorySlug)}" data-entity-type="skill-category" data-entity-slug="${escapeAttribute(categorySlug)}" data-entity-title="${escapeAttribute(group.title)}">${escapeHtml(group.title)}</button></p>
       ${group.note ? `<p class="record-summary">${escapeHtml(group.note)}</p>` : ""}
       <div class="tag-list">
         ${group.items
@@ -768,8 +769,10 @@ function renderProjectCard(project: ProjectCard): string {
   const commandAttr = project.command
     ? ` data-command="${escapeAttribute(project.command)}"`
     : "";
+  const projectSlug = entitySlug(project.name);
+  const entityAttrs = ` data-entity-type="project" data-entity-slug="${escapeAttribute(projectSlug)}" data-entity-title="${escapeAttribute(project.name)}" data-entity-context="view:projects"`;
   return `
-    <article class="output-record${clickableClass}"${commandAttr}>
+    <article class="output-record${clickableClass}"${commandAttr}${entityAttrs}>
       <div class="record-topline">
         <p>
           <strong>${escapeHtml(project.name)}</strong>
