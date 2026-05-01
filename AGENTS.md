@@ -13,3 +13,20 @@
 - Continual-learning transcript index is stored at .cursor/hooks/state/continual-learning-index.json.
 - MCP, edge routing, and booking-email are deployed as Cloudflare Workers under workers/ alongside Pages, with MCP split out from the Pages API bundle rather than inlined with it.
 - Root npm run deploy is expected to publish Pages plus all Workers in this repository.
+
+## dependencies
+- use @cloudflare/agents https://github.com/cloudflare/agents/tree/main/packages/agents
+  - for agent tools: https://github.com/cloudflare/agents/blob/main/docs/agent-tools.md
+- use @cloudflare/codemode https://github.com/cloudflare/agents/blob/main/packages/codemode/README.md
+- use @cloudflare/ai-chat https://github.com/cloudflare/agents/tree/main/packages/ai-chat
+- use @cloudflare/worker-bundler https://github.com/cloudflare/agents/tree/main/packages/worker-bundler
+- use @cloudflare/think https://github.com/cloudflare/agents/tree/main/packages/think
+- use @cloudflare/shell https://github.com/cloudflare/agents/tree/main/packages/shell
+- use workflows: https://developers.cloudflare.com/workflows/
+- for browser/web: https://developers.cloudflare.com/agents/api-reference/browse-the-web/
+- durable execution: https://developers.cloudflare.com/agents/api-reference/durable-execution/
+- callable methods: https://developers.cloudflare.com/agents/api-reference/callable-methods/
+- sessions: https://developers.cloudflare.com/agents/api-reference/sessions/
+- store/sync: https://developers.cloudflare.com/agents/api-reference/store-and-sync-state/
+- use cloudflare/voice: https://github.com/cloudflare/agents/tree/main/packages/voice
+- follow patterns: https://developers.cloudflare.com/agents/patterns/

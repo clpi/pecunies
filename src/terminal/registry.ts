@@ -1008,6 +1008,18 @@ export function createCommandRegistry(): {
     ],
   };
 
+  const tagsView: ViewDefinition = {
+    id: 'tags',
+    route: 'tags',
+    prompt: 'search tag',
+    eyebrow: 'Tags',
+    title: 'Tag filter and browse',
+    description: 'Browse all tags and find views by tag.',
+    theme: 'frost',
+    logline: 'Loaded tags.',
+    sections: [],
+  };
+
   const staticViews = {
     home: homeView,
     about: aboutView,
@@ -1021,6 +1033,7 @@ export function createCommandRegistry(): {
     posts: postsView,
     contact: contactView,
     pdf: pdfView,
+    tags: tagsView,
   } as const;
 
   const commands: CommandDefinition[] = [];
@@ -2166,9 +2179,57 @@ export function createCommandRegistry(): {
   });
 
   addOsCommand("new", {
-    usage: "new post --title=<t> --tags=<a,b> [--description=<d>] <body>",
+    usage: "new <type> [--title=<t>] [--tags=<a,b>] [args...]",
     group: "OS",
-    description: "Publish markdown under /posts/YYYY/MM/DD/ (sudo required).",
+    description: "Create new data type instances (post, workflow, step, trigger, job, hook, tool, skill).",
+  });
+
+  addOsCommand("workflow", {
+    usage: "workflow <list|get|create|update|delete|run> [id] [args...]",
+    group: "OS",
+    description: "Manage customizable AI workflows.",
+  });
+
+  addOsCommand("step", {
+    usage: "step <list|get|create|update|delete> [id] [args...]",
+    group: "OS",
+    description: "Manage reusable workflow steps.",
+  });
+
+  addOsCommand("trigger", {
+    usage: "trigger <list|get|create|update|delete> [id] [args...]",
+    group: "OS",
+    description: "Manage event-driven triggers.",
+  });
+
+  addOsCommand("job", {
+    usage: "job <list|get|create|update|delete|run> [id] [args...]",
+    group: "OS",
+    description: "Manage scheduled jobs (cron).",
+  });
+
+  addOsCommand("hook", {
+    usage: "hook <list|get|create|update|delete> [id] [args...]",
+    group: "OS",
+    description: "Manage lifecycle hooks.",
+  });
+
+  addOsCommand("tool", {
+    usage: "tool <list|get|create|update|delete> [id] [args...]",
+    group: "OS",
+    description: "Manage tool definitions.",
+  });
+
+  addOsCommand("skill", {
+    usage: "skill <list|get|create|update|delete> [id] [args...]",
+    group: "OS",
+    description: "Manage skill definitions.",
+  });
+
+  addOsCommand("list", {
+    usage: "list <type> [--tags=<a,b>] [--limit=<n>]",
+    group: "OS",
+    description: "List and browse data type instances.",
   });
 
   addOsCommand("sync", {

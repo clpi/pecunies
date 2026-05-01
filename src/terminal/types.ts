@@ -228,6 +228,87 @@ export type CommandOutcome =
   | { kind: 'url'; url: string; text: string; tone?: LogTone }
   | { kind: 'clear' };
 
+export interface WorkflowDef {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  system_prompt: string;
+  model: string;
+  output_type: string;
+  input_types: string[];
+  tools: string[];
+  skills: string[];
+  example_usage: string;
+  execution_count: number;
+}
+
+export interface StepDef {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  type: string;
+  action: string;
+  params: Record<string, any>;
+  output_key: string;
+  timeout_seconds: number;
+  retry_count: number;
+  retry_delay_seconds: number;
+}
+
+export interface TriggerDef {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  event_type: string;
+  condition: string;
+  action_type: string;
+  action_id: string;
+  enabled: boolean;
+}
+
+export interface JobDef {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  schedule: string;
+  action_type: string;
+  action_id: string;
+  status: string;
+  run_count: number;
+  enabled: boolean;
+}
+
+export interface HookDef {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  hook_type: string;
+  target_event: string;
+  action_type: string;
+  action_id: string;
+  priority: number;
+  enabled: boolean;
+}
+
+export interface ExecutionDef {
+  id: string;
+  source_type: string;
+  source_id: string;
+  status: string;
+  started_at: string;
+  finished_at: string;
+  duration_ms: number;
+  input: Record<string, any>;
+  output: string;
+  error: string;
+  trigger_type: string;
+}
+
 export type TaggedItem = {
   label: string;
   type: 'command' | 'view' | 'file' | 'link' | 'post' | 'section';
