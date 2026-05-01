@@ -11,6 +11,9 @@ export type ViewStat = {
   value: string;
   detail?: string;
   command?: string;
+  signalId?: string;
+  signalAccent?: string;
+  signalMode?: number;
 };
 
 export type ViewAction = {

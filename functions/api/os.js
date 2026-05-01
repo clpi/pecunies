@@ -1366,17 +1366,7 @@ async function verifyPassword(env, value) {
     return password === localExpected;
   }
 
-  try {
-    const response = await fetch("https://api.pecunies.com/api/sudo", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password }),
-    });
-    const data = await response.json().catch(() => ({}));
-    return Boolean(response.ok && data?.ok);
-  } catch {
-    return false;
-  }
+  return false;
 }
 
 function hasRoot(state) {

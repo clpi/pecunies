@@ -22,6 +22,7 @@ import {
   authLogin,
   authSignup,
   type CatalogEntity,
+  API_BASE,
 } from "../api";
 
 function escapeHtml(value: string): string {
@@ -2031,7 +2032,7 @@ export function createCommandRegistry(): {
           tone: "warn",
         };
       try {
-        const res = await fetch("/api/posts");
+        const res = await fetch(`${API_BASE}/api/posts`);
         const payload = (await res.json()) as {
           posts?: Array<{
             slug: string;
@@ -2078,7 +2079,7 @@ export function createCommandRegistry(): {
             text: `No post matching "${query}". Run posts for the index.`,
             tone: "warn",
           };
-        void fetch("/api/posts", {
+        void fetch(`${API_BASE}/api/posts`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "view", path: post.path }),
@@ -2709,7 +2710,7 @@ export function createCommandRegistry(): {
               .toLowerCase()
               .replace(/[^a-z0-9]+/g, "-")
               .replace(/^-+|-+$/g, "") || `post-${Date.now().toString(36)}`;
-          const res = await fetch("/api/posts", {
+          const res = await fetch(`${API_BASE}/api/posts`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -4063,5 +4064,8 @@ function buildSignalStats(): ViewStat[] {
     label: signal.label,
     value: signal.value,
     detail: signal.detail,
+    signalId: signal.id,
+    signalAccent: signal.accent,
+    signalMode: signal.mode,
   }));
 }

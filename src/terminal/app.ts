@@ -15,6 +15,9 @@ import {
 import {
   fetchAutocompleteSuggestions,
   type AutocompleteSuggestion,
+  API_BASE,
+  upsertSignal,
+  deleteSignal,
 } from "../api";
 import {
   buildGenericUsageSuggestions,
@@ -393,6 +396,7 @@ export class TerminalApp {
   private pendingEditBtn: HTMLElement | null = null;
   private sudoUnlocked = false;
   private sudoPassword = "";
+  private pendingSudoResolve: ((password: string | null) => void) | null = null;
   private ehpHideTimer: ReturnType<typeof setTimeout> | null = null;
   private ehpShowTimer: ReturnType<typeof setTimeout> | null = null;
   private ehpAnchor: HTMLElement | null = null;
@@ -900,6 +904,24 @@ export class TerminalApp {
         return;
       }
 
+      const signalEditBtn = target.closest<HTMLButtonElement>("[data-signal-edit]");
+      if (signalEditBtn) {
+        const signalId = signalEditBtn.dataset.signalEdit;
+        if (signalId) {
+          void this.handleSignalEdit(signalId);
+        }
+        return;
+      }
+
+      const signalRemoveBtn = target.closest<HTMLButtonElement>("[data-signal-remove]");
+      if (signalRemoveBtn) {
+        const signalId = signalRemoveBtn.dataset.signalRemove;
+        if (signalId) {
+          void this.handleSignalRemove(signalId);
+        }
+        return;
+      }
+
       const command =
         target.closest<HTMLElement>("[data-command]")?.dataset.command;
       const prepopulate = target.closest<HTMLElement>(
@@ -959,7 +981,7 @@ export class TerminalApp {
 
     // ── Entity hover popover ─────────────────────────────────────────────
     const entityHoverSelector =
-      "[data-entity-tag], [data-entity-type][data-entity-slug], [data-entity-skill], [data-entity-link]";
+      "[data-command-preview], [data-entity-tag], [data-entity-type][data-entity-slug], [data-entity-skill], [data-entity-link], a[href]";
     this.root.addEventListener("pointerover", (event) => {
       if (!(event.target instanceof HTMLElement)) return;
       const chip = event.target.closest<HTMLElement>(entityHoverSelector);
@@ -1009,15 +1031,11 @@ export class TerminalApp {
     this.entityHoverPopover.addEventListener("click", (event) => {
       if (!(event.target instanceof HTMLElement)) return;
       if (event.target.closest(".ehp-dismiss")) {
-        this.hideEntityPopover();
+        this.removePopoverItemFromContext();
         return;
       }
       if (event.target.closest(".ehp-navigate")) {
-        const command = this.entityHoverPopover.dataset.currentCommand ?? "";
-        const slug = this.entityHoverPopover.dataset.currentTag ?? "";
         this.hideEntityPopover();
-        if (command) this.execute(command);
-        else if (slug) this.execute(`tags ${slug}`);
         return;
       }
       if (event.target.closest(".ehp-remove")) {
@@ -1105,6 +1123,47 @@ export class TerminalApp {
     });
   }
 
+  private removePopoverItemFromContext(): void {
+    const currentTag = this.entityHoverPopover.dataset.currentTag ?? "";
+    const currentType = this.entityHoverPopover.dataset.currentType ?? "";
+    const currentSlug = this.entityHoverPopover.dataset.currentSlug ?? "";
+    this.hideEntityPopover();
+
+    if (currentTag) {
+      this.removeTagFromContext(currentTag);
+      return;
+    }
+
+    if (!currentType || !currentSlug) {
+      return;
+    }
+
+    void this.deleteEntityFromContext(currentType, currentSlug);
+  }
+
+  private async deleteEntityFromContext(
+    type: string,
+    slug: string,
+  ): Promise<void> {
+    const sudoPassword = await this.ensureSudoPassword();
+    if (!sudoPassword) return;
+    try {
+      const { deleteEntity } = await import("../api");
+      await deleteEntity(type as never, slug, sudoPassword);
+      this.apiTagCacheStale = true;
+
+      this.outputElement
+        .querySelectorAll<HTMLElement>(
+          `[data-entity-type="${CSS.escape(type)}"][data-entity-slug="${CSS.escape(slug)}"]`,
+        )
+        .forEach((el) => {
+          el.closest(".editable-wrap")?.remove() ?? el.remove();
+        });
+    } catch {
+      return;
+    }
+  }
+
   attachFieldHandle(handle: AmbientFieldHandle): void {
     this.fieldHandle = handle;
 
@@ -1136,20 +1195,46 @@ export class TerminalApp {
   }
 
   // ── Entity hover popover ────────────────────────────────────────────────
+  private linkSlug(value: string): string {
+    return (
+      String(value || "link")
+        .toLowerCase()
+        .replace(/https?:\/\//, "")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "") || "link"
+    );
+  }
+
   private showEntityPopover(chip: HTMLElement): void {
+    const commandPreview = chip.dataset.commandPreview ?? "";
+    if (commandPreview) {
+      this.renderCommandPreviewPopover(chip, commandPreview);
+      return;
+    }
+
     const tagSlug = chip.dataset.entityTag ?? "";
+    const href =
+      chip instanceof HTMLAnchorElement
+        ? (chip.getAttribute("href") ?? "")
+        : "";
     const entityType =
       chip.dataset.entityType ??
       (chip.dataset.entitySkill
         ? "skill"
-        : chip.dataset.entityLink
+        : chip.dataset.entityLink || href
           ? "link"
           : "");
     const entitySlug =
       chip.dataset.entitySlug ??
       chip.dataset.entitySkill ??
       chip.dataset.entityLink ??
-      "";
+      (href ? this.linkSlug(chip.textContent?.trim() || href) : "");
+
+    if (href && entityType === "link") {
+      if (!chip.dataset.entityTitle)
+        chip.dataset.entityTitle = chip.textContent?.trim() || href;
+      if (!chip.dataset.entityUrl) chip.dataset.entityUrl = href;
+    }
 
     if (tagSlug) {
       this.renderTagPopover(chip, tagSlug);
@@ -1177,6 +1262,42 @@ export class TerminalApp {
     pop.hidden = false;
   }
 
+  private renderCommandPreviewPopover(
+    chip: HTMLElement,
+    commandText: string,
+  ): void {
+    const name =
+      commandText.replace(/^\//, "").split(/\s+/)[0]?.toLowerCase() ?? "";
+    const command = this.resolveCommand(name);
+    const pop = this.entityHoverPopover;
+    pop.dataset.currentTag = "";
+    pop.dataset.currentType = "command";
+    pop.dataset.currentSlug = name;
+    pop.dataset.currentCommand = commandText;
+    pop.dataset.currentHref = "";
+
+    const q = (sel: string) => pop.querySelector<HTMLElement>(sel);
+    const typeBadge = q(".ehp-type-badge");
+    const nameEl = q(".ehp-name");
+    const descEl = q(".ehp-desc");
+    const countEl = q(".ehp-count");
+    const usesList = q(".ehp-uses");
+    const nav = q(".ehp-navigate");
+    const remove = q(".ehp-remove");
+    if (typeBadge) typeBadge.textContent = "command";
+    if (nameEl) nameEl.textContent = commandText;
+    if (descEl) descEl.textContent = command?.description ?? "Command preview.";
+    if (countEl) countEl.textContent = command?.usage ?? `/${name}`;
+    if (usesList) {
+      usesList.innerHTML = command
+        ? `<li><span class="ehp-use-type">group</span>${this.escapeHtml(command.group)}</li><li><span class="ehp-use-type">click</span>stage command in input</li><li><span class="ehp-use-type">ⓘ</span>open man page</li>`
+        : `<li><span class="ehp-use-type">click</span>stage command in input</li>`;
+    }
+    if (nav) nav.hidden = true;
+    if (remove) remove.hidden = true;
+    this.positionEntityPopover(chip);
+  }
+
   private renderTagPopover(chip: HTMLElement, slug: string): void {
     const usage = this.tagUsageCache.get(slug);
     const pop = this.entityHoverPopover;
@@ -1200,7 +1321,7 @@ export class TerminalApp {
       countEl.textContent = usage
         ? `${usage.count} use${usage.count !== 1 ? "s" : ""}`
         : "loading uses…";
-    if (nav) nav.textContent = "Filter tag →";
+    if (nav) nav.hidden = true;
     if (usesList) {
       usesList.innerHTML = usage?.uses?.length
         ? usage.uses
@@ -1225,7 +1346,9 @@ export class TerminalApp {
     pop.dataset.currentTag = "";
     pop.dataset.currentType = type;
     pop.dataset.currentSlug = slug;
-    pop.dataset.currentCommand = `${type} ${slug}`;
+    pop.dataset.currentCommand =
+      type === "link" && chip.dataset.entityUrl ? "" : `${type} ${slug}`;
+    pop.dataset.currentHref = chip.dataset.entityUrl ?? "";
 
     const q = (sel: string) => pop.querySelector<HTMLElement>(sel);
     const typeBadge = q(".ehp-type-badge");
@@ -1253,7 +1376,7 @@ export class TerminalApp {
       usesList.innerHTML = fallbackUrl
         ? `<li><span class="ehp-use-type">url</span>${this.escapeHtml(fallbackUrl)}</li>`
         : "<li>Fetching from API…</li>";
-    if (nav) nav.hidden = type === "work" || type === "experience";
+    if (nav) nav.hidden = true;
     if (remove) remove.hidden = true;
     this.positionEntityPopover(chip);
 
@@ -1266,6 +1389,8 @@ export class TerminalApp {
     this.entityHoverPopover.dataset.currentType = "";
     this.entityHoverPopover.dataset.currentSlug = "";
     this.entityHoverPopover.dataset.currentCommand = "";
+    this.entityHoverPopover.dataset.currentHref = "";
+    this.entityHoverPopover.dataset.currentContext = "";
     const remove =
       this.entityHoverPopover.querySelector<HTMLElement>(".ehp-remove");
     if (remove) remove.hidden = false;
@@ -1363,18 +1488,16 @@ export class TerminalApp {
 
   private async ensureSudoPassword(): Promise<string | null> {
     if (this.sudoUnlocked && this.sudoPassword) return this.sudoPassword;
-    const password = window.prompt("sudo password");
-    if (!password) return null;
-    try {
-      const { verifySudoPassword } = await import("../api");
-      const result = await verifySudoPassword(password);
-      if (!result.ok) return null;
-      this.sudoUnlocked = true;
-      this.sudoPassword = password;
-      return password;
-    } catch {
-      return null;
-    }
+
+    // Use the custom modal instead of native prompt
+    return new Promise((resolve) => {
+      this.sudoModalInput.value = "";
+      this.sudoModalInput.autocomplete = "off";
+      this.sudoModalError.hidden = true;
+      this.sudoEditModal.hidden = false;
+      this.pendingSudoResolve = resolve;
+      window.setTimeout(() => this.sudoModalInput.focus(), 30);
+    });
   }
 
   private parseEntityContext(
@@ -1393,19 +1516,14 @@ export class TerminalApp {
   ): Promise<boolean> {
     const parsed = this.parseEntityContext(context);
     if (!parsed) return false;
-    const sudoPassword = await this.ensureSudoPassword();
-    if (!sudoPassword) return false;
     try {
-      const { fetchEntity, upsertEntity } = await import("../api");
-      const existing = await fetchEntity(parsed.type as never, parsed.slug);
-      if (!existing?.item) return false;
-      const tags = new Set(existing.item.tags ?? []);
-      if (add) tags.add(tag);
-      else tags.delete(tag);
-      await upsertEntity(
-        { ...existing.item, tags: Array.from(tags) },
-        sudoPassword,
-      );
+      const { mutateTag } = await import("../api");
+      await mutateTag({
+        type: parsed.type as never,
+        slug: parsed.slug,
+        tag,
+        add,
+      });
       this.apiTagCacheStale = true;
       return true;
     } catch {
@@ -1419,6 +1537,25 @@ export class TerminalApp {
       this.ehpAnchor?.dataset.entityContext ??
       "";
     if (!context) return;
+
+    const type = this.entityHoverPopover.dataset.currentType ?? "";
+
+    // For catalog entities (skills, links, etc.), we need to remove from the view's tags array
+    if (type && type !== "tag") {
+      void this.persistEntityRemoval(context, type, slug).then((ok) => {
+        if (!ok) return;
+        this.outputElement
+          .querySelectorAll<HTMLElement>(
+            `[data-entity-slug="${CSS.escape(slug)}"][data-entity-type="${CSS.escape(type)}"][data-entity-context="${CSS.escape(context)}"]`,
+          )
+          .forEach((el) => {
+            el.closest(".editable-wrap")?.remove() ?? el.remove();
+          });
+      });
+      return;
+    }
+
+    // For tags, use the existing tag mutation logic
     void this.persistTagMutation(context, slug, false).then((ok) => {
       if (!ok) return;
       this.outputElement
@@ -1428,6 +1565,61 @@ export class TerminalApp {
         .forEach((el) => {
           el.closest(".editable-wrap")?.remove() ?? el.remove();
         });
+    });
+  }
+
+  private persistEntityRemoval(
+    context: string,
+    entityType: string,
+    entitySlug: string,
+  ): Promise<boolean> {
+    return new Promise(async (resolve) => {
+      const parsed = this.parseEntityContext(context);
+      if (!parsed) {
+        resolve(false);
+        return;
+      }
+
+      try {
+        const { fetchEntity, upsertEntity } = await import("../api");
+        const entity = await fetchEntity(parsed.type as never, parsed.slug);
+        if (!entity) {
+          resolve(false);
+          return;
+        }
+
+        // Remove the entity from the view's tags array
+        const updatedTags = (entity.item.tags || []).filter(
+          (tag: string) => {
+            // For skills/links, they're stored as tags like "skill:slug" or just the entity type
+            if (tag === entitySlug) return false;
+            if (tag === `${entityType}:${entitySlug}`) return false;
+            return true;
+          }
+        );
+
+        const sudoPassword = await this.ensureSudoPassword();
+        if (!sudoPassword) {
+          resolve(false);
+          return;
+        }
+
+        await upsertEntity(
+          { ...entity.item, tags: updatedTags },
+          sudoPassword
+        );
+        this.apiTagCacheStale = true;
+
+        // Refresh the view to show updated data
+        const currentRoute = this.currentView?.route;
+        if (currentRoute) {
+          void this.navigate(currentRoute);
+        }
+
+        resolve(true);
+      } catch {
+        resolve(false);
+      }
     });
   }
 
@@ -1547,33 +1739,36 @@ export class TerminalApp {
     raw: string,
     slugify: (value: string) => string,
   ): Promise<any | null> {
-    const sudoPassword = await this.ensureSudoPassword();
-    if (!sudoPassword) return null;
     const [labelRaw, urlRaw] = raw.split("|").map((part) => part.trim());
     const title = labelRaw || raw;
-    const slug = slugify(title);
     const yearsMatch =
       type === "skill" ? raw.match(/-\s*([0-9.]+)\+?\s+years?/i) : null;
     const cleanTitle =
       type === "skill"
         ? title.replace(/\s+-\s+[0-9.]+\+?\s+years?$/i, "").trim()
         : title;
-    const entity = {
-      type: type as never,
-      slug: slugify(cleanTitle),
-      title: cleanTitle,
-      category: type === "skill" ? "custom" : "quick-link",
-      description:
-        type === "skill"
-          ? `${cleanTitle} skill.`
-          : `Quick link for ${cleanTitle}.`,
-      tags: type === "skill" ? ["skills"] : ["links", "quick-link"],
-      yearsOfExperience: yearsMatch ? Number(yearsMatch[1]) : undefined,
-      metadata:
-        type === "link" && urlRaw ? { url: urlRaw, source: "quick-link" } : {},
-    };
+
+    const sudoPassword = await this.ensureSudoPassword();
+    if (!sudoPassword) return null;
+
     try {
       const { upsertEntity } = await import("../api");
+      const entity = {
+        type: type as never,
+        slug: slugify(cleanTitle),
+        title: cleanTitle,
+        category: type === "skill" ? "custom" : "quick-link",
+        description:
+          type === "skill"
+            ? `${cleanTitle} skill.`
+            : `Quick link for ${cleanTitle}.`,
+        tags: type === "skill" ? ["skills"] : ["links", "quick-link"],
+        yearsOfExperience: yearsMatch ? Number(yearsMatch[1]) : undefined,
+        metadata:
+          type === "link" && urlRaw
+            ? { url: urlRaw, source: "quick-link" }
+            : {},
+      };
       return await upsertEntity(entity, sudoPassword);
     } catch {
       return null;
@@ -4219,7 +4414,7 @@ export class TerminalApp {
 
   private async recordMetric(route: string): Promise<void> {
     try {
-      await fetch("/api/metrics", {
+      await fetch(`${API_BASE}/api/metrics`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -4236,7 +4431,7 @@ export class TerminalApp {
 
   private async loadPosts(): Promise<void> {
     try {
-      const response = await fetch("/api/posts");
+      const response = await fetch(`${API_BASE}/api/posts`);
       const payload = (await response.json()) as {
         posts?: Array<{
           title: string;
@@ -4453,7 +4648,7 @@ export class TerminalApp {
     this.renderLog();
 
     try {
-      const response = await fetch("/api/chat", {
+      const response = await fetch(`${API_BASE}/api/chat`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -4605,7 +4800,7 @@ export class TerminalApp {
     this.renderLog();
 
     try {
-      const response = await fetch("/api/os", {
+      const response = await fetch(`${API_BASE}/api/os`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -4692,7 +4887,7 @@ export class TerminalApp {
 
   private async recordCommand(command: string): Promise<void> {
     try {
-      await fetch("/api/os", {
+      await fetch(`${API_BASE}/api/os`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -5870,6 +6065,114 @@ export class TerminalApp {
       const y = ((event.clientY - bounds.top) / bounds.height) * 100;
       card.style.setProperty("--card-glow-x", `${x}%`);
       card.style.setProperty("--card-glow-y", `${y}%`);
+    });
+  }
+
+  private async handleSignalEdit(signalId: string): Promise<void> {
+    const signal = resumeData.signals.find((s) => s.id === signalId);
+    if (!signal) {
+      this.lines.push(this.responseLine(`Signal ${signalId} not found.`, "error"));
+      this.render();
+      return;
+    }
+
+    this.lines.push(
+      this.responseLine(`Editing signal: ${signal.label}`, "info"),
+      this.responseLine(`Current value: ${signal.value}`, "info"),
+    );
+    if (signal.detail) {
+      this.lines.push(this.responseLine(`Current detail: ${signal.detail}`, "info"));
+    }
+    this.lines.push(
+      this.responseLine("Enter new value (or press Enter to keep current):", "info"),
+    );
+    this.render();
+    this.inputElement.focus();
+
+    const newValue = await this.waitForInput();
+    const valueToSet = newValue.trim() || signal.value;
+
+    this.lines.push(
+      this.responseLine(`Enter new detail (or press Enter to keep current):`, "info"),
+    );
+    this.render();
+    this.inputElement.focus();
+
+    const newDetail = await this.waitForInput();
+    const detailToSet = newDetail.trim() || signal.detail || "";
+
+    try {
+      await upsertSignal({
+        signalId,
+        signalLabel: signal.label,
+        signalValue: valueToSet,
+        signalDetail: detailToSet || undefined,
+        signalAccent: signal.accent,
+        signalMode: signal.mode,
+      });
+      this.lines.push(this.responseLine(`Signal updated successfully.`, "success"));
+      
+      signal.value = valueToSet;
+      signal.detail = detailToSet || "";
+      
+      this.render();
+    } catch (error) {
+      this.lines.push(
+        this.responseLine(`Failed to update signal: ${error instanceof Error ? error.message : String(error)}`, "error"),
+      );
+      this.render();
+    }
+  }
+
+  private async handleSignalRemove(signalId: string): Promise<void> {
+    const signal = resumeData.signals.find((s) => s.id === signalId);
+    if (!signal) {
+      this.lines.push(this.responseLine(`Signal ${signalId} not found.`, "error"));
+      this.render();
+      return;
+    }
+
+    this.lines.push(
+      this.responseLine(`Remove signal: ${signal.label}? (y/N)`, "warn"),
+    );
+    this.render();
+    this.inputElement.focus();
+
+    const confirmation = await this.waitForInput();
+    if (confirmation.trim().toLowerCase() !== "y") {
+      this.lines.push(this.responseLine("Cancelled.", "info"));
+      this.render();
+      return;
+    }
+
+    try {
+      await deleteSignal(signalId);
+      this.lines.push(this.responseLine(`Signal removed successfully.`, "success"));
+      
+      const index = resumeData.signals.findIndex((s) => s.id === signalId);
+      if (index !== -1) {
+        resumeData.signals.splice(index, 1);
+      }
+      
+      this.render();
+    } catch (error) {
+      this.lines.push(
+        this.responseLine(`Failed to remove signal: ${error instanceof Error ? error.message : String(error)}`, "error"),
+      );
+      this.render();
+    }
+  }
+
+  private waitForInput(): Promise<string> {
+    return new Promise((resolve) => {
+      const handler = (event: KeyboardEvent) => {
+        if (event.key === "Enter") {
+          this.inputElement.removeEventListener("keydown", handler);
+          resolve(this.inputElement.value);
+          this.inputElement.value = "";
+        }
+      };
+      this.inputElement.addEventListener("keydown", handler);
     });
   }
 }

@@ -18,7 +18,8 @@ export type CatalogEntityType =
   | "trigger"
   | "user"
   | "job"
-  | "systemprompt";
+  | "systemprompt"
+  | "data";
 
 export type CatalogEntityRef = {
   type: CatalogEntityType;
@@ -232,6 +233,16 @@ export const CATALOG_TYPES: Record<CatalogEntityType, CatalogTypeMeta> = {
     title: "System prompts",
     description:
       "Prompt definitions, injected context, and where those instructions are used across the system.",
+  },
+  data: {
+    type: "data",
+    command: "data",
+    routeBase: "data",
+    singular: "data item",
+    plural: "data",
+    title: "Data",
+    description:
+      "General-purpose persisted data stored through the api worker for always-synced frontend state.",
   },
 };
 
@@ -1547,6 +1558,7 @@ export function normalizeCatalogType(value: string): CatalogEntityType | null {
     jobs: "job",
     systemprompt: "systemprompt",
     systemprompts: "systemprompt",
+    data: "data",
   };
   return aliases[raw] ?? null;
 }

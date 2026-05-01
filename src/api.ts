@@ -148,6 +148,39 @@ export async function deleteEntity(
   });
 }
 
+export async function mutateTag(params: {
+  type: EntityType;
+  slug: string;
+  tag: string;
+  add: boolean;
+}): Promise<CatalogEntity> {
+  const data = await apiFetch<{ entity: CatalogEntity }>(`/api/mutate`, {
+    method: "POST",
+    body: JSON.stringify({
+      action: params.add ? "tag_add" : "tag_remove",
+      type: params.type,
+      slug: params.slug,
+      tag: params.tag,
+    }),
+  });
+  return data.entity;
+}
+
+export async function createQuickLink(params: {
+  title: string;
+  url: string;
+}): Promise<CatalogEntity> {
+  const data = await apiFetch<{ entity: CatalogEntity }>(`/api/mutate`, {
+    method: "POST",
+    body: JSON.stringify({
+      action: "quick_link_create",
+      title: params.title,
+      url: params.url,
+    }),
+  });
+  return data.entity;
+}
+
 // ─── Tags ─────────────────────────────────────────────────────────────────────
 
 export async function fetchTags(): Promise<CatalogEntity[]> {
@@ -196,6 +229,30 @@ export async function postComment(params: {
     body: JSON.stringify({ action: "create", ...params }),
   });
   return data.comment;
+}
+
+// ─── Signals ─────────────────────────────────────────────────────────────────
+
+export async function upsertSignal(params: {
+  signalId: string;
+  signalLabel: string;
+  signalValue: string;
+  signalDetail?: string;
+  signalAccent?: string;
+  signalMode?: number;
+}): Promise<CatalogEntity> {
+  const data = await apiFetch<{ entity: CatalogEntity }>(`/api/mutate`, {
+    method: "POST",
+    body: JSON.stringify({ action: "signal_upsert", ...params }),
+  });
+  return data.entity;
+}
+
+export async function deleteSignal(signalId: string): Promise<void> {
+  await apiFetch<{ ok: true }>(`/api/mutate`, {
+    method: "POST",
+    body: JSON.stringify({ action: "signal_delete", signalId }),
+  });
 }
 
 export async function deleteComment(

@@ -693,6 +693,7 @@ export async function collectAllPosts(env) {
 }
 
 export async function onRequestGet({ env }) {
+  await ensureContentInfra(env);
   const posts = await collectAllPosts(env);
   return Response.json({ posts }, { headers: jsonHeaders });
 }

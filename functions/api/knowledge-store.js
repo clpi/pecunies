@@ -47,7 +47,7 @@ export function requireApiAuth(request, env) {
       ok: false,
       status: 501,
       message:
-        "Write API token is not configured. Set PECUNIES_API_TOKEN or POSTS_SYNC_TOKEN.",
+        "Write API token is not configured. Set PECUNIES_API_TOKEN, POSTS_SYNC_TOKEN, or PECUNIES_SUDO_PASSWD.",
     };
   }
 

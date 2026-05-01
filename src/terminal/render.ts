@@ -272,7 +272,7 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
 
       <!-- Entity hover popover (tag / skill) -->
       <div id="entity-hover-popover" class="entity-hover-popover" role="tooltip" hidden>
-        <button class="ehp-dismiss" type="button" aria-label="Dismiss">✕</button>
+        <button class="ehp-dismiss" type="button" aria-label="Remove" title="Remove from page">✕ Remove</button>
         <div class="ehp-type-badge"></div>
         <p class="ehp-name"></p>
         <p class="ehp-desc"></p>
@@ -311,32 +311,38 @@ export function setKnownCommandNames(names: string[]): void {
   _knownCommandNames = new Set(names);
 }
 
-/** Wrap recognized command names in accent-colored clickable spans. */
+/** Highlight command-looking strings in output only. Click text to stage it; click ⓘ for man. */
 function highlightCommandTokens(text: string): string {
-  const stripped = text.replace(/^\//, "");
-  const tokens = stripped.split(/(\s+)/);
-  let isFirst = true;
-  return tokens
-    .map((tok) => {
-      if (/^\s+$/.test(tok)) return tok;
-      const lower = tok.replace(/^\//, "").toLowerCase();
-      if (isFirst) {
-        isFirst = false;
-        if (_knownCommandNames.has(lower)) {
-          return `<button type="button" class="cmd-token cmd-token--name" data-command="${escapeAttribute(lower)}" data-prepopulate-command="${escapeAttribute(lower)}" title="/${escapeAttribute(lower)}: click to use">${escapeHtml(tok)}</button>`;
-        }
-        return `<span class="cmd-token cmd-token--unknown">${escapeHtml(tok)}</span>`;
-      }
-      if (tok.startsWith("--") || tok.startsWith("-")) {
-        return `<span class="cmd-token cmd-token--flag">${escapeHtml(tok)}</span>`;
-      }
-      if (tok.startsWith("#")) {
-        const tag = tok.slice(1);
-        return `<button type="button" class="cmd-token cmd-token--tag content-tag" data-command="${escapeAttribute(`tags ${tag}`)}" data-entity-tag="${escapeAttribute(tag)}">${escapeHtml(tok)}</button>`;
-      }
-      return `<span class="cmd-token cmd-token--arg">${escapeHtml(tok)}</span>`;
-    })
-    .join("");
+  if (!_knownCommandNames.size) return escapeHtml(text);
+
+  // Match commands only - must start with /, followed by known command name, stop at whitespace/punctuation
+  const commandPattern = Array.from(_knownCommandNames)
+    .sort((a, b) => b.length - a.length)
+    .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  
+  const commandLike = new RegExp(
+    `(^|[^\\w/-])(/(${commandPattern}))(?=[\\s,.;)]|$)`,
+    "gi",
+  );
+
+  let html = "";
+  let lastIndex = 0;
+  for (const match of text.matchAll(commandLike)) {
+    const full = match[0] ?? "";
+    const prefix = match[1] ?? "";
+    const commandText = match[2] ?? "";
+    const commandName = match[3]?.toLowerCase() ?? "";
+    const start = (match.index ?? 0) + prefix.length;
+    
+    if (!commandText || !_knownCommandNames.has(commandName)) continue;
+
+    html += escapeHtml(text.slice(lastIndex, start));
+    html += `<span class="cmd-token cmd-token--preview-wrap"><button type="button" class="cmd-token cmd-token--name" data-command-preview="${escapeAttribute(commandText)}" data-prepopulate-command="${escapeAttribute(commandText)}" title="Stage command">${escapeHtml(commandText)}</button><button type="button" class="cmd-token-info" data-man-command="${escapeAttribute(commandName)}" aria-label="Open man page for ${escapeAttribute(commandName)}">ⓘ</button></span>`;
+    lastIndex = start + commandText.length;
+  }
+  html += escapeHtml(text.slice(lastIndex));
+  return html;
 }
 
 export function renderLog(lines: SessionLine[]): string {
@@ -667,17 +673,34 @@ function renderStat(stat: ViewStat): string {
     ${stat.detail ? `<small>${escapeHtml(stat.detail)}</small>` : ""}
   `;
 
+  const signalId = stat.signalId;
+  const isSignal = Boolean(signalId);
+  const signalIdAttr = signalId ? ` data-signal-id="${escapeAttribute(signalId)}"` : "";
+  const signalAccentAttr = isSignal && stat.signalAccent ? ` style="--signal-accent: ${escapeAttribute(stat.signalAccent)}"` : "";
+
   if (stat.command) {
     return `
-      <button class="terminal-stat" type="button" data-command="${escapeAttribute(stat.command)}">
+      <button class="terminal-stat" type="button" data-command="${escapeAttribute(stat.command)}"${signalIdAttr}${signalAccentAttr}>
         ${content}
+        ${signalId ? `
+          <span class="stat-actions">
+            <button type="button" class="stat-edit-btn" data-signal-edit="${escapeAttribute(signalId)}" aria-label="Edit signal">✎</button>
+            <button type="button" class="stat-remove-btn" data-signal-remove="${escapeAttribute(signalId)}" aria-label="Remove signal">✕</button>
+          </span>
+        ` : ""}
       </button>
     `;
   }
 
   return `
-    <article class="terminal-stat">
+    <article class="terminal-stat"${signalIdAttr}${signalAccentAttr}>
       ${content}
+      ${signalId ? `
+        <span class="stat-actions">
+          <button type="button" class="stat-edit-btn" data-signal-edit="${escapeAttribute(signalId)}" aria-label="Edit signal">✎</button>
+          <button type="button" class="stat-remove-btn" data-signal-remove="${escapeAttribute(signalId)}" aria-label="Remove signal">✕</button>
+        </span>
+      ` : ""}
     </article>
   `;
 }
@@ -732,7 +755,7 @@ function renderTagGroup(group: TagGroup): string {
             const yearsAttr = skill.years
               ? ` data-entity-years="${escapeAttribute(skill.years)}"`
               : "";
-            return `<button type="button" data-command="skill ${escapeAttribute(slug)}" data-entity-type="skill" data-entity-slug="${escapeAttribute(slug)}" data-entity-title="${escapeAttribute(skill.name)}"${yearsAttr}><span>${escapeHtml(skill.name)}</span>${skill.years ? `<span class="tag-list-meta">${escapeHtml(skill.years)}</span>` : ""}</button>`;
+            return `<button type="button" class="action-chip action-chip--skill" data-command="skill ${escapeAttribute(slug)}" data-entity-type="skill" data-entity-slug="${escapeAttribute(slug)}" data-entity-title="${escapeAttribute(skill.name)}"${yearsAttr}><span class="skill-chip-label">${escapeHtml(skill.name)}</span>${skill.years ? `<span class="skill-chip-years">${escapeHtml(skill.years)}</span>` : ""}</button>`;
           })
           .join("")}
       </div>

@@ -14,6 +14,14 @@ import {
   collectAllPosts,
   onRequestPost as handlePostsPost,
 } from "../../../functions/api/posts.js";
+import {
+  onRequestOptions as handleOsOptions,
+  onRequestPost as handleOsPost,
+} from "../../../functions/api/os.js";
+import {
+  onRequestGet as handleFsGet,
+  onRequestOptions as handleFsOptions,
+} from "../../../functions/api/fs.js";
 
 const APEX_HOST = "pecunies.com";
 const WWW_HOST = "www.pecunies.com";
@@ -100,7 +108,7 @@ function json(
       "Cache-Control": "no-store",
       "Content-Type": "application/json; charset=utf-8",
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization",
       ...extraHeaders,
     },
@@ -112,7 +120,7 @@ function handleOptions(): Response {
     status: 204,
     headers: {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization",
     },
   });
@@ -420,6 +428,176 @@ async function handleCatalogApi(request: Request, env: Env): Promise<Response> {
       )
       .bind(type, slug, new Date().toISOString())
       .run();
+    return json({ ok: true });
+  }
+
+  return json({ error: "Unsupported action." }, 400);
+}
+
+async function handleMutateApi(request: Request, env: Env): Promise<Response> {
+  if (request.method === "OPTIONS") {
+    return handleOptions();
+  }
+  if (request.method !== "POST") {
+    return json({ error: "Method not allowed." }, 405);
+  }
+
+  const body = (await request.json().catch(() => null)) as
+    | {
+        action?: string;
+        type?: string;
+        slug?: string;
+        tag?: string;
+        title?: string;
+        url?: string;
+        yearsOfExperience?: number;
+        signalId?: string;
+        signalLabel?: string;
+        signalValue?: string;
+        signalDetail?: string;
+        signalAccent?: string;
+        signalMode?: number;
+      }
+    | null;
+  const action = String(body?.action || "").trim().toLowerCase();
+
+  const database = db(env);
+  if (!database) return json({ error: "D1 binding unavailable." }, 500);
+  await ensureCatalogInfra(env);
+
+  if (action === "tag_add" || action === "tag_remove") {
+    const type = normalizeCatalogType(String(body?.type || ""));
+    const slug = normalizeSlug(String(body?.slug || ""));
+    const tag = normalizeSlug(String(body?.tag || ""));
+    if (!type || !slug || !tag) {
+      return json({ error: "type, slug, and tag are required." }, 400);
+    }
+    const res = await database
+      .prepare(
+        `SELECT payload_json, deleted FROM catalog_entities WHERE type=? AND slug=? LIMIT 1`,
+      )
+      .bind(type, slug)
+      .all<{ payload_json: string; deleted: number }>();
+    const row = (res.results?.[0] ?? null) as
+      | { payload_json: string; deleted: number }
+      | null;
+    if (!row || row.deleted) return json({ error: "Not found." }, 404);
+
+    const parsed = safeParseEntity(row.payload_json);
+    if (!parsed) return json({ error: "Invalid entity payload." }, 500);
+
+    const tags = new Set(
+      Array.isArray(parsed.tags) ? parsed.tags.map((t) => normalizeSlug(t)) : [],
+    );
+    if (action === "tag_add") tags.add(tag);
+    else tags.delete(tag);
+    const next: CatalogEntity = { ...parsed, tags: Array.from(tags).filter(Boolean) };
+
+    await database
+      .prepare(
+        `INSERT INTO catalog_entities (type, slug, payload_json, deleted, updated_at)
+         VALUES (?, ?, ?, 0, ?)
+         ON CONFLICT(type, slug) DO UPDATE SET payload_json = excluded.payload_json, deleted = 0, updated_at = excluded.updated_at`,
+      )
+      .bind(type, slug, JSON.stringify(next), new Date().toISOString())
+      .run();
+
+    return json({ ok: true, entity: next });
+  }
+
+  if (action === "quick_link_create") {
+    const rawTitle = String(body?.title || "").trim().slice(0, 160);
+    const rawUrl = String(body?.url || "").trim().slice(0, 500);
+    if (!rawTitle || !rawUrl) {
+      return json({ error: "title and url are required." }, 400);
+    }
+    let safe;
+    try {
+      safe = new URL(rawUrl);
+    } catch {
+      return json({ error: "url is invalid." }, 400);
+    }
+    if (safe.protocol !== "http:" && safe.protocol !== "https:") {
+      return json({ error: "url must be http(s)." }, 400);
+    }
+
+    const slug = normalizeSlug(rawTitle) || `link-${Date.now().toString(36)}`;
+    const entity: CatalogEntity = {
+      type: "link",
+      slug,
+      title: rawTitle,
+      category: "quick-link",
+      description: `Quick link for ${rawTitle}.`,
+      tags: ["links", "quick-link"],
+      metadata: { url: safe.toString(), source: "quick-link" },
+    };
+
+    await database
+      .prepare(
+        `INSERT INTO catalog_entities (type, slug, payload_json, deleted, updated_at)
+         VALUES (?, ?, ?, 0, ?)
+         ON CONFLICT(type, slug) DO UPDATE SET payload_json = excluded.payload_json, deleted = 0, updated_at = excluded.updated_at`,
+      )
+      .bind(entity.type, entity.slug, JSON.stringify(entity), new Date().toISOString())
+      .run();
+
+    return json({ ok: true, entity });
+  }
+
+  if (action === "signal_upsert") {
+    const signalId = String(body?.signalId || "").trim().slice(0, 64);
+    const signalLabel = String(body?.signalLabel || "").trim().slice(0, 80);
+    const signalValue = String(body?.signalValue || "").trim().slice(0, 40);
+    const signalDetail = String(body?.signalDetail || "").trim().slice(0, 280);
+    const signalAccent = String(body?.signalAccent || "#ffffff").trim().slice(0, 16);
+    const signalMode = Number(body?.signalMode ?? 0);
+
+    if (!signalId || !signalLabel || !signalValue) {
+      return json({ error: "signalId, signalLabel, and signalValue are required." }, 400);
+    }
+
+    const slug = `signal:${signalId}`;
+    const entity: CatalogEntity = {
+      type: "data",
+      slug,
+      title: signalLabel,
+      category: "signal",
+      description: signalDetail || "",
+      tags: ["signal"],
+      metadata: {
+        signalId,
+        signalValue,
+        signalAccent,
+        signalMode: String(signalMode),
+      },
+    };
+
+    await database
+      .prepare(
+        `INSERT INTO catalog_entities (type, slug, payload_json, deleted, updated_at)
+         VALUES (?, ?, ?, 0, ?)
+         ON CONFLICT(type, slug) DO UPDATE SET payload_json = excluded.payload_json, deleted = 0, updated_at = excluded.updated_at`,
+      )
+      .bind(entity.type, entity.slug, JSON.stringify(entity), new Date().toISOString())
+      .run();
+
+    return json({ ok: true, entity });
+  }
+
+  if (action === "signal_delete") {
+    const signalId = String(body?.signalId || "").trim().slice(0, 64);
+    if (!signalId) {
+      return json({ error: "signalId is required." }, 400);
+    }
+
+    const slug = `signal:${signalId}`;
+    await database
+      .prepare(
+        `UPDATE catalog_entities SET deleted = 1, updated_at = ? WHERE type = 'data' AND slug = ?`,
+      )
+      .bind(new Date().toISOString(), slug)
+      .run();
+
     return json({ ok: true });
   }
 
@@ -824,6 +1002,86 @@ async function handleContentApi(request: Request, env: Env): Promise<Response> {
   return json({ error: "method not allowed" }, 405);
 }
 
+// ── OS (terminal runtime) ─────────────────────────────────────────────────────
+
+async function handleOsApi(request: Request, env: Env): Promise<Response> {
+  if (request.method === "OPTIONS") {
+    const response = await handleOsOptions();
+    const headers = new Headers(response.headers);
+    headers.set("Access-Control-Allow-Origin", "*");
+    headers.set(
+      "Access-Control-Allow-Methods",
+      "GET, POST, PUT, DELETE, OPTIONS",
+    );
+    headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    headers.set("Cache-Control", "no-store");
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+
+  if (request.method === "POST") {
+    const response = await handleOsPost({ request, env } as never);
+    const headers = new Headers(response.headers);
+    headers.set("Access-Control-Allow-Origin", "*");
+    headers.set(
+      "Access-Control-Allow-Methods",
+      "GET, POST, PUT, DELETE, OPTIONS",
+    );
+    headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    headers.set("Cache-Control", "no-store");
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+
+  return json({ error: "method not allowed" }, 405);
+}
+
+// ── Stored filesystem (knowledge-store) ───────────────────────────────────────
+
+async function handleFsApi(request: Request, env: Env): Promise<Response> {
+  if (request.method === "OPTIONS") {
+    const response = await handleFsOptions();
+    const headers = new Headers(response.headers);
+    headers.set("Access-Control-Allow-Origin", "*");
+    headers.set(
+      "Access-Control-Allow-Methods",
+      "GET, POST, PUT, DELETE, OPTIONS",
+    );
+    headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    headers.set("Cache-Control", "no-store");
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+
+  if (request.method === "GET") {
+    const response = await handleFsGet({ request, env } as never);
+    const headers = new Headers(response.headers);
+    headers.set("Access-Control-Allow-Origin", "*");
+    headers.set(
+      "Access-Control-Allow-Methods",
+      "GET, POST, PUT, DELETE, OPTIONS",
+    );
+    headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    headers.set("Cache-Control", "no-store");
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+
+  return json({ error: "method not allowed" }, 405);
+}
+
 // ── Posts ─────────────────────────────────────────────────────────────────────
 
 async function handlePostsApi(request: Request, env: Env): Promise<Response> {
@@ -836,7 +1094,10 @@ async function handlePostsApi(request: Request, env: Env): Promise<Response> {
     const response = await handlePostsPost({ request, env } as never);
     const headers = new Headers(response.headers);
     headers.set("Access-Control-Allow-Origin", "*");
-    headers.set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+    headers.set(
+      "Access-Control-Allow-Methods",
+      "GET, POST, PUT, DELETE, OPTIONS",
+    );
     headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     headers.set("Cache-Control", "no-store");
     return new Response(response.body, {
@@ -1084,7 +1345,15 @@ export default {
     }
 
     // Preflight
-    if (request.method === "OPTIONS") return handleOptions();
+    if (request.method === "OPTIONS") {
+      if (url.pathname === "/api/os") {
+        return handleOsApi(request, env);
+      }
+      if (url.pathname === "/api/fs") {
+        return handleFsApi(request, env);
+      }
+      return handleOptions();
+    }
 
     if (url.pathname === "/api/catalog") {
       return handleCatalogApi(request, env);
@@ -1106,6 +1375,15 @@ export default {
     }
     if (url.pathname === "/api/posts") {
       return handlePostsApi(request, env);
+    }
+    if (url.pathname === "/api/os") {
+      return handleOsApi(request, env);
+    }
+    if (url.pathname === "/api/fs") {
+      return handleFsApi(request, env);
+    }
+    if (url.pathname === "/api/mutate") {
+      return handleMutateApi(request, env);
     }
     if (url.pathname === "/api/sudo" || url.pathname === "/api/auth/sudo") {
       return handleSudoAuth(request, env);
