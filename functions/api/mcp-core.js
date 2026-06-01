@@ -13,12 +13,8 @@ import {
 import {
   collectAllPosts,
   deletePostFromStorage,
-  parseFrontmatter,
   postPayload,
-  slugFromPath,
   syncPostToStorage,
-  tagsFromMeta,
-  upsertTagWithItems,
 } from "./posts.js";
 import {
   DEFAULT_AI_MODEL,

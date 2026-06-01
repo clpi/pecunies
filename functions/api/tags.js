@@ -257,7 +257,7 @@ export async function onRequestGet({ request, env }) {
       try {
         const e = JSON.parse(row.payload_json);
         return { slug: row.slug, title: e.title || row.slug, description: e.description || "", tags: e.tags || [] };
-      } catch { return { slug: row.slug, title: row.slug }; }
+      } catch { return { slug: row.slug, title: row.slug, description: "", tags: [] }; }
     });
   } else {
     const rows = await d1.prepare(

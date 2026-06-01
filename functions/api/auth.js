@@ -22,6 +22,17 @@ async function ensureAuthInfra(env) {
     )
   `).run();
 
+  // Migrate: add columns that the edge worker schema may have added
+  for (const col of [
+    "ALTER TABLE users ADD COLUMN id TEXT",
+    "ALTER TABLE users ADD COLUMN avatar_url TEXT",
+    "ALTER TABLE users ADD COLUMN bio TEXT",
+    "ALTER TABLE users ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE users ADD COLUMN updated_at TEXT",
+  ]) {
+    try { await d1.prepare(col).run(); } catch { /* already exists */ }
+  }
+
   await d1.prepare(`
     CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)
   `).run();
