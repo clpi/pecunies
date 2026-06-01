@@ -30,6 +30,13 @@ import {
   onRequestPost as handleFsPost,
   onRequestPut as handleFsPut,
 } from "../../../functions/api/fs.js";
+import {
+  onRequestGet as handleTagsGet,
+  onRequestPost as handleTagsPost,
+  onRequestPut as handleTagsPut,
+  onRequestDelete as handleTagsDelete,
+  onRequestOptions as handleTagsOptions,
+} from "../../../functions/api/tags.js";
 
 const APEX_HOST = "pecunies.com";
 const WWW_HOST = "www.pecunies.com";
@@ -2290,6 +2297,30 @@ async function handleSudoAuth(request: Request, env: Env): Promise<Response> {
   });
 }
 
+// ── Tags CRUD ─────────────────────────────────────────────────────────────────
+
+async function handleTagsApi(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  if (request.method === "OPTIONS") {
+    return handleTagsOptions({ request, env } as never);
+  }
+  if (request.method === "GET") {
+    return handleTagsGet({ request, env } as never);
+  }
+  if (request.method === "POST") {
+    return handleTagsPost({ request, env } as never);
+  }
+  if (request.method === "PUT") {
+    return handleTagsPut({ request, env } as never);
+  }
+  if (request.method === "DELETE") {
+    return handleTagsDelete({ request, env } as never);
+  }
+  return json({ error: "Method not allowed." }, 405);
+}
+
 // ── Tag usage ─────────────────────────────────────────────────────────────────
 
 async function handleTagUsageApi(
@@ -2562,6 +2593,10 @@ export default {
         env,
         decodeURIComponent(tagUsageMatch[1]!),
       );
+    }
+    // /api/tags and /api/tags/{slug} — full CRUD for tag entities
+    if (url.pathname === "/api/tags" || url.pathname.match(/^\/api\/tags\/[^/]+$/)) {
+      return handleTagsApi(request, env);
     }
     if (matchCatalogApiPath(url.pathname)) {
       return handleCatalogApi(request, env);

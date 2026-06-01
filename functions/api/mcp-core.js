@@ -27,6 +27,145 @@ import {
   resolveChatModel,
 } from "./ai-models.js";
 
+// ── catalog helpers (shared with catalog tools) ───────────────────────────────
+
+const CATALOG_ENTITY_TYPES = [
+  "tag", "skill", "tool", "project", "command", "view", "app", "link",
+  "work", "workflow", "step", "execution", "agent", "hook", "trigger",
+  "user", "job", "systemprompt", "data",
+];
+
+function safeJsonParse(raw, fallback = null) {
+  try { return JSON.parse(raw); } catch { return fallback; }
+}
+
+function slugifyCatalog(value) {
+  return String(value || "").trim().toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 96) || "untitled";
+}
+
+/** Probe whether the catalog_entities table uses payload_json or columnar schema. */
+async function detectCatalogSchema(d1) {
+  try {
+    await d1.prepare("SELECT payload_json FROM catalog_entities LIMIT 0").all();
+    return "payload_json";
+  } catch {
+    return "columnar";
+  }
+}
+
+/**
+ * Read catalog entities from whichever schema is in use.
+ * @param {any} d1
+ * @param {string|null} type  Filter to entity type; null = all types
+ * @param {string|null} slug  Filter to single slug (requires type)
+ * @returns {Promise<object[]>}
+ */
+async function readCatalogEntities(d1, type = null, slug = null) {
+  if (!d1) return [];
+  const schema = await detectCatalogSchema(d1);
+
+  if (schema === "payload_json") {
+    let sql = "SELECT type, slug, payload_json, deleted FROM catalog_entities WHERE deleted=0";
+    const params = [];
+    if (type) { sql += " AND type=?"; params.push(type); }
+    if (slug) { sql += " AND slug=?"; params.push(slug); }
+    sql += " ORDER BY type, slug LIMIT 500";
+    const result = await d1.prepare(sql).bind(...params).all();
+    return (result?.results || []).map((row) => {
+      const entity = safeJsonParse(row.payload_json, null);
+      return entity
+        ? { ...entity, type: row.type, slug: row.slug }
+        : { type: row.type, slug: row.slug };
+    });
+  }
+
+  // Columnar schema
+  let sql = "SELECT type, slug, title, category, description, tags_json, summary, status, updated_at FROM catalog_entities";
+  const params = [];
+  const clauses = [];
+  if (type) { clauses.push("type=?"); params.push(type); }
+  if (slug) { clauses.push("slug=?"); params.push(slug); }
+  if (clauses.length) sql += ` WHERE ${clauses.join(" AND ")}`;
+  sql += " ORDER BY type, slug LIMIT 500";
+  const result = await d1.prepare(sql).bind(...params).all();
+  return (result?.results || []).map((row) => ({
+    type: row.type,
+    slug: row.slug,
+    title: row.title,
+    category: row.category || "",
+    description: row.description || "",
+    tags: safeJsonParse(row.tags_json, []),
+    summary: row.summary || null,
+    status: row.status || null,
+  }));
+}
+
+/** Write a catalog entity using whichever schema is active. */
+async function writeCatalogEntity(d1, entity) {
+  const now = new Date().toISOString();
+  const schema = await detectCatalogSchema(d1);
+
+  if (schema === "payload_json") {
+    const payload = {
+      type: entity.type,
+      slug: entity.slug,
+      title: entity.title || entity.slug,
+      category: entity.category || entity.type,
+      description: entity.description || "",
+      tags: entity.tags || [],
+      summary: entity.summary || null,
+      status: entity.status || null,
+      metadata: entity.metadata || {},
+      ...(entity.yearsOfExperience != null ? { yearsOfExperience: entity.yearsOfExperience } : {}),
+      ...(entity.related ? { related: entity.related } : {}),
+    };
+    await d1.prepare(`
+      INSERT INTO catalog_entities (type, slug, payload_json, deleted, updated_at)
+      VALUES (?, ?, ?, 0, ?)
+      ON CONFLICT(type, slug) DO UPDATE SET
+        payload_json = excluded.payload_json, deleted = 0, updated_at = excluded.updated_at
+    `).bind(entity.type, entity.slug, JSON.stringify(payload), now).run();
+    return payload;
+  }
+
+  await d1.prepare(`
+    INSERT INTO catalog_entities (type, slug, title, category, description, tags_json,
+      years_of_experience, summary, status, metadata_json, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(type, slug) DO UPDATE SET
+      title=excluded.title, category=excluded.category, description=excluded.description,
+      tags_json=excluded.tags_json, years_of_experience=excluded.years_of_experience,
+      summary=excluded.summary, status=excluded.status, metadata_json=excluded.metadata_json,
+      updated_at=excluded.updated_at
+  `).bind(
+    entity.type, entity.slug,
+    String(entity.title || entity.slug),
+    String(entity.category || entity.type),
+    String(entity.description || ""),
+    JSON.stringify(entity.tags || []),
+    entity.yearsOfExperience != null ? Number(entity.yearsOfExperience) : null,
+    entity.summary ? String(entity.summary) : null,
+    entity.status ? String(entity.status) : null,
+    entity.metadata ? JSON.stringify(entity.metadata) : null,
+    now,
+  ).run();
+  return { ...entity };
+}
+
+/** Soft-delete (payload_json schema) or hard-delete (columnar schema) an entity. */
+async function deleteCatalogEntity(d1, type, slug) {
+  const schema = await detectCatalogSchema(d1);
+  const now = new Date().toISOString();
+  if (schema === "payload_json") {
+    await d1.prepare(
+      "UPDATE catalog_entities SET deleted=1, updated_at=? WHERE type=? AND slug=?",
+    ).bind(now, type, slug).run();
+  } else {
+    await d1.prepare("DELETE FROM catalog_entities WHERE type=? AND slug=?").bind(type, slug).run();
+  }
+}
+
 const SERVER_INFO = {
   name: "pecunies-context",
   title: "Pecunies Personal Knowledge MCP",
@@ -320,6 +459,87 @@ const TOOLS = [
       required: ["sql"],
     },
   },
+
+  // ── catalog entities ───────────────────────────────────────────────────────
+  {
+    name: "catalog_list_types",
+    description: "List all catalog entity types (tag, skill, tool, project, link, work, workflow, agent, etc.) with counts.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "catalog_list",
+    description:
+      "List catalog entities of a given type (skill, tool, project, tag, link, work, workflow, agent, command, view, app, step, execution, hook, trigger, job, systemprompt, data).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        type: { type: "string", description: "Entity type, e.g. skill | project | tool | tag | link" },
+        tag: { type: "string", description: "Optional: filter to entities with this tag" },
+        limit: { type: "number", description: "Max results (default 50)" },
+      },
+      required: ["type"],
+    },
+  },
+  {
+    name: "catalog_get",
+    description: "Get a single catalog entity by type and slug.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        type: { type: "string", description: "Entity type, e.g. skill | project | tool" },
+        slug: { type: "string", description: "Entity slug" },
+      },
+      required: ["type", "slug"],
+    },
+  },
+  {
+    name: "catalog_search",
+    description: "Search catalog entities across all types by keyword, title, description, or tag.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query" },
+        type: { type: "string", description: "Optional: restrict to this entity type" },
+        limit: { type: "number", description: "Max results (default 20)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "catalog_upsert",
+    description:
+      "Create or update a catalog entity (skill, tool, project, tag, link, work, etc.). Requires a valid API token.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        type: { type: "string", description: "Entity type" },
+        slug: { type: "string", description: "Unique slug for this entity" },
+        title: { type: "string" },
+        category: { type: "string" },
+        description: { type: "string" },
+        tags: { type: "array", items: { type: "string" }, description: "Tag slugs" },
+        summary: { type: "string" },
+        status: { type: "string" },
+        yearsOfExperience: { type: "number" },
+        metadata: { type: "object" },
+        token: { type: "string", description: "API token" },
+      },
+      required: ["type", "slug", "title", "token"],
+    },
+  },
+  {
+    name: "catalog_delete",
+    description: "Delete a catalog entity by type and slug. Requires a valid API token.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        type: { type: "string" },
+        slug: { type: "string" },
+        token: { type: "string", description: "API token" },
+      },
+      required: ["type", "slug", "token"],
+    },
+  },
 ];
 
 // ── auth ─────────────────────────────────────────────────────────────────────
@@ -542,7 +762,7 @@ async function callTool(env, name, args) {
     case "ai_query":
       return handleAiQuery(env, args);
 
-    // tags
+    // tags (read from catalog_entities with schema detection)
     case "tag_list":
       return handleTagList(env);
     case "tag_get":
@@ -569,6 +789,26 @@ async function callTool(env, name, args) {
       return handleDbListTables(env);
     case "db_query":
       return handleDbQuery(env, args);
+
+    // catalog entities
+    case "catalog_list_types":
+      return handleCatalogListTypes(env);
+    case "catalog_list":
+      return handleCatalogList(env, args);
+    case "catalog_get":
+      return handleCatalogGet(env, args);
+    case "catalog_search":
+      return handleCatalogSearch(env, args);
+    case "catalog_upsert": {
+      const auth = checkToken(args, env);
+      if (!auth.ok) throw new Error(auth.message);
+      return handleCatalogUpsert(env, args);
+    }
+    case "catalog_delete": {
+      const auth = checkToken(args, env);
+      if (!auth.ok) throw new Error(auth.message);
+      return handleCatalogDelete(env, args);
+    }
 
     default:
       throw new Error(`Unknown tool: ${name}`);
@@ -848,36 +1088,36 @@ async function handleAiQuery(env, args) {
   return { model, answer: text };
 }
 
-// ── tag handlers ──────────────────────────────────────────────────────────────
+// ── tag handlers (backed by catalog_entities with schema detection) ───────────
 
 async function handleTagList(env) {
   const d1 = dbBinding(env);
   if (!d1) return { tags: [] };
 
-  try {
-    const result = await d1
-      .prepare(
-        `SELECT t.slug, t.description, t.source, t.created_at,
-                COUNT(ti.id) as item_count
-         FROM tags t
-         LEFT JOIN tag_items ti ON ti.tag_slug = t.slug
-         GROUP BY t.slug
-         ORDER BY t.slug`,
-      )
-      .all();
+  // Read from catalog_entities (primary source)
+  const catalogTags = await readCatalogEntities(d1, "tag");
 
-    return {
-      tags: (result?.results || []).map((row) => ({
-        slug: row.slug,
-        description: row.description,
-        source: row.source,
-        itemCount: Number(row.item_count || 0),
-        createdAt: row.created_at,
-      })),
-    };
-  } catch {
-    return { tags: [] };
+  // Also read from the post-tags legacy table (for tags inferred from markdown frontmatter)
+  let postTags = [];
+  try {
+    const rows = await d1.prepare(
+      `SELECT t.slug, t.description, t.source, t.created_at, COUNT(ti.id) as item_count
+       FROM tags t LEFT JOIN tag_items ti ON ti.tag_slug = t.slug
+       GROUP BY t.slug ORDER BY t.slug`,
+    ).all();
+    postTags = rows?.results || [];
+  } catch {}
+
+  // Merge: catalog takes precedence
+  const bySlug = new Map();
+  for (const row of postTags) {
+    bySlug.set(row.slug, { slug: row.slug, description: row.description || "", source: row.source, itemCount: Number(row.item_count || 0) });
   }
+  for (const entity of catalogTags) {
+    bySlug.set(entity.slug, { slug: entity.slug, title: entity.title, description: entity.description || "", tags: entity.tags || [], category: entity.category, source: "catalog" });
+  }
+
+  return { tags: Array.from(bySlug.values()).sort((a, b) => a.slug.localeCompare(b.slug)) };
 }
 
 async function handleTagGet(env, args) {
@@ -887,67 +1127,99 @@ async function handleTagGet(env, args) {
   const d1 = dbBinding(env);
   if (!d1) throw new Error("D1 database binding unavailable");
 
-  const tag = await d1
-    .prepare("SELECT slug, description, source, created_at FROM tags WHERE slug = ?")
-    .bind(slug)
-    .first();
+  // Try catalog_entities first (authoritative)
+  const catalogResults = await readCatalogEntities(d1, "tag", slug);
+  const catalogTag = catalogResults[0] || null;
 
-  if (!tag) throw new Error(`Tag not found: ${slug}`);
+  // Also check the legacy tags table
+  let legacyTag = null;
+  let legacyItems = [];
+  try {
+    legacyTag = await d1.prepare("SELECT slug, description, source, created_at FROM tags WHERE slug=?").bind(slug).first();
+    if (legacyTag) {
+      const rows = await d1.prepare("SELECT label, type, command FROM tag_items WHERE tag_slug=? ORDER BY type, label LIMIT 100").bind(slug).all();
+      legacyItems = rows?.results || [];
+    }
+  } catch {}
 
-  const items = await d1
-    .prepare("SELECT label, type, command FROM tag_items WHERE tag_slug = ? ORDER BY type, label LIMIT 100")
-    .bind(slug)
-    .all();
+  if (!catalogTag && !legacyTag) throw new Error(`Tag not found: ${slug}`);
 
+  // Posts that reference this tag
   const postTags = await d1
-    .prepare(
-      "SELECT p.slug, p.title, p.published FROM posts p JOIN post_tags pt ON pt.post_path = p.path WHERE pt.tag = ? ORDER BY p.published DESC LIMIT 50",
-    )
+    .prepare("SELECT p.slug, p.title, p.published FROM posts p JOIN post_tags pt ON pt.post_path = p.path WHERE pt.tag=? ORDER BY p.published DESC LIMIT 50")
     .bind(slug)
     .all()
     .catch(() => ({ results: [] }));
 
+  // Catalog entities that reference this tag (cross-entity usage)
+  const schema = await detectCatalogSchema(d1);
+  let catalogUses = [];
+  try {
+    if (schema === "payload_json") {
+      const rows = await d1.prepare(
+        `SELECT type, slug, payload_json FROM catalog_entities WHERE deleted=0 AND type != 'tag' AND payload_json LIKE ? LIMIT 30`,
+      ).bind(`%"${slug}"%`).all();
+      catalogUses = (rows?.results || []).flatMap((row) => {
+        try {
+          const e = safeJsonParse(row.payload_json, null);
+          if (!e || !Array.isArray(e.tags) || !e.tags.includes(slug)) return [];
+          return [{ type: row.type, slug: row.slug, title: e.title || row.slug }];
+        } catch { return []; }
+      });
+    } else {
+      const rows = await d1.prepare(
+        `SELECT type, slug, title FROM catalog_entities WHERE type != 'tag' AND tags_json LIKE ? LIMIT 30`,
+      ).bind(`%"${slug}"%`).all();
+      catalogUses = (rows?.results || []).map((row) => ({ type: row.type, slug: row.slug, title: row.title }));
+    }
+  } catch {}
+
   return {
-    slug: tag.slug,
-    description: tag.description,
-    source: tag.source,
-    createdAt: tag.created_at,
-    items: items?.results || [],
+    slug,
+    ...(catalogTag ? { title: catalogTag.title, category: catalogTag.category, description: catalogTag.description, tags: catalogTag.tags, summary: catalogTag.summary, status: catalogTag.status } : {}),
+    ...(legacyTag ? { legacyDescription: legacyTag.description, source: legacyTag.source, createdAt: legacyTag.created_at } : {}),
+    items: legacyItems,
     posts: postTags?.results || [],
+    catalogUses,
   };
 }
 
 async function handleTagUpsert(env, args) {
-  const slug = String(args.slug || "").trim().toLowerCase();
-  if (!slug) throw new Error("slug is required");
+  const slug = slugifyCatalog(String(args.slug || ""));
+  if (!slug || slug === "untitled") throw new Error("slug is required");
 
   const d1 = dbBinding(env);
   if (!d1) throw new Error("D1 database binding unavailable");
 
-  const description = String(args.description || "").trim();
+  // Write to catalog_entities
+  const entity = await writeCatalogEntity(d1, {
+    type: "tag",
+    slug,
+    title: String(args.title || slug).trim().slice(0, 120),
+    category: String(args.category || "tag").trim(),
+    description: String(args.description || "").trim().slice(0, 500),
+    tags: Array.isArray(args.tags) ? args.tags.map(slugifyCatalog).filter(Boolean) : [],
+    summary: args.summary ? String(args.summary).slice(0, 1000) : null,
+    status: args.status ? String(args.status).slice(0, 40) : null,
+    metadata: args.metadata && typeof args.metadata === "object" ? args.metadata : {},
+  });
+
+  // Also mirror to legacy tags/tag_items tables for backwards compatibility
   const now = new Date().toISOString();
+  try {
+    await d1.prepare(
+      `INSERT INTO tags (slug, description, source, created_at) VALUES (?, ?, 'mcp', ?) ON CONFLICT(slug) DO UPDATE SET description = excluded.description`,
+    ).bind(slug, String(args.description || "").trim(), now).run();
 
-  await d1
-    .prepare(
-      `INSERT INTO tags (slug, description, source, created_at)
-       VALUES (?, ?, 'mcp', ?)
-       ON CONFLICT(slug) DO UPDATE SET description = excluded.description`,
-    )
-    .bind(slug, description, now)
-    .run();
+    const items = Array.isArray(args.items) ? args.items : [];
+    for (const item of items.slice(0, 100)) {
+      await d1.prepare(
+        `INSERT OR IGNORE INTO tag_items (tag_slug, label, type, command) VALUES (?, ?, ?, ?)`,
+      ).bind(slug, String(item.label || ""), String(item.type || ""), String(item.command || "")).run();
+    }
+  } catch {}
 
-  const items = Array.isArray(args.items) ? args.items : [];
-  for (const item of items.slice(0, 100)) {
-    await d1
-      .prepare(
-        `INSERT OR IGNORE INTO tag_items (tag_slug, label, type, command)
-         VALUES (?, ?, ?, ?)`,
-      )
-      .bind(slug, String(item.label || ""), String(item.type || ""), String(item.command || ""))
-      .run();
-  }
-
-  return { ok: true, slug, itemsAdded: items.length };
+  return { ok: true, tag: entity };
 }
 
 // ── bucket handlers ───────────────────────────────────────────────────────────
@@ -1059,4 +1331,183 @@ async function handleDbQuery(env, args) {
     changes: result?.meta?.changes ?? null,
     lastRowId: result?.meta?.last_row_id ?? null,
   };
+}
+
+// ── catalog entity handlers ───────────────────────────────────────────────────
+
+async function handleCatalogListTypes(env) {
+  const d1 = dbBinding(env);
+  const counts = {};
+
+  if (d1) {
+    const schema = await detectCatalogSchema(d1);
+    try {
+      if (schema === "payload_json") {
+        const rows = await d1.prepare(
+          "SELECT type, COUNT(*) as cnt FROM catalog_entities WHERE deleted=0 GROUP BY type ORDER BY type",
+        ).all();
+        for (const row of rows?.results || []) counts[row.type] = Number(row.cnt || 0);
+      } else {
+        const rows = await d1.prepare(
+          "SELECT type, COUNT(*) as cnt FROM catalog_entities GROUP BY type ORDER BY type",
+        ).all();
+        for (const row of rows?.results || []) counts[row.type] = Number(row.cnt || 0);
+      }
+    } catch {}
+  }
+
+  return {
+    types: CATALOG_ENTITY_TYPES.map((type) => ({
+      type,
+      count: counts[type] || 0,
+    })),
+  };
+}
+
+async function handleCatalogList(env, args) {
+  const type = slugifyCatalog(String(args.type || "")).replace(/-/g, "");
+  if (!CATALOG_ENTITY_TYPES.includes(type)) {
+    throw new Error(`Unknown entity type: ${args.type}. Valid types: ${CATALOG_ENTITY_TYPES.join(", ")}`);
+  }
+
+  const d1 = dbBinding(env);
+  if (!d1) return { type, items: [] };
+
+  const limit = Math.max(1, Math.min(200, Number(args.limit) || 50));
+  const tagFilter = String(args.tag || "").trim().toLowerCase();
+
+  let items = await readCatalogEntities(d1, type);
+
+  if (tagFilter) {
+    items = items.filter((e) => Array.isArray(e.tags) && e.tags.includes(tagFilter));
+  }
+
+  return {
+    type,
+    count: items.length,
+    items: items.slice(0, limit).map((e) => ({
+      type: e.type,
+      slug: e.slug,
+      title: e.title,
+      category: e.category || null,
+      description: e.description || null,
+      tags: e.tags || [],
+      status: e.status || null,
+      summary: e.summary ? e.summary.slice(0, 200) : null,
+    })),
+  };
+}
+
+async function handleCatalogGet(env, args) {
+  const type = slugifyCatalog(String(args.type || "")).replace(/-/g, "");
+  const slug = String(args.slug || "").trim();
+  if (!type) throw new Error("type is required");
+  if (!slug) throw new Error("slug is required");
+
+  const d1 = dbBinding(env);
+  if (!d1) throw new Error("D1 database binding unavailable");
+
+  const results = await readCatalogEntities(d1, type, slug);
+  const entity = results[0];
+  if (!entity) throw new Error(`${type}/${slug} not found`);
+
+  // Find related posts if it's a tag
+  let posts = [];
+  if (type === "tag") {
+    posts = (await d1.prepare(
+      "SELECT p.slug, p.title, p.published FROM posts p JOIN post_tags pt ON pt.post_path=p.path WHERE pt.tag=? ORDER BY p.published DESC LIMIT 20",
+    ).bind(slug).all().catch(() => ({ results: [] }))).results || [];
+  }
+
+  return { ...entity, ...(posts.length ? { posts } : {}) };
+}
+
+async function handleCatalogSearch(env, args) {
+  const query = String(args.query || "").trim().toLowerCase();
+  if (!query) throw new Error("query is required");
+
+  const typeFilter = args.type ? slugifyCatalog(String(args.type)).replace(/-/g, "") : null;
+  const limit = Math.max(1, Math.min(100, Number(args.limit) || 20));
+  const d1 = dbBinding(env);
+  if (!d1) return { query, items: [] };
+
+  const entities = await readCatalogEntities(d1, typeFilter);
+
+  const matches = entities.filter((e) => {
+    const text = [e.title, e.description, e.summary, ...(e.tags || [])].join(" ").toLowerCase();
+    return text.includes(query);
+  });
+
+  return {
+    query,
+    count: matches.length,
+    items: matches.slice(0, limit).map((e) => ({
+      type: e.type,
+      slug: e.slug,
+      title: e.title,
+      description: e.description ? e.description.slice(0, 200) : null,
+      tags: e.tags || [],
+    })),
+  };
+}
+
+async function handleCatalogUpsert(env, args) {
+  const rawType = String(args.type || "").trim().toLowerCase().replace(/[^a-z]/g, "");
+  if (!CATALOG_ENTITY_TYPES.includes(rawType)) {
+    throw new Error(`Unknown entity type: ${args.type}. Valid types: ${CATALOG_ENTITY_TYPES.join(", ")}`);
+  }
+
+  const slug = slugifyCatalog(String(args.slug || ""));
+  if (!slug || slug === "untitled") throw new Error("slug is required");
+
+  const title = String(args.title || slug).trim().slice(0, 200);
+  const d1 = dbBinding(env);
+  if (!d1) throw new Error("D1 database binding unavailable");
+
+  const entity = await writeCatalogEntity(d1, {
+    type: rawType,
+    slug,
+    title,
+    category: String(args.category || rawType).trim().slice(0, 60),
+    description: String(args.description || "").trim().slice(0, 1000),
+    tags: Array.isArray(args.tags) ? args.tags.map(slugifyCatalog).filter(Boolean) : [],
+    summary: args.summary ? String(args.summary).slice(0, 2000) : null,
+    status: args.status ? String(args.status).slice(0, 40) : null,
+    yearsOfExperience: args.yearsOfExperience != null ? Number(args.yearsOfExperience) : undefined,
+    metadata: args.metadata && typeof args.metadata === "object" ? args.metadata : {},
+  });
+
+  // If it's a tag, also mirror into the legacy tags table
+  if (rawType === "tag") {
+    try {
+      const now = new Date().toISOString();
+      await d1.prepare(
+        `INSERT INTO tags (slug, description, source, created_at) VALUES (?, ?, 'mcp', ?) ON CONFLICT(slug) DO UPDATE SET description=excluded.description`,
+      ).bind(slug, String(args.description || "").trim(), now).run();
+    } catch {}
+  }
+
+  return { ok: true, entity };
+}
+
+async function handleCatalogDelete(env, args) {
+  const rawType = String(args.type || "").trim().toLowerCase().replace(/[^a-z]/g, "");
+  const slug = String(args.slug || "").trim();
+  if (!rawType || !CATALOG_ENTITY_TYPES.includes(rawType)) throw new Error("valid type is required");
+  if (!slug) throw new Error("slug is required");
+
+  const d1 = dbBinding(env);
+  if (!d1) throw new Error("D1 database binding unavailable");
+
+  await deleteCatalogEntity(d1, rawType, slug);
+
+  if (rawType === "tag") {
+    try {
+      await d1.prepare("DELETE FROM tags WHERE slug=?").bind(slug).run();
+      await d1.prepare("DELETE FROM tag_items WHERE tag_slug=?").bind(slug).run();
+      await d1.prepare("DELETE FROM post_tags WHERE tag=?").bind(slug).run();
+    } catch {}
+  }
+
+  return { ok: true, deleted: { type: rawType, slug } };
 }
