@@ -24,6 +24,10 @@ import {
   onRequestPost as handleOsPost,
 } from "../../../functions/api/os.js";
 import {
+  onRequestOptions as handleChatOptions,
+  onRequestPost as handleChatPost,
+} from "../../../functions/api/chat.js";
+import {
   onRequestGet as handleFsGet,
   onRequestDelete as handleFsDelete,
   onRequestOptions as handleFsOptions,
@@ -2297,6 +2301,30 @@ async function handleSudoAuth(request: Request, env: Env): Promise<Response> {
   });
 }
 
+// ── Chat API ──────────────────────────────────────────────────────────────────
+
+async function handleChatApi(request: Request, env: Env): Promise<Response> {
+  if (request.method === "OPTIONS") {
+    const response = await handleChatOptions();
+    const headers = new Headers(response.headers);
+    headers.set("Access-Control-Allow-Origin", "*");
+    headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  }
+
+  if (request.method === "POST") {
+    const response = await handleChatPost({ request, env } as never);
+    const headers = new Headers(response.headers);
+    headers.set("Access-Control-Allow-Origin", "*");
+    headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  }
+
+  return json({ error: "method not allowed" }, 405);
+}
+
 // ── Tags CRUD ─────────────────────────────────────────────────────────────────
 
 async function handleTagsApi(
@@ -2541,6 +2569,9 @@ export default {
 
     // Preflight
     if (request.method === "OPTIONS") {
+      if (url.pathname === "/api/chat") {
+        return handleChatApi(request, env);
+      }
       if (url.pathname === "/api/os") {
         return handleOsApi(request, env);
       }
@@ -2573,6 +2604,9 @@ export default {
     }
     if (url.pathname === "/api/posts") {
       return handlePostsApi(request, env);
+    }
+    if (url.pathname === "/api/chat") {
+      return handleChatApi(request, env);
     }
     if (url.pathname === "/api/os") {
       return handleOsApi(request, env);
@@ -2628,6 +2662,11 @@ export default {
 
     const headers = new Headers(response.headers);
     headers.set("x-portfolio-edge", "pecunies");
+    if (url.pathname.startsWith("/api/")) {
+      headers.set("Access-Control-Allow-Origin", "*");
+      headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+      headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
     const baseResponse = new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
