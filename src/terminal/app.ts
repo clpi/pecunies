@@ -431,7 +431,7 @@ export class TerminalApp {
   private chatMode = false;
   private chatPending = false;
   private gameMode: GameKind | null = null;
-  private debugMode = true;
+  private debugMode = false;
   private pendingPrompt: "ask" | null = null;
   private sensitiveNextInput = false;
   private gameBoard: number[][] = [];

@@ -1,6 +1,7 @@
 import { COMMAND_TAGS } from "../data/content-tags";
 import { resumeData } from "../data/resume";
 import { WORKERS_AI_TEXT_MODELS, formatWorkersAiModelLabel } from "./ai-models";
+import { terminalThemes } from "./palette";
 import type {
   CommandDefinition,
   CommandHelpItem,
@@ -134,13 +135,7 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
               <div class="theme-popover-title">Choose palette</div>
               <div class="theme-popover-grid">
                 <button type="button" class="theme-choice-chip" data-theme-choice="auto">auto</button>
-                <button type="button" class="theme-choice-chip" data-theme-choice="red">red</button>
-                <button type="button" class="theme-choice-chip" data-theme-choice="amber">amber</button>
-                <button type="button" class="theme-choice-chip" data-theme-choice="frost">frost</button>
-                <button type="button" class="theme-choice-chip" data-theme-choice="ivory">ivory</button>
-                <button type="button" class="theme-choice-chip" data-theme-choice="green">green</button>
-                <button type="button" class="theme-choice-chip" data-theme-choice="magenta">magenta</button>
-                <button type="button" class="theme-choice-chip" data-theme-choice="blue">blue</button>
+                ${Object.entries(terminalThemes).map(([key]) => `<button type="button" class="theme-choice-chip" data-theme-choice="${escapeAttribute(key)}">${escapeHtml(key)}</button>`).join("")}
               </div>
             </div>
           </div>
@@ -209,7 +204,7 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
               <select class="identity-popover-select" id="identity-model">
                 ${WORKERS_AI_TEXT_MODELS.map(
                   (id) =>
-                    `<option value="${escapeAttribute(id)}">${escapeHtml(id)}</option>`,
+                    `<option value="${escapeAttribute(id)}">${escapeHtml(formatWorkersAiModelLabel(id) || id)}</option>`,
                 ).join("")}
               </select>
               <label class="identity-popover-label" for="identity-email">Email (optional)</label>
@@ -222,16 +217,8 @@ export function renderShell({ featuredCommands }: ShellRenderOptions): string {
               />
               <label class="identity-popover-label" for="identity-theme">Theme</label>
               <select class="identity-popover-select" id="identity-theme">
-                <option value="orange">orange</option>
-                <option value="red">red</option>
-                <option value="amber">amber</option>
-                <option value="frost">frost</option>
-                <option value="ivory">ivory</option>
-                <option value="green">green</option>
-                <option value="magenta">magenta</option>
-                <option value="blue">blue</option>
-                <option value="purple">purple</option>
                 <option value="auto">auto</option>
+                ${Object.entries(terminalThemes).map(([key]) => `<option value="${escapeAttribute(key)}">${escapeHtml(key)}</option>`).join("")}
               </select>
               <label class="identity-popover-toggle" for="identity-dark-mode">
                 <input id="identity-dark-mode" type="checkbox" checked />

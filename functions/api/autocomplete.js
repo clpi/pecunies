@@ -31,6 +31,19 @@ function autocompleteDb(env) {
   return env.DB || env.POSTS_DB || null;
 }
 
+async function detectSchema(d1) {
+  try {
+    await d1.prepare("SELECT payload_json FROM catalog_entities LIMIT 0").all();
+    return "payload_json";
+  } catch {
+    return "columnar";
+  }
+}
+
+function tryJsonParse(raw, fallback) {
+  try { return JSON.parse(raw); } catch { return fallback; }
+}
+
 async function ensureAutocompleteInfra(env) {
   const d1 = autocompleteDb(env);
   if (!d1) return;
@@ -40,9 +53,9 @@ async function ensureAutocompleteInfra(env) {
       type TEXT NOT NULL,
       slug TEXT NOT NULL,
       title TEXT NOT NULL,
-      category TEXT NOT NULL,
-      description TEXT NOT NULL,
-      tags_json TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      tags_json TEXT NOT NULL DEFAULT '[]',
       years_of_experience INTEGER,
       summary TEXT,
       avatar TEXT,
@@ -57,6 +70,21 @@ async function ensureAutocompleteInfra(env) {
   await d1.prepare(`
     CREATE INDEX IF NOT EXISTS idx_catalog_slug ON catalog_entities(slug)
   `).run();
+}
+
+function payloadToSuggestion(row, scope) {
+  let entity = {};
+  try { entity = JSON.parse(row.payload_json); } catch { /* ignore */ }
+  const base = {
+    value: row.slug,
+    label: entity.title || row.slug,
+    description: entity.description || "",
+    category: entity.category || scope || row.type || "",
+    tags: Array.isArray(entity.tags) ? entity.tags : [],
+  };
+  if (entity.years_of_experience != null) base.yearsOfExperience = entity.years_of_experience;
+  if (scope === "command") base.usage = row.slug;
+  return base;
 }
 
 export async function onRequestGet({ request, env }) {
@@ -74,12 +102,24 @@ export async function onRequestGet({ request, env }) {
     return Response.json({ suggestions: [] }, { headers: apiHeaders() });
   }
 
+  const schema = await detectSchema(d1);
   const queryLower = q.toLowerCase();
   const prefix = `${queryLower}%`;
   let suggestions = [];
+  const entityType = scope === "command" || scope === "tag" || scope === "skill" ? scope : null;
 
-  if (scope === "command") {
-    // Fetch commands from catalog
+  if (schema === "payload_json") {
+    const whereType = entityType ? `type = '${entityType}' AND ` : "";
+    const result = await d1.prepare(`
+      SELECT type, slug, payload_json
+      FROM catalog_entities
+      WHERE ${whereType}deleted = 0 AND (slug LIKE ? OR payload_json LIKE ?)
+      ORDER BY slug
+      LIMIT 20
+    `).bind(prefix, `%${queryLower}%`).all();
+
+    suggestions = (result.results || []).map(row => payloadToSuggestion(row, scope));
+  } else if (scope === "command") {
     const result = await d1.prepare(`
       SELECT slug, title, description, category, years_of_experience, tags_json
       FROM catalog_entities
@@ -91,14 +131,13 @@ export async function onRequestGet({ request, env }) {
     suggestions = (result.results || []).map(row => ({
       value: row.slug,
       label: row.title,
-      description: row.description,
+      description: row.description || "",
       usage: row.slug,
-      category: row.category,
+      category: row.category || "",
       yearsOfExperience: row.years_of_experience,
-      tags: row.tags_json ? JSON.parse(row.tags_json) : [],
+      tags: tryJsonParse(row.tags_json, []),
     }));
   } else if (scope === "tag") {
-    // Fetch tags from catalog_entities where type = 'tag'
     const result = await d1.prepare(`
       SELECT slug, title, description, tags_json
       FROM catalog_entities
@@ -110,12 +149,11 @@ export async function onRequestGet({ request, env }) {
     suggestions = (result.results || []).map(row => ({
       value: row.slug,
       label: row.title,
-      description: row.description,
+      description: row.description || "",
       category: "tag",
-      tags: row.tags_json ? JSON.parse(row.tags_json) : [],
+      tags: tryJsonParse(row.tags_json, []),
     }));
   } else if (scope === "skill") {
-    // Fetch skills from catalog
     const result = await d1.prepare(`
       SELECT slug, title, description, category, years_of_experience, tags_json
       FROM catalog_entities
@@ -127,13 +165,12 @@ export async function onRequestGet({ request, env }) {
     suggestions = (result.results || []).map(row => ({
       value: row.slug,
       label: row.title,
-      description: row.description,
-      category: row.category,
+      description: row.description || "",
+      category: row.category || "",
       yearsOfExperience: row.years_of_experience,
-      tags: row.tags_json ? JSON.parse(row.tags_json) : [],
+      tags: tryJsonParse(row.tags_json, []),
     }));
   } else {
-    // Generic search across all types
     const result = await d1.prepare(`
       SELECT type, slug, title, description, category
       FROM catalog_entities
@@ -145,8 +182,8 @@ export async function onRequestGet({ request, env }) {
     suggestions = (result.results || []).map(row => ({
       value: row.slug,
       label: row.title,
-      description: row.description,
-      category: row.category,
+      description: row.description || "",
+      category: row.category || "",
     }));
   }
 

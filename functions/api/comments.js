@@ -286,28 +286,26 @@ export async function onRequestPut({ request, env }) {
 export async function onRequestDelete({ request, env }) {
   await ensureCommentsInfra(env);
   const d1 = commentsDb(env);
-  
+
   if (!d1) {
     return errorJson("Comments database not available", 503);
   }
 
-  try {
-    const body = await request.json().catch(() => ({}));
-    const sudoPassword = body.sudoPassword || "";
-    
-    if (sudoPassword && sudoPassword !== env.PECUNIES_SUDO_PASSWD) {
-      return errorJson("Unauthorized: invalid sudo password", 401);
-    }
-    if (!sudoPassword) {
-      const sudo = await verifySudo(request, env);
-      if (!sudo.ok) return errorJson("Unauthorized: sudo required", 401);
-    }
-  } catch {}
+  const body = await request.json().catch(() => ({}));
+  const sudoPassword = body.sudoPassword || "";
+
+  if (sudoPassword && sudoPassword !== env.PECUNIES_SUDO_PASSWD) {
+    return errorJson("Unauthorized: invalid sudo password", 401);
+  }
+  if (!sudoPassword) {
+    const sudo = await verifySudo(request, env);
+    if (!sudo.ok) return errorJson("Unauthorized: sudo required", 401);
+  }
 
   const url = new URL(request.url);
   const pathParts = url.pathname.split("/").filter(Boolean);
   let commentId = pathParts[pathParts.length - 1];
-  
+
   if (!commentId || commentId === "comments") {
     commentId = url.searchParams.get("id") || body.commentId;
   }
