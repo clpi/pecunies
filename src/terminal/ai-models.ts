@@ -1,6 +1,6 @@
 /**
  * Curated text/chat models for the session identity picker.
- * Keep in sync with `functions/api/ai-models.js` (WORKERS_AI_TEXT_MODELS).
+ * Keep in sync with `workers/edge/src/api/ai-models.js` (WORKERS_AI_TEXT_MODELS).
  */
 export const DEFAULT_AI_MODEL = '@cf/meta/llama-3.1-8b-instruct';
 

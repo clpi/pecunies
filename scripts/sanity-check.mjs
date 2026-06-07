@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { onRequestPost } from '../functions/api/os.js';
+import { onRequestPost } from '../workers/edge/src/api/os.js';
 
 const root = new URL('..', import.meta.url);
 

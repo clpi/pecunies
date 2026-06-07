@@ -1,6 +1,6 @@
 /**
  * Canonical tag index for views, OS files, posts, and commands.
- * Keep roughly in sync with TAGS in functions/api/os.js for CLI `tags` output.
+ * Keep roughly in sync with TAGS in workers/edge/src/api/os.js for CLI `tags` output.
  */
 
 export type TagContentItem = {

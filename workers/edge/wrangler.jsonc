@@ -2,6 +2,7 @@
   "name": "pecunies-portfolio-edge",
   "main": "src/index.ts",
   "compatibility_date": "2026-03-23",
+  "compatibility_flags": ["nodejs_compat" ],
   "logpush": true,
   "$schema": "https://raw.githubusercontent.com/cloudflare/wrangler/main/schema.json",
 
@@ -10,15 +11,29 @@
     "AI_GATEWAY_ID": "pecunies",
     "AI_SEARCH_INSTANCE": "pecunies-knowledge",
   },
-  // "durable_objects": {
-  //   "bindings": [
-  //     {
-  //       "name": "PECUNIES_STATE",
-  //       "script_name": "pecunies-state",
-  //       "class_name": "PecuniesState",
-  //     }
-  //   ]
-  // },
+
+  "containers": [
+    // {
+    //   "class_name": "Sandbox",
+    //   "image": "./Dockerfile",
+    //   "instance_type": "lite",
+    //   "max_instances": 5
+    // }
+  ],
+
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "Sandbox",
+        "class_name": "Sandbox",
+      },
+      {
+        "name": "PortfolioThinkAgent",
+        "class_name": "PortfolioThinkAgent",
+      },
+    ],
+  },
+
   "r2_buckets": [
     {
       "bucket_name": "pecunies-posts",
@@ -31,6 +46,7 @@
       "remote": true,
     },
   ],
+
   "observability": {
     "traces": {
       "enabled": true,
@@ -41,17 +57,20 @@
       "head_sampling_rate": 1,
     },
     "enabled": true,
-    "head_sampling_rate": 1, // optional. default = 1.
+    "head_sampling_rate": 1,
   },
+
   "ai": {
     "binding": "AI",
   },
+
   "pipelines": [
     {
       "pipeline": "6b533e8c6fb14fb99997e3c32c6c2fae",
       "binding": "PECUNIESPL_STREAM",
     },
   ],
+
   "routes": [
     {
       "pattern": "pecunies.com/*",
@@ -66,12 +85,14 @@
       "zone_name": "pecunies.com",
     },
   ],
+
   "kv_namespaces": [
     {
       "binding": "PORTFOLIO_OS",
       "id": "3dde2866b8c341fb8fd803bf81ad23a3",
     },
   ],
+
   "d1_databases": [
     {
       "binding": "DB",
@@ -80,12 +101,15 @@
       "remote": true,
     },
   ],
-  // "migrations": [
-  //   {
-  //     "tag": "v1",
-  //     "new_sqlite_classes": [
-  //       "PecuniesState"
-  //     ]
-  //   }
-  // ]
+
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["Sandbox"],
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["PortfolioThinkAgent"],
+    },
+  ],
 }

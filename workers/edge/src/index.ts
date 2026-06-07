@@ -17,30 +17,48 @@ import {
   onRequestPost as handlePostsPost,
   recordPostEvent,
   syncPostToStorage,
-} from "../../../functions/api/posts.js";
-import { onRequestPost as handleMetricsPost } from "../../../functions/api/metrics.js";
+} from "./api/posts.js";
+import { onRequestPost as handleMetricsPost } from "./api/metrics.js";
 import {
   onRequestOptions as handleOsOptions,
   onRequestPost as handleOsPost,
-} from "../../../functions/api/os.js";
+} from "./api/os.js";
 import {
   onRequestOptions as handleChatOptions,
   onRequestPost as handleChatPost,
-} from "../../../functions/api/chat.js";
+} from "./api/chat.js";
+export { Sandbox } from "./sandbox.js";
+import {
+  handleSandboxProxy,
+  handleSandboxApi,
+  execInSandbox,
+  execPython,
+  execNode,
+  handleSandboxCommand,
+  readSandboxFile,
+  writeSandboxFile,
+} from "./sandbox.js";
+export { PortfolioThinkAgent } from "./agents/think.js";
+import { routeAgentRequest } from "agents";
+import {
+  onRequestOptions as handleSandboxFsOptions,
+  onRequestGet as handleSandboxFsGet,
+  onRequestPost as handleSandboxFsPost,
+} from "./api/sandbox-fs.js";
 import {
   onRequestGet as handleFsGet,
   onRequestDelete as handleFsDelete,
   onRequestOptions as handleFsOptions,
   onRequestPost as handleFsPost,
   onRequestPut as handleFsPut,
-} from "../../../functions/api/fs.js";
+} from "./api/fs.js";
 import {
   onRequestGet as handleTagsGet,
   onRequestPost as handleTagsPost,
   onRequestPut as handleTagsPut,
   onRequestDelete as handleTagsDelete,
   onRequestOptions as handleTagsOptions,
-} from "../../../functions/api/tags.js";
+} from "./api/tags.js";
 
 const APEX_HOST = "pecunies.com";
 const WWW_HOST = "www.pecunies.com";
@@ -71,6 +89,8 @@ type Env = {
   PORTFOLIO_OS?: KVNamespace;
   PECUNIES_SUDO_PASSWD?: string;
   AI?: unknown;
+  Sandbox?: DurableObjectNamespace; // Sandbox DO binding from @cloudflare/sandbox
+  PortfolioThinkAgent?: DurableObjectNamespace; // Think agent DO binding
 };
 
 type CommentRow = {
@@ -2549,6 +2569,8 @@ function injectSeo(
     .transform(response);
 }
 
+// ── Sandbox API (handled by imported handleSandboxApi from ./sandbox.ts) ────
+
 function escapeAttr(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -2559,6 +2581,14 @@ function escapeAttr(value: string): string {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    // Sandbox proxy MUST be called first — handles preview URL WebSocket connections
+    const proxyResponse = await handleSandboxProxy(request, env);
+    if (proxyResponse) return proxyResponse;
+
+    // Route agent WebSocket / HTTP requests to Think agent
+    const agentResponse = await routeAgentRequest(request, env);
+    if (agentResponse) return agentResponse;
+
     const url = new URL(request.url);
 
     if (url.hostname === WWW_HOST) {
@@ -2577,6 +2607,9 @@ export default {
       }
       if (url.pathname === "/api/fs") {
         return handleFsApi(request, env);
+      }
+      if (url.pathname === "/api/sandbox-fs") {
+        return handleSandboxFsOptions();
       }
       return handleOptions();
     }
@@ -2613,6 +2646,18 @@ export default {
     }
     if (url.pathname === "/api/fs") {
       return handleFsApi(request, env);
+    }
+    if (url.pathname === "/api/sandbox") {
+      return handleSandboxApi(request, env);
+    }
+    if (url.pathname === "/api/sandbox-fs") {
+      if (request.method === "GET") {
+        return handleSandboxFsGet({ request, env });
+      }
+      if (request.method === "POST") {
+        return handleSandboxFsPost({ request, env });
+      }
+      return json({ error: "method not allowed" }, 405);
     }
     if (url.pathname === "/api/mutate") {
       return handleMutateApi(request, env);

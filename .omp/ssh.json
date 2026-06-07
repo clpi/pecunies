@@ -1,0 +1,10 @@
+{
+  "hosts": {
+    "r16": {
+      "host": "r16.local"
+    },
+    "r8a.local": {
+      "host": "r8a.local"
+    }
+  }
+}

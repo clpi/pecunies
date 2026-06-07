@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { onRequestPost as onOsRequestPost } from '../functions/api/os.js';
+import { onRequestPost as onOsRequestPost } from '../workers/edge/src/api/os.js';
 
 function createKvStore() {
   const store = new Map();

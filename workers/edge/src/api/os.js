@@ -15,6 +15,15 @@ import {
   DEFAULT_AI_MODEL as MODEL,
   isValidWorkersAiModelId as isValidAiModel,
 } from "./ai-models.js";
+import {
+  deleteSandboxFile,
+  execInSandbox,
+  existsSandboxFile,
+  listSandboxFiles,
+  mkdirSandbox,
+  readSandboxFile,
+  writeSandboxFile,
+} from "../sandbox.js";
 
 const PROFILE_CONTEXT = `
 Chris Pecunies is a Seattle-based Software Engineer specializing in cloud services, workflow automation, distributed systems, and full-stack cloud applications.
@@ -94,7 +103,9 @@ const FILES = {
   "/assets/posts/2026/04/29/terminal-portfolio-changelog.md":
     "---\ntitle: Terminal Portfolio Changelog\ndate: 2026-04-29\ntags: writing, content, terminal\ndescription: Changelog and notes for the terminal-native portfolio writing system.\n---\n\n# Terminal Portfolio Changelog\n\nInitial post placeholder for the terminal-native writing system. Posts are markdown files under `/posts`; creating, editing, or removing them requires sudo privileges.",
   "/system/man.txt":
-    "Portfolio OS commands: ls, cat, man, whoami, history, ps, top, pwd, echo, cp, tree, find, grep, touch, rm, mkdir, tail, less, source, logs, date, uptime, last, dark, light, rag, ask, explain, model, context, curl, ping, traceroute, trace, weather, stock, metrics, leaderboard, internet, fzf, clpsh, email, book, comment, sudo, su, 2048, jobquest, clear, chat, exit, download, theme, maximize, minimize, shutdown.",
+    "Portfolio OS commands: ls, cat, man, whoami, history, ps, top, pwd, echo, cp, tree, find, grep, touch, rm, mkdir, tail, less, source, logs, date, uptime, last, dark, light, rag, ask, explain, model, context, curl, ping, traceroute, trace, weather, stock, metrics, leaderboard, internet, fzf, clpsh, email, book, comment, sudo, su, 2048, jobquest, clear, chat, exit, download, theme, maximize, minimize, shutdown, exec, python, node, run, sh, bash.",
+  "/system/sandbox.txt":
+    "# Sandbox Commands\n\nThe pecunies terminal now supports isolated code execution via Cloudflare Sandbox.\n\nCommands:\n  exec <cmd>    Execute a shell command in an isolated container\n  python <code> Execute Python code in the sandbox\n  node <code>    Execute JavaScript code in the sandbox\n  run <file>    Run a .py, .js, or .sh file from /workspace\n  sh <cmd>      Alias for exec\n  bash <cmd>    Alias for exec\n\nSandbox state persists per session — files you create and packages you install\nremain available for the duration of your terminal session.\n\nThe working directory is /workspace.",
   "/bin/clpsh":
     "#!/bin/clpsh\nPortfolio OS shell. Type commands at the prompt.",
   "/bin/minesweeper": "#!/bin/minesweeper\nText-mode minesweeper game.",
@@ -419,6 +430,14 @@ const TAGS = {
     { label: "email", type: "command", command: "email" },
     { label: "book", type: "command", command: "book" },
   ],
+  sandbox: [
+    { label: "exec", type: "command", command: "exec" },
+    { label: "python", type: "command", command: "python" },
+    { label: "node", type: "command", command: "node" },
+    { label: "run", type: "command", command: "run" },
+    { label: "sh", type: "command", command: "sh" },
+    { label: "bash", type: "command", command: "bash" },
+  ],
 };
 
 const MANUALS = {
@@ -518,6 +537,12 @@ const MANUALS = {
   post: "post open <slug>\nFrontend command: load a full post from /api/posts. Use posts to browse the index.",
   config:
     "config <set|get|list|reset> [key] [value]\nSession preferences: crt on|off (CRT scanline effect), theme, syntax_scheme (default|contrast|pastel), font_size, font, dark, name, environment, email, ai_model, ai_tools (true|false, Workers AI tool calling in chat), skill_use (true|false, allow AI skill retrieval/use when available), system_prompt.\nChanging name moves the simulated home to /home/<name>, creates it if needed, migrates .clpshrc and .clpsh_history from the previous home when present, and resets cwd to the new home.",
+  exec: "exec <shell-command>\nExecute a shell command in an isolated Cloudflare Sandbox container.\nContainer state (files, installed packages) persists per session.\nExample: exec ls -la /workspace",
+  python: "python <code | -f file.py>\nExecute Python code in an isolated Cloudflare Sandbox container.\nUse -f to run a .py file from /workspace.\nExample: python print('hello from sandbox')\n         python -f script.py",
+  node: "node <code>\nExecute JavaScript code in an isolated Cloudflare Sandbox container.\nExample: node console.log('hello from sandbox')",
+  run: "run <file>\nExecute a script file in the sandbox. Supports .py, .js, .sh files.\nExample: run hello.py",
+  sh: "sh <shell-command>\nExecute a shell command in an isolated Cloudflare Sandbox container.\nAlias for exec. Container state persists per session.",
+  bash: "bash <shell-command>\nExecute a shell command in an isolated Cloudflare Sandbox container.\nAlias for exec. Container state persists per session.",
 };
 
 /** Command → taxonomy tags (shown on man pages); keep in sync with src/data/content-tags.ts COMMAND_TAGS */
@@ -558,6 +583,12 @@ const COMMAND_TAGS = {
   post: ["writing", "content"],
   reply: ["writing", "content", "social"],
   env: ["system", "tooling", "terminal"],
+  exec: ["sandbox", "system", "tooling"],
+  python: ["sandbox", "coding", "tooling"],
+  node: ["sandbox", "coding", "tooling"],
+  run: ["sandbox", "coding", "tooling"],
+  sh: ["sandbox", "system", "tooling"],
+  bash: ["sandbox", "system", "tooling"],
 };
 
 const jsonHeaders = {
@@ -994,7 +1025,7 @@ async function runCommand(
     case "ln":
       return linkFile(parsed.args[0], parsed.args[1], state, env, options);
     case "cd":
-      return changeDir(parsed.args[0], state);
+      return await changeDir(parsed.args[0], state, env);
     case "tags":
       return await tagsOutput(parsed.args[0], env);
     case "new":
@@ -1019,15 +1050,15 @@ async function runCommand(
     case "tree":
       return treePath(parsed.rest || "/", env, state);
     case "find":
-      return findPath(parsed.rest, env);
+      return findPath(parsed.rest, env, state);
     case "grep":
-      return grepFiles(parsed.rest, env, options.inputData);
+      return grepFiles(parsed.rest, env, options.inputData, state);
     case "touch":
       return touchFile(parsed.rest, state, env, options);
     case "rm":
       return removeFile(parsed.rest, state, env, options);
     case "mkdir":
-      return mkdirPath(parsed.args, options, state);
+      return await mkdirPath(parsed.args, options, state, env);
     case "head":
       return headFile(parsed.args, state, env);
     case "tail":
@@ -1183,6 +1214,14 @@ async function runCommand(
       return setVarHandler(parsed.args, state);
     case "unset":
       return unsetVarHandler(parsed.args, state);
+    case "exec":
+    case "python":
+    case "node":
+    case "run":
+    case "sh":
+    case "bash": {
+      return await sandboxCommand(parsed.name, parsed.args, parsed.rest, state, env, options.sessionId);
+    }
     default:
       return {
         output: `Unknown OS command "${parsed.name}". Try man ${parsed.name} or help.`,
@@ -1410,10 +1449,10 @@ function sanitizeHistoryCommand(command, env) {
 
 async function listPath(path, env, state) {
   const normalized = normalizePathWithTilde(path, state);
-  const entries = await directoryEntries(normalized, env);
+  const entries = await directoryEntries(normalized, env, state?.sessionId);
 
   if (!entries) {
-    if (await fileExists(normalized, env)) {
+    if (await fileExists(normalized, env, state?.sessionId)) {
       return normalized;
     }
 
@@ -1441,7 +1480,10 @@ async function catPath(path, state, env, options = {}) {
     };
   }
 
-  const file = await readFile(normalized, env, options);
+  const file = await readFile(normalized, env, {
+    ...options,
+    sessionId: state?.sessionId,
+  });
 
   if (file === null || file === undefined) {
     return { output: `cat: ${path}: no such file`, status: 404 };
@@ -2052,22 +2094,22 @@ async function stock(rawTicker) {
 async function treePath(path = "/", env, state) {
   const root = normalizePathWithTilde(path, state);
 
-  if (!(await directoryEntries(root, env))) {
+  if (!(await directoryEntries(root, env, state?.sessionId))) {
     return {
-      output: (await fileExists(root, env))
+      output: (await fileExists(root, env, state?.sessionId))
         ? root
         : `tree: ${path}: no such file or directory`,
-      status: (await fileExists(root, env)) ? 200 : 404,
+      status: (await fileExists(root, env, state?.sessionId)) ? 200 : 404,
     };
   }
 
   const lines = [root];
-  await appendTree(root, "", lines, env);
+  await appendTree(root, "", lines, env, state?.sessionId);
   return { output: lines.join("\n") };
 }
 
-async function appendTree(path, prefix, lines, env) {
-  const entries = (await directoryEntries(path, env)) ?? [];
+async function appendTree(path, prefix, lines, env, sessionId) {
+  const entries = (await directoryEntries(path, env, sessionId)) ?? [];
 
   for (const [index, entry] of entries.entries()) {
     const last = index === entries.length - 1;
@@ -2076,23 +2118,31 @@ async function appendTree(path, prefix, lines, env) {
 
     if (entry.endsWith("/")) {
       const child = normalizePath(`${path}/${entry.replace(/\/$/, "")}`);
-      await appendTree(child, `${prefix}${last ? "    " : "|   "}`, lines, env);
+      await appendTree(child, `${prefix}${last ? "    " : "|   "}`, lines, env, sessionId);
     }
   }
 }
 
-async function findPath(query, env) {
+async function findPath(query, env, state) {
   const needle = String(query || "").toLowerCase();
 
   if (!needle) {
     return { output: "Usage: find <query>", status: 400 };
   }
 
-  const userFiles = await listUserFiles(env);
+  if (env?.Sandbox && state?.sessionId) {
+    try {
+      const result = await execInSandbox(env, state.sessionId, `find /workspace -iname "*${needle}*" 2>/dev/null`, { cwd: "/workspace", timeout: 15000 });
+      const lines = result.stdout.split("\n").filter(Boolean).map(line => fromSandboxPath(line)).sort();
+      return { output: lines.join("\n") || `find: no matches for "${query}"` };
+    } catch (e) {
+      return { output: `find: ${e instanceof Error ? e.message : "sandbox find failed"}`, status: 500 };
+    }
+  }
+
   const entries = [
     ...Object.keys(FILES),
     ...Object.keys(DIRECTORIES),
-    ...userFiles,
   ]
     .filter((path) => path.toLowerCase().includes(needle))
     .sort();
@@ -2100,7 +2150,7 @@ async function findPath(query, env) {
   return { output: entries.join("\n") || `find: no matches for "${query}"` };
 }
 
-async function grepFiles(query, env, inputData) {
+async function grepFiles(query, env, inputData, state) {
   const needle = String(query || "").toLowerCase();
 
   if (!needle) {
@@ -2117,8 +2167,25 @@ async function grepFiles(query, env, inputData) {
     return { output: matches.join("\n") || `grep: no matches for "${query}"` };
   }
 
-  const userEntries = await userFileEntries(env);
-  const matches = [...Object.entries(FILES), ...userEntries]
+  if (env?.Sandbox && state?.sessionId) {
+    try {
+      const result = await execInSandbox(env, state.sessionId, `grep -ri "${needle}" /workspace 2>/dev/null || true`, { cwd: "/workspace", timeout: 15000 });
+      const lines = result.stdout.split("\n").filter(Boolean);
+      // Format: /workspace/path:line_number: content
+      const matches = lines.map(line => {
+        const match = line.match(/^\/workspace\/(.+):(\d+):(.+)$/);
+        if (match) {
+          return `${match[1]}:${match[2]}:${match[3]}`;
+        }
+        return line;
+      });
+      return { output: matches.join("\n") || `grep: no matches for "${query}"` };
+    } catch (e) {
+      return { output: `grep: ${e instanceof Error ? e.message : "sandbox grep failed"}`, status: 500 };
+    }
+  }
+
+  const matches = [...Object.entries(FILES)]
     .flatMap(([path, text]) =>
       String(text)
         .split("\n")
@@ -2136,7 +2203,7 @@ async function touchFile(path, state, env, options) {
   }
 
   const normalized = normalizePathWithTilde(path, state);
-  const existing = await readFile(normalized, env);
+  const existing = await readFile(normalized, env, { sessionId: state?.sessionId });
   return writeUserFile(env, state, normalized, existing ?? "", {
     append: false,
     elevated: Boolean(options.elevated),
@@ -2170,11 +2237,11 @@ async function removeFile(path, state, env, options) {
     };
   }
 
-  if (!(await readUserFile(env, normalized))) {
+  if (!(await readUserFile(env, normalized, state?.sessionId))) {
     return { output: `rm: ${normalized}: no such file`, status: 404 };
   }
 
-  await deleteUserFile(env, normalized);
+  await deleteUserFile(env, normalized, state?.sessionId);
   return { output: `removed ${normalized}` };
 }
 
@@ -2276,10 +2343,6 @@ async function addReply(args, env, state) {
 async function writeUserFile(env, _state, rawPath, content, options = {}) {
   const path = normalizePath(rawPath);
 
-  if (!env.PORTFOLIO_OS) {
-    return { output: "write: KV binding unavailable", status: 500 };
-  }
-
   if (FILES[path]) {
     return { output: `write: ${path}: immutable static file`, status: 403 };
   }
@@ -2295,32 +2358,23 @@ async function writeUserFile(env, _state, rawPath, content, options = {}) {
     return { output: `write: ${path}: permission denied`, status: 403 };
   }
 
-  const previous = options.append
-    ? ((await readUserFile(env, path)) ?? "")
-    : "";
-  const next = options.append
-    ? `${previous}${previous ? "\n" : ""}${content}`
-    : content;
-  await env.PORTFOLIO_OS.put(userFileKey(path), next);
-  const mirrorPath = postMirrorPath(path);
-  if (mirrorPath) {
-    await env.PORTFOLIO_OS.put(userFileKey(mirrorPath), next);
-  }
-  const canonicalPostPath = canonicalPostPathForStorage(path);
-  if (canonicalPostPath && canonicalPostPath.toLowerCase().endsWith(".md")) {
-    await syncPostToStorage(env, canonicalPostPath, next);
-  } else if (canonicalPostPath) {
-    await syncAssetToStorage(env, canonicalPostPath, next);
-  } else {
-    const staticBucket = env.STATIC || null;
-    if (staticBucket) {
-      await staticBucket.put(`fs${path}`, next, {
-        httpMetadata: { contentType: "text/plain; charset=utf-8" },
-        customMetadata: { path },
-      });
+  if (env.Sandbox && _state?.sessionId) {
+    const sandboxPath = toSandboxPath(path);
+    try {
+      const previous = options.append
+        ? ((await readSandboxFile(env, _state.sessionId, sandboxPath)) ?? "")
+        : "";
+      const next = options.append
+        ? `${previous}${previous ? "\n" : ""}${content}`
+        : content;
+      await writeSandboxFile(env, _state.sessionId, sandboxPath, next);
+      return { output: `${options.createOnly ? "touched" : "wrote"} ${path}` };
+    } catch (e) {
+      return { output: `write: ${e instanceof Error ? e.message : "sandbox write failed"}`, status: 500 };
     }
   }
-  return { output: `${options.createOnly ? "touched" : "wrote"} ${path}` };
+
+  return { output: "write: sandbox not available", status: 500 };
 }
 
 async function readFile(path, env, options = {}) {
@@ -2342,57 +2396,52 @@ async function readFile(path, env, options = {}) {
       ? options.publicLogEntries.join("\n") || "(no public log entries)"
       : "";
   }
-  return FILES[path] ?? (await readUserFile(env, path));
+  // All paths are now backed by the sandbox
+  if (env.Sandbox && options.sessionId) {
+    const sandboxPath = toSandboxPath(path);
+    try {
+      return await readSandboxFile(env, options.sessionId, sandboxPath);
+    } catch {
+      // Fallback to static seed data
+      return await seedStaticFile(env, options.sessionId, path);
+    }
+  }
+  return FILES[path] ?? null;
 }
 
-async function fileExists(path, env) {
-  const file = await readFile(path, env);
+async function fileExists(path, env, sessionId) {
+  if (env.Sandbox && sessionId) {
+    const sandboxPath = toSandboxPath(path);
+    try {
+      await readSandboxFile(env, sessionId, sandboxPath);
+      return true;
+    } catch {
+      // Check static data
+      return FILES[path] !== undefined || DIRECTORIES[path] !== undefined;
+    }
+  }
+  const file = await readFile(path, env, { sessionId });
   return file !== null && file !== undefined;
 }
 
-async function readUserFile(env, path) {
-  if (!env.PORTFOLIO_OS) {
-    return null;
-  }
-  const primary = await env.PORTFOLIO_OS.get(userFileKey(path));
-  if (primary !== null && primary !== undefined) {
-    return primary;
-  }
-  const mirror = postMirrorPath(path);
-  if (mirror) {
-    const mirrored = await env.PORTFOLIO_OS.get(userFileKey(mirror));
-    if (mirrored !== null && mirrored !== undefined) {
-      return mirrored;
+async function readUserFile(env, path, sessionId) {
+  if (env.Sandbox && sessionId) {
+    const sandboxPath = toSandboxPath(path);
+    try {
+      return await readSandboxFile(env, sessionId, sandboxPath);
+    } catch {
+      return await seedStaticFile(env, sessionId, path);
     }
   }
-  const staticBucket = env.STATIC || null;
-  if (staticBucket) {
-    const obj = await staticBucket.get(`fs${path}`);
-    if (obj) {
-      return await obj.text();
-    }
-  }
-  return null;
+  return FILES[path] ?? null;
 }
 
-async function deleteUserFile(env, path) {
-  if (!env.PORTFOLIO_OS) {
-    return;
-  }
-
-  await env.PORTFOLIO_OS.delete(userFileKey(path));
-  const mirrorPath = postMirrorPath(path);
-  if (mirrorPath) {
-    await env.PORTFOLIO_OS.delete(userFileKey(mirrorPath));
-  }
-  const canonicalPostPath = canonicalPostPathForStorage(path);
-  if (canonicalPostPath && canonicalPostPath.toLowerCase().endsWith(".md")) {
-    await deletePostFromStorage(env, canonicalPostPath);
-  } else {
-    const staticBucket = env.STATIC || null;
-    if (staticBucket) {
-      await staticBucket.delete(`fs${path}`);
-    }
+async function deleteUserFile(env, path, sessionId) {
+  if (env.Sandbox && sessionId) {
+    const sandboxPath = toSandboxPath(path);
+    try {
+      await deleteSandboxFile(env, sessionId, sandboxPath);
+    } catch { /* best-effort */ }
   }
 }
 
@@ -2418,21 +2467,41 @@ function postMirrorPath(path) {
   return null;
 }
 
-async function directoryEntries(path, env) {
-  const staticEntries = DIRECTORIES[path];
-  const dynamicEntries = await dynamicDirectoryEntries(path, env);
+async function directoryEntries(path, env, sessionId) {
+  const sandboxPath = toSandboxPath(path);
+  let sandboxEntries = [];
+  let staticEntries = DIRECTORIES[path];
 
-  if (!staticEntries && !dynamicEntries.length) {
+  if (env.Sandbox && sessionId) {
+    try {
+      const files = await listSandboxFiles(env, sessionId, sandboxPath);
+      sandboxEntries = files.map((f) => f.replace(/\/$/, "")).sort((a, b) => a.localeCompare(b));
+    } catch {
+      // Directory might not exist in sandbox yet
+    }
+    // If no sandbox entries and static entries exist, seed the directory
+    if (!sandboxEntries.length && staticEntries) {
+      await seedStaticDirectory(env, sessionId, path);
+      try {
+        const files = await listSandboxFiles(env, sessionId, sandboxPath);
+        sandboxEntries = files.map((f) => f.replace(/\/$/, "")).sort((a, b) => a.localeCompare(b));
+      } catch { /* ignore */ }
+    }
+  }
+
+  const dynamicEntries = await dynamicDirectoryEntries(path, env, sessionId);
+
+  if (!sandboxEntries.length && !staticEntries && !dynamicEntries.length) {
     return null;
   }
 
-  return [...new Set([...(staticEntries ?? []), ...dynamicEntries])].sort(
+  return [...new Set([...sandboxEntries, ...(staticEntries ?? []), ...dynamicEntries])].sort(
     (a, b) => a.localeCompare(b),
   );
 }
 
-async function dynamicDirectoryEntries(path, env) {
-  const files = await listUserFiles(env);
+async function dynamicDirectoryEntries(path, env, sessionId) {
+  const files = await listUserFiles(env, sessionId);
   const prefix = path === "/" ? "/" : `${path}/`;
   const entries = new Set();
 
@@ -2449,35 +2518,27 @@ async function dynamicDirectoryEntries(path, env) {
   return [...entries];
 }
 
-async function listUserFiles(env) {
-  if (!env.PORTFOLIO_OS?.list) {
-    return [];
-  }
-
+async function listUserFiles(env, sessionId) {
   const paths = [];
-  let cursor;
 
-  do {
-    const page = await env.PORTFOLIO_OS.list({
-      prefix: "file:",
-      cursor,
-      limit: 1000,
-    });
-    cursor = page.cursor;
-    paths.push(
-      ...(page.keys ?? []).map((key) => key.name.replace(/^file:/, "")),
-    );
-  } while (cursor);
+  if (env.Sandbox && sessionId) {
+    try {
+      const sandboxFiles = await listSandboxFiles(env, sessionId, "/workspace");
+      for (const f of sandboxFiles) {
+        paths.push(fromSandboxPath(`/workspace/${f}`));
+      }
+    } catch { /* ignore */ }
+  }
 
   return paths;
 }
 
-async function userFileEntries(env) {
-  const paths = await listUserFiles(env);
+async function userFileEntries(env, sessionId) {
+  const paths = await listUserFiles(env, sessionId);
   const entries = [];
 
   for (const path of paths) {
-    entries.push([path, (await readUserFile(env, path)) ?? ""]);
+    entries.push([path, (await readUserFile(env, path, sessionId)) ?? ""]);
   }
 
   return entries;
@@ -3314,7 +3375,7 @@ async function tagsOutput(tagFilter, env) {
   return { output: `${header}${body}` };
 }
 
-function changeDir(path, state) {
+async function changeDir(path, state, env) {
   if (!path || path === "~") {
     state.cwd = userHomePath(state);
     return { output: "" };
@@ -3345,6 +3406,18 @@ function changeDir(path, state) {
     state.cwd = target;
     return { output: "" };
   }
+
+  if (env?.Sandbox && state?.sessionId) {
+    const sandboxPath = toSandboxPath(target);
+    try {
+      const files = await listSandboxFiles(env, state.sessionId, sandboxPath);
+      if (files.length) {
+        state.previousCwd = state.cwd || "/";
+        state.cwd = target;
+        return { output: "" };
+      }
+    } catch { /* fall through */ }
+  }
   return { output: `cd: ${path}: no such directory`, status: 404 };
 }
 
@@ -3353,6 +3426,19 @@ async function copyFile(src, dest, state, env, options = {}) {
     return { output: "Usage: cp <source> <destination>", status: 400 };
   const srcPath = normalizePathWithTilde(src, state);
   const destPath = normalizePathWithTilde(dest, state);
+
+  if (env?.Sandbox && state?.sessionId) {
+    const srcSandboxPath = toSandboxPath(srcPath);
+    const destSandboxPath = toSandboxPath(destPath);
+    try {
+      const content = await readSandboxFile(env, state.sessionId, srcSandboxPath);
+      await writeSandboxFile(env, state.sessionId, destSandboxPath, content);
+      return { output: `copied ${srcPath} → ${destPath}` };
+    } catch (e) {
+      return { output: `cp: ${e instanceof Error ? e.message : "sandbox copy failed"}`, status: 500 };
+    }
+  }
+
   const allowed = ["/home/", "/guest/", "/tmp/"];
   const inAllowed = allowed.some((p) => destPath.startsWith(p));
   if (!inAllowed && !options.elevated)
@@ -3367,6 +3453,9 @@ async function copyFile(src, dest, state, env, options = {}) {
         status: 400,
       };
   }
+  const content = await readFile(srcPath, env, { sessionId: state?.sessionId });
+  if (content === null || content === undefined)
+    return { output: `cp: ${src}: no such file`, status: 404 };
   FILES[destPath] = content;
   const parentDir = destPath.substring(0, destPath.lastIndexOf("/")) || "/";
   if (
@@ -3385,7 +3474,21 @@ async function moveFile(src, dest, state, env, options = {}) {
     return { output: "Usage: mv <source> <destination>", status: 400 };
   const srcPath = normalizePathWithTilde(src, state);
   const destPath = normalizePathWithTilde(dest, state);
-  const content = await readFile(srcPath, env);
+
+  if (env?.Sandbox && state?.sessionId) {
+    const srcSandboxPath = toSandboxPath(srcPath);
+    const destSandboxPath = toSandboxPath(destPath);
+    try {
+      const content = await readSandboxFile(env, state.sessionId, srcSandboxPath);
+      await writeSandboxFile(env, state.sessionId, destSandboxPath, content);
+      await deleteSandboxFile(env, state.sessionId, srcSandboxPath);
+      return { output: `moved ${srcPath} → ${destPath}` };
+    } catch (e) {
+      return { output: `mv: ${e instanceof Error ? e.message : "sandbox move failed"}`, status: 500 };
+    }
+  }
+
+  const content = await readFile(srcPath, env, { sessionId: state?.sessionId });
   if (content === null || content === undefined)
     return { output: `mv: ${src}: no such file`, status: 404 };
   const protectedPaths = [
@@ -3434,6 +3537,22 @@ async function linkFile(src, dest, state, env, options = {}) {
   const symlink = options.symlink !== false;
   const srcPath = normalizePathWithTilde(src, state);
   const destPath = normalizePathWithTilde(dest, state);
+
+  if (env?.Sandbox && state?.sessionId) {
+    const srcSandboxPath = toSandboxPath(srcPath);
+    const destSandboxPath = toSandboxPath(destPath);
+    try {
+      const content = await readSandboxFile(env, state.sessionId, srcSandboxPath);
+      const linkContent = symlink ? `→ ${srcPath}` : content;
+      await writeSandboxFile(env, state.sessionId, destSandboxPath, linkContent);
+      return {
+        output: `linked ${destPath} → ${srcPath}${symlink ? " (symbolic)" : ""}`,
+      };
+    } catch (e) {
+      return { output: `ln: ${e instanceof Error ? e.message : "sandbox link failed"}`, status: 500 };
+    }
+  }
+
   if (!FILES[srcPath] && !DIRECTORIES[srcPath])
     return { output: `ln: ${src}: no such file or directory`, status: 404 };
   const allowed = ["/home/", "/guest/", "/tmp/"];
@@ -3740,7 +3859,7 @@ async function tailFile(args, state, env) {
     ? Number(args[args.indexOf("-n") + 1]) || 10
     : 10;
   const normalized = normalizePathWithTilde(path, state);
-  const content = await readFile(normalized, env);
+  const content = await readFile(normalized, env, { sessionId: state?.sessionId });
   if (content === null || content === undefined)
     return { output: `tail: ${path}: no such file`, status: 404 };
   const lines = content.split("\n");
@@ -3754,7 +3873,7 @@ async function headFile(args, state, env) {
     ? Number(args[args.indexOf("-n") + 1]) || 10
     : 10;
   const normalized = normalizePathWithTilde(path, state);
-  const content = await readFile(normalized, env);
+  const content = await readFile(normalized, env, { sessionId: state?.sessionId });
   if (content === null || content === undefined)
     return { output: `head: ${path}: no such file`, status: 404 };
   const lines = content.split("\n");
@@ -3765,7 +3884,7 @@ async function lessFile(args, state, env) {
   const path = args[0];
   if (!path) return { output: "Usage: less <path>", status: 400 };
   const normalized = normalizePathWithTilde(path, state);
-  const content = await readFile(normalized, env);
+  const content = await readFile(normalized, env, { sessionId: state?.sessionId });
   if (content === null || content === undefined)
     return { output: `less: ${path}: no such file`, status: 404 };
   return { output: renderTerminalFileContent(content, normalized) };
@@ -3899,10 +4018,21 @@ function parseExportLines(content) {
   return out;
 }
 
-function mkdirPath(args, options, state) {
+async function mkdirPath(args, options, state, env) {
   const path = args[0];
   if (!path) return { output: "Usage: mkdir <path>", status: 400 };
   const normalized = normalizePathWithTilde(path, state);
+
+  if (env?.Sandbox && state?.sessionId) {
+    const sandboxPath = toSandboxPath(normalized);
+    try {
+      await mkdirSandbox(env, state.sessionId, sandboxPath, { recursive: true });
+      return { output: `created directory ${normalized}` };
+    } catch (e) {
+      return { output: `mkdir: ${e instanceof Error ? e.message : "sandbox mkdir failed"}`, status: 500 };
+    }
+  }
+
   const allowed =
     normalized.startsWith("/home/") ||
     normalized.startsWith("/guest/") ||
@@ -4055,6 +4185,59 @@ function normalizePath(path) {
 
   const prefixed = path.startsWith("/") ? path : `/${path}`;
   return prefixed.replace(/\/+$/, "") || "/";
+}
+
+function toSandboxPath(path) {
+  const normalized = normalizePath(path);
+  if (normalized === "/") return "/workspace";
+  return `/workspace${normalized}`;
+}
+
+function fromSandboxPath(path) {
+  if (path === "/workspace") return "/";
+  if (path.startsWith("/workspace/")) return path.slice("/workspace".length);
+  return path;
+}
+
+/** All terminal paths are now backed by the sandbox. */
+function isSandboxPath(_path) {
+  return true;
+}
+
+async function seedStaticFile(env, sessionId, path) {
+  const content = FILES[path];
+  if (content === undefined) return null;
+  const sandboxPath = toSandboxPath(path);
+  try {
+    // Check if already exists in sandbox
+    await readSandboxFile(env, sessionId, sandboxPath);
+    return content;
+  } catch {
+    // Seed it
+    try {
+      await writeSandboxFile(env, sessionId, sandboxPath, content);
+    } catch { /* seed best-effort */ }
+    return content;
+  }
+}
+
+async function seedStaticDirectory(env, sessionId, path) {
+  const entries = DIRECTORIES[path];
+  if (!entries) return;
+  const sandboxPath = toSandboxPath(path);
+  try {
+    await mkdirSandbox(env, sessionId, sandboxPath, { recursive: true });
+  } catch { /* ignore */ }
+  // Seed child files and directories
+  for (const entry of entries) {
+    if (entry.endsWith("/")) {
+      const childDir = `${path}/${entry.slice(0, -1)}`;
+      await seedStaticDirectory(env, sessionId, childDir);
+    } else {
+      const childPath = `${path}/${entry}`;
+      await seedStaticFile(env, sessionId, childPath);
+    }
+  }
 }
 
 function normalizeUrl(rawUrl) {
@@ -4211,20 +4394,26 @@ async function readState(env, sessionId) {
     const rawJson = String(row?.state_json || "");
     if (rawJson) {
       try {
-        return normalizeState(JSON.parse(rawJson));
+        const state = normalizeState(JSON.parse(rawJson));
+        state.sessionId = sessionId;
+        return state;
       } catch {
         // Fall back to KV/default below.
       }
     }
   }
   if (!env.PORTFOLIO_OS) {
-    return defaultState();
+    const state = defaultState();
+    state.sessionId = sessionId;
+    return state;
   }
 
   const raw =
     (await env.PORTFOLIO_OS.get(`session:${sessionId}`, { type: "json" })) ??
     {};
-  return normalizeState(raw);
+  const state = normalizeState(raw);
+  state.sessionId = sessionId;
+  return state;
 }
 
 async function readMetrics(env) {
@@ -5059,4 +5248,154 @@ function unsetVarHandler(args, state) {
     return { output: `unset: ${key}: not found`, status: 404 };
   delete state.shellVars[key];
   return { output: `unset ${key}: removed` };
+}
+
+// ── Sandbox commands (exec, python, node, run, sh, bash) ──────────────────
+async function sandboxCommand(name, args, rest, state, env, sessionId) {
+  if (!env || !env.Sandbox) {
+    return {
+      output: `sandbox: not available — the Sandbox Durable Object binding is not configured. Contact the site administrator to enable @cloudflare/sandbox.`,
+      status: 503,
+    };
+  }
+
+  const sid = sessionId || state.sessionId || "default";
+  const MAX_OUTPUT = 12000;
+
+  switch (name) {
+    case "exec":
+    case "sh":
+    case "bash": {
+      if (!rest) {
+        return {
+          output: `Usage: ${name} <shell-command>\nExecute a shell command in an isolated sandbox container.\nContainer state (files, installed packages) persists per session.`,
+          status: 200,
+        };
+      }
+      try {
+        const { getSandbox } = await import("@cloudflare/sandbox");
+        const sandbox = getSandbox(env.Sandbox, `session-${sid}`, {
+          normalizeId: true,
+          sleepAfter: "30m",
+          keepAlive: false,
+        });
+        const result = await sandbox.exec(rest, { cwd: "/workspace", timeout: 30_000 });
+        const output = result.stdout || result.stderr || "(no output)";
+        return {
+          output: output.length > MAX_OUTPUT ? output.slice(0, MAX_OUTPUT) + "\n... [truncated]" : output,
+          status: result.success ? 200 : 500,
+        };
+      } catch (error) {
+        if (error?.code === "CONTAINER_NOT_READY") {
+          return { output: "sandbox: container is still provisioning. Retry in a few seconds.", status: 503 };
+        }
+        return {
+          output: `sandbox: ${error instanceof Error ? error.message : "execution failed"}`,
+          status: 500,
+        };
+      }
+    }
+    case "python": {
+      if (!rest) {
+        return {
+          output: "Usage: python <code | -f file.py>\nExecute Python code in an isolated sandbox container.\nUse -f to run a .py file from /workspace. Container state persists per session.",
+          status: 200,
+        };
+      }
+      // Check for file reference
+      if (args[0] === "-f" || args[0] === "--file") {
+        const filePath = args[1];
+        if (!filePath) return { output: "python: file path required after -f", status: 400 };
+        try {
+          const { getSandbox } = await import("@cloudflare/sandbox");
+          const sandbox = getSandbox(env.Sandbox, `session-${sid}`, {
+            normalizeId: true, sleepAfter: "30m", keepAlive: false,
+          });
+          const result = await sandbox.exec(`python3 ${filePath.startsWith("/") ? filePath : "/workspace/" + filePath}`, { cwd: "/workspace", timeout: 30_000 });
+          const output = result.stdout || result.stderr || "(no output)";
+          return {
+            output: output.length > MAX_OUTPUT ? output.slice(0, MAX_OUTPUT) + "\n... [truncated]" : output,
+            status: result.success ? 200 : 500,
+          };
+        } catch (error) {
+          if (error?.code === "CONTAINER_NOT_READY") return { output: "sandbox: container is still provisioning. Retry in a few seconds.", status: 503 };
+          return { output: `sandbox: ${error instanceof Error ? error.message : "execution failed"}`, status: 500 };
+        }
+      }
+      // Inline Python code — write to temp file for safety (no command injection)
+      try {
+        const { getSandbox } = await import("@cloudflare/sandbox");
+        const sandbox = getSandbox(env.Sandbox, `session-${sid}`, {
+          normalizeId: true, sleepAfter: "30m", keepAlive: false,
+        });
+        const tmpFile = `/workspace/_terminal_python_${Date.now()}.py`;
+        await sandbox.writeFile(tmpFile, rest);
+        const result = await sandbox.exec(`python3 ${tmpFile}`, { cwd: "/workspace", timeout: 30_000 });
+        try { await sandbox.deleteFile(tmpFile); } catch {}
+        const output = result.stdout || result.stderr || "(no output)";
+        return {
+          output: output.length > MAX_OUTPUT ? output.slice(0, MAX_OUTPUT) + "\n... [truncated]" : output,
+          status: result.success ? 200 : 500,
+        };
+      } catch (error) {
+        if (error?.code === "CONTAINER_NOT_READY") return { output: "sandbox: container is still provisioning. Retry in a few seconds.", status: 503 };
+        return { output: `sandbox: ${error instanceof Error ? error.message : "execution failed"}`, status: 500 };
+      }
+    }
+    case "node": {
+      if (!rest) {
+        return {
+          output: "Usage: node <code>\nExecute JavaScript code in an isolated sandbox container.\nContainer state persists per session.",
+          status: 200,
+        };
+      }
+      // Write code to temp file for safety (no command injection)
+      try {
+        const { getSandbox } = await import("@cloudflare/sandbox");
+        const sandbox = getSandbox(env.Sandbox, `session-${sid}`, {
+          normalizeId: true, sleepAfter: "30m", keepAlive: false,
+        });
+        const tmpFile = `/workspace/_terminal_node_${Date.now()}.js`;
+        await sandbox.writeFile(tmpFile, rest);
+        const result = await sandbox.exec(`node ${tmpFile}`, { cwd: "/workspace", timeout: 15_000 });
+        try { await sandbox.deleteFile(tmpFile); } catch {}
+        const output = result.stdout || result.stderr || "(no output)";
+        return {
+          output: output.length > MAX_OUTPUT ? output.slice(0, MAX_OUTPUT) + "\n... [truncated]" : output,
+          status: result.success ? 200 : 500,
+        };
+      } catch (error) {
+        if (error?.code === "CONTAINER_NOT_READY") return { output: "sandbox: container is still provisioning. Retry in a few seconds.", status: 503 };
+        return { output: `sandbox: ${error instanceof Error ? error.message : "execution failed"}`, status: 500 };
+      }
+    }
+    case "run": {
+      if (!rest) {
+        return {
+          output: "Usage: run <file>\nExecute a script file in the sandbox.\nSupports .py, .js, .sh files. Container state persists per session.",
+          status: 200,
+        };
+      }
+      const ext = rest.split(".").pop()?.toLowerCase();
+      const runner = ext === "py" ? "python3" : ext === "js" ? "node" : "bash";
+      try {
+        const { getSandbox } = await import("@cloudflare/sandbox");
+        const sandbox = getSandbox(env.Sandbox, `session-${sid}`, {
+          normalizeId: true, sleepAfter: "30m", keepAlive: false,
+        });
+        const filePath = rest.startsWith("/") ? rest : `/workspace/${rest}`;
+        const result = await sandbox.exec(`${runner} ${filePath}`, { cwd: "/workspace", timeout: 30_000 });
+        const output = result.stdout || result.stderr || "(no output)";
+        return {
+          output: output.length > MAX_OUTPUT ? output.slice(0, MAX_OUTPUT) + "\n... [truncated]" : output,
+          status: result.success ? 200 : 500,
+        };
+      } catch (error) {
+        if (error?.code === "CONTAINER_NOT_READY") return { output: "sandbox: container is still provisioning. Retry in a few seconds.", status: 503 };
+        return { output: `sandbox: ${error instanceof Error ? error.message : "execution failed"}`, status: 500 };
+      }
+    }
+    default:
+      return { output: `sandbox: unknown command "${name}"`, status: 404 };
+  }
 }

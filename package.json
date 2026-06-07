@@ -21,14 +21,22 @@
   },
   "devDependencies": {
     "@types/dompurify": "^3.0.5",
+    "turbo": "^2.9.16",
     "typescript": "~5.9.3",
     "vite": "^7.3.2"
   },
   "dependencies": {
     "@cloudflare/ai-utils": "^1.0.1",
+    "@cloudflare/sandbox": "^0.11.0",
+    "@cloudflare/think": "^0.8.5",
+    "@cloudflare/worker-bundler": "^0.2.0",
     "@cloudflare/workers-types": "^4.20260430.1",
+    "agents": "^0.14.4",
+    "ai": "^6.0.197",
     "dompurify": "^3.4.1",
-    "marked": "^18.0.2"
+    "marked": "^18.0.2",
+    "workers-ai-provider": "^3.1.14",
+    "zod": "^4.4.3"
   },
   "optionalDependencies": {
     "@rolldown/binding-darwin-universal": "^2.0.0"

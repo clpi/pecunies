@@ -2687,7 +2687,7 @@ export class TerminalApp {
     return next.slice(0, 24) || fallback;
   }
 
-  /** Simulated OS home directory; must stay aligned with `sanitizeUsername` in `functions/api/os.js`. */
+  /** Simulated OS home directory; must stay aligned with `sanitizeUsername` in `workers/edge/src/api/os.js`. */
   private osUserHomeDir(): string {
     return `/home/${this.normalizeIdentityPart(this.identityDisplayName, "guest")}`;
   }

@@ -1,0 +1,9 @@
+{
+  "name": "pecunies-portfolio-edge",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@cloudflare/sandbox": "^0.11.0",
+    "@cloudflare/ai-utils": "^1.0.1"
+  }
+}

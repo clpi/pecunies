@@ -9,19 +9,15 @@ import {
   readKnowledgeDocument,
   requireApiAuth,
   upsertKnowledgeDocument,
-} from "./knowledge-store.js";
-import {
   collectAllPosts,
   deletePostFromStorage,
   postPayload,
   syncPostToStorage,
-} from "./posts.js";
-import {
   DEFAULT_AI_MODEL,
   WORKERS_AI_TEXT_MODELS,
   isValidWorkersAiModelId,
   resolveChatModel,
-} from "./ai-models.js";
+} from "./dependencies.js";
 
 // ── catalog helpers (shared with catalog tools) ───────────────────────────────
 
@@ -298,6 +294,7 @@ const TOOLS = [
       required: ["title", "markdown", "token"],
     },
   },
+
   {
     name: "post_update",
     description: "Update an existing post by slug or path. Requires a valid API token.",
@@ -540,6 +537,17 @@ const TOOLS = [
 
 // ── auth ─────────────────────────────────────────────────────────────────────
 
+/** Timing-safe token check — prevents side-channel comparison attacks. */
+function timingSafeEqual(a, b) {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  const bufA = new TextEncoder().encode(a);
+  const bufB = new TextEncoder().encode(b);
+  if (bufA.length !== bufB.length) return false;
+  const sig = crypto.subtle.timingSafeEqual(bufA, bufB);
+  // timingSafeEqual is sync in Workers runtime (returns boolean)
+  return sig;
+}
+
 function checkToken(args, env) {
   const supplied = String(args.token || "").trim();
   if (!supplied) return { ok: false, message: "token is required for write operations" };
@@ -547,7 +555,8 @@ function checkToken(args, env) {
     .map((v) => String(v || "").trim())
     .filter(Boolean);
   if (!candidates.length) return { ok: false, message: "Write token not configured on this server" };
-  return { ok: candidates.includes(supplied), message: "Invalid token" };
+  const matched = candidates.some((c) => timingSafeEqual(c, supplied));
+  return { ok: matched, message: matched ? "OK" : "Invalid token" };
 }
 
 function bucketBinding(env, alias = "posts") {
@@ -597,6 +606,7 @@ export async function onRequestPost({ request, env }) {
   const response = await handleRpc(env, rpc);
   return Response.json(response, { headers: apiHeaders() });
 }
+
 
 export async function onRequest() {
   return errorJson("Method not allowed.", 405);
@@ -898,6 +908,7 @@ async function handleTerminalRun(env, args) {
       const list = Array.isArray(files) ? files : [];
       if (!pattern) return list.join("\n") || `(no files under ${prefix})`;
       const re = new RegExp(pattern.replace(/\*/g, ".*").replace(/\?/g, "."), "i");
+
       const matched = list.filter((f) => re.test(f));
       return matched.length ? matched.join("\n") : `(no match for ${pattern} under ${prefix})`;
     }
@@ -1198,6 +1209,7 @@ async function handleTagUpsert(env, args) {
     summary: args.summary ? String(args.summary).slice(0, 1000) : null,
     status: args.status ? String(args.status).slice(0, 40) : null,
     metadata: args.metadata && typeof args.metadata === "object" ? args.metadata : {},
+
   });
 
   // Also mirror to legacy tags/tag_items tables for backwards compatibility
@@ -1498,6 +1510,7 @@ async function handleCatalogDelete(env, args) {
   await deleteCatalogEntity(d1, rawType, slug);
 
   if (rawType === "tag") {
+
     try {
       await d1.prepare("DELETE FROM tags WHERE slug=?").bind(slug).run();
       await d1.prepare("DELETE FROM tag_items WHERE tag_slug=?").bind(slug).run();
