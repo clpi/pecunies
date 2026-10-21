@@ -1,90 +1,86 @@
 # Chris Pecunies
 
-Software Engineer
+Software Engineer | Backend and Distributed Systems
 
-Seattle, WA · U.S. Citizen  
-chris@pecunies.com · (206) 321-6687  
-https://pecunies.com · https://github.com/clpi · https://gitlab.com/clpi · https://linkedin.com/in/chrispecunies
+Seattle, WA | [chris@pecunies.com](mailto:chris@pecunies.com) | [pecunies.com](https://pecunies.com)
 
-## Summary
+[linkedin.com/in/chrispecunies](https://www.linkedin.com/in/chrispecunies/) | [github.com/clpi](https://github.com/clpi)
 
-Software Engineer with 4+ years of experience specializing in cloud services across AWS, Azure, GCP, and OCI, workflow automation and orchestration tooling, CI/CD pipelines, and Infrastructure as Code utilities such as Ansible, Terraform, and Kubernetes.
+Software engineer building cloud applications, distributed services, and developer tooling. Experience includes AWS application development, Go and Rust backend systems, infrastructure automation, and blockchain operations. Independent systems work spans compiler and language development and a WebAssembly runtime in Zig.
 
-Proficient in Python, C++, Rust, Go, SQL, and TypeScript, with experience developing full-stack applications and integrating complex interconnected cloud services and infrastructure.
+## Technical Skills
 
-Implemented distributed systems and databases, created technical training material for AWS, Azure, GCP, and OCI, and used multilayered cloud architecture to develop and deploy mission-critical APIs and applications for customers and internal tooling.
+**Languages:** Rust, Go, Python, TypeScript, Zig, C/C++, SQL
+
+**Backend and systems:** Distributed systems, WebAssembly, gRPC, Protocol Buffers, FastAPI, PostgreSQL, Linux
+
+**Cloud and delivery:** AWS, GCP, Azure, AWS CDK, Terraform, Ansible, Docker, Kubernetes, CI/CD, Argo CD, Prometheus, Grafana
 
 ## Experience
 
-### DevOps Engineer, HashGraph
+### Amazon Leo
 
-Remote / Seattle, WA · September 2025 - November 2025
+**Software Development Engineer II** | Seattle, WA | Current
 
-- Managed multi-tier blockchain infrastructure across 8+ environments, using Grafana and ArgoCD to improve deployment management and auditability.
-- Investigated and hardened deployment paths with cryptographic integrity checks for manifests and artifact verification.
-- Reduced false-positive alerting for on-call engineers by tuning custom Grafana dashboards and PromQL queries.
-- Provisioned GCP infrastructure with Terraform modules and Ansible playbooks, including Ansible Vault-backed node lifecycle management.
+- Develop applications and contribute to build, test, and CI/CD workflows for Amazon Leo.
 
-### Software Engineer, WiseBlocks LLC
+### HashGraph
 
-Hybrid / Golden, CO · June 2022 - April 2024
+**DevOps Engineer** | Remote / Seattle, WA | Sep 2025 - Nov 2025
 
-- Developed a distributed transaction database in Go and integrated a Rust-based WebAssembly VM for secure, low-latency execution of financial smart contracts.
-- Engineered cloud network architecture with Ansible, Terraform, Prometheus, and Grafana, supporting CI/CD flows targeting 99.9% uptime.
-- Built a Next.js front end for real-time endpoint node and block visualization and created a Python FastAPI service to deliver data to network nodes, managing work with Jira and Confluence.
-- Implemented serialized data structures and gRPC APIs with Protocol Buffers to minimize network overhead and secure node-to-node exchange.
-- Contributed to system-level network architecture with emphasis on fault tolerance, consensus-aware design, and transaction finality.
+- Managed blockchain infrastructure across 8+ environments, using Argo CD and Grafana to support deployments and operational visibility.
+- Built artifact verification and cryptographic integrity checks into deployment workflows.
+- Provisioned GCP infrastructure with Terraform and Ansible; tuned PromQL alerts and dashboards to reduce false positives.
 
-### AWS Consultant, Impresys Software Corporation
+### WiseBlocks LLC
 
-On-site / Seattle, WA · September 2019 - May 2022
+**Software Engineer** | Hybrid / Golden, CO | Jun 2022 - Apr 2024
 
-- Developed and delivered technical training material for Azure and AWS, covering advanced cloud architecture and use cases for new and existing services.
-- Collaborated with AWS engineers to implement AWS CDK, demonstrating and automating complex cloud architecture setup using Infrastructure-as-Code tooling.
-- Created CI/CD and DevOps process material alongside AWS and Azure engineers while provisioning infrastructure and data engineering workloads.
-- Led modernization work refactoring legacy workflows and internal applications to modern Python with Qt/QML GUI and OpenCV image processing, increasing production velocity over sevenfold.
+- Developed a distributed transaction database in Go and integrated a Rust WebAssembly virtual machine for smart contract execution.
+- Designed serialized data structures and gRPC/Protocol Buffers APIs for data exchange between network nodes.
+- Automated cloud infrastructure and delivery workflows with Ansible and Terraform, with Prometheus and Grafana for monitoring.
+- Built Next.js interfaces for node and block visualization and a FastAPI service for delivering data to nodes.
 
-### Research Assistant, University of Washington
+### Impresys Software Corporation
 
-On-site / Seattle, WA · June 2018 - April 2021
+**AWS Consultant** | Seattle, WA | Sep 2019 - May 2022
 
-- Provisioned full-stack containerized workloads and REST-backed web applications with AWS, React, Django, FastAPI, PostgreSQL, and Docker.
-- Developed scientific simulations and analysis using Python, data modeling, and computer vision libraries.
-- Mentored and led an undergraduate team through data analysis and machine learning techniques to identify amino acid sequence motifs linked to graphene-binding in neuropeptides.
+- Developed and delivered AWS and Azure technical training on cloud architecture, infrastructure automation, and CI/CD.
+- Collaborated with AWS engineers on AWS CDK demonstrations and automated environment provisioning.
+- Modernized legacy production workflows with Python, Qt/QML, and OpenCV.
 
-## Projects
+### University of Washington
+
+**Research Assistant** | Seattle, WA | Jun 2018 - Apr 2021
+
+- Built containerized web applications and REST services using AWS, React, Django, FastAPI, PostgreSQL, and Docker.
+- Developed Python tools for scientific simulation, data modeling, and computer vision; mentored undergraduate researchers in machine learning and data analysis.
+
+## Selected Projects
+
+### Idol
+
+Independent compiler and language project | Ongoing
+
+- Developing a programming language and compiler, with work on graph-based representations, program analysis, and code generation.
+
+### wart
+
+WebAssembly runtime in Zig | May 2025 - Present
+
+- Developing a WebAssembly runtime in Zig, with work on instruction dispatch, memory layout, runtime performance, and WASI support.
 
 ### Marketplace Aggregator on AWS
 
-April 2026 - Present · https://moe.pecunies.com
+moe.pecunies.com | Apr 2026 - Present
 
-- Designed and deployed an AWS platform using Lambda, Step Functions, DynamoDB, SQS, API Gateway, CloudFront, and AWS CDK to manage eventual consistency, rate limiting, and external marketplace failures.
-- Engineered resilient workflows using Step Functions for transparent retry and state management.
-- Implemented a two-layer idempotency strategy to prevent duplicate listings and HMAC-SHA256 verification for secure webhook ingestion, preventing timing attacks.
-
-### WebAssembly Runtime in Zig
-
-May 2025 - Present · https://github.com/clpi/wart.git
-
-- Achieved state-of-the-art performance in low-level benchmarks by optimizing memory layout and instruction dispatch logic in Zig.
-- Fulfills nearly full WebAssembly 3.0 and WASI 1 preview specifications.
-
-### down.nvim
-
-2026 - Present · https://github.com/clpi/down.nvim.git
-
-- Neovim 0.12+ plugin for markdown note-taking.
-- Planned LSP and AI integration for terminal-native notes, references, backlinks, and structured markdown workflows.
+- Built a serverless marketplace aggregator with AWS Lambda, Step Functions, DynamoDB, SQS, API Gateway, CloudFront, and AWS CDK.
+- Designed retry, state-management, and idempotency mechanisms to handle external API failures, rate limits, and duplicate listing prevention.
 
 ## Education
 
-University of Washington · B.S. Materials Science & Engineering  
-Seattle, WA · August 2015 - June 2019
+**University of Washington** | Jun 2019
 
-- Relevant coursework: database systems, data structures and algorithms, artificial intelligence, and machine learning.
-- Degree focus in Nanotechnology & Molecular Engineering.
-- Dean's List academic honors recognized twice.
+B.S. Materials Science and Engineering
 
-## Skills
-
-Python, Rust, Go, JavaScript / TypeScript, C / C++, SQL, Java / Groovy, Bash / Fish / Zsh, Zig, Nix, C# / .NET, Dart / Flutter, Swift, Kotlin, Lua, PowerShell, Ruby, Django, FastAPI, Flask, React / Next.js, GraphQL, Node.js, Bun, Spring Boot, Svelte / SvelteKit, Vue.js / Nuxt.js, gRPC, Protocol Buffers, RESTful APIs, AWS, AWS CDK, Microsoft Azure, GCP, Ansible, OCI, Docker / Podman, Grafana, Jenkins, Prometheus, Terraform, Kubernetes, Azure DevOps, GitHub Actions, PostgreSQL, MySQL, Cassandra, Kafka, MongoDB, Redis, Memcached, Git, GitHub, GitLab, Linux, NGINX, Apache, Qt / QML, CI/CD, Infrastructure as Code, GitOps, Jira, Cloudflare Workers AI, OpenAI API, Anthropic API, LangChain, and LangGraph.
+Nanotechnology and Molecular Engineering concentration
