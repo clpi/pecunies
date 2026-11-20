@@ -1,0 +1,91 @@
+body.journal {
+  color-scheme: light dark;
+  --paper: #fcfcfb;
+  --ink: #191919;
+  --muted: #575757;
+  --line: #d9d9d7;
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 1rem/1.6 system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  body.journal {
+    --paper: #151515;
+    --ink: #eeeeec;
+    --muted: #b0b0ad;
+    --line: #414141;
+  }
+}
+
+.journal-shell {
+  max-width: 38rem;
+  margin-inline: auto;
+  padding: clamp(1.2rem, 5vw, 3rem);
+}
+
+.journal-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .6rem 1.5rem;
+  padding-bottom: .8rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.journal-shell a {
+  color: var(--muted);
+  text-underline-offset: .28em;
+}
+
+.journal-shell a:hover,
+.journal-shell a[aria-current],
+.journal-shell .journal-name {
+  color: var(--ink);
+}
+
+.journal-shell a:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: .25rem;
+}
+
+.journal-shell nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .3rem 1.15rem;
+}
+
+.journal-shell nav a:not(:hover, [aria-current]),
+.journal-shell .journal-name {
+  text-decoration: none;
+}
+
+.journal-name {
+  font-weight: 650;
+}
+
+.journal-shell main {
+  padding-top: clamp(2.5rem, 9vw, 5rem);
+}
+
+.journal-shell h1 {
+  margin: 0 0 .85rem;
+  font-size: clamp(1.75rem, 5vw, 2.4rem);
+  font-weight: 640;
+  letter-spacing: -.04em;
+  line-height: 1.2;
+}
+
+.journal-shell address {
+  display: grid;
+  justify-items: start;
+  gap: .3rem;
+  font-style: normal;
+}
+
+.journal-shell [hidden],
+body.journal #app[hidden] {
+  display: none;
+}

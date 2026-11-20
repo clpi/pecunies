@@ -1,24 +1,40 @@
 <!doctype html>
-<html lang="en" class="crt-on">
+<html lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Sora:wght@400;600;700;800&display=swap"
-      rel="stylesheet"
-    />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta
-      name="description"
-      content="Chris Pecunies, Software Development Engineer II at Amazon Leo in Seattle. Backend engineering, distributed systems, cloud infrastructure, and compiler and WebAssembly runtime projects."
-    />
-    <meta name="theme-color" content="#050505" />
-    <title>Chris Pecunies // Terminal Portfolio</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pecunies</title>
+    <link rel="stylesheet" href="/src/journal.css" />
   </head>
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
+  <body class="journal">
+    <div class="journal-shell" id="journal">
+      <header class="journal-header">
+        <a class="journal-name" href="/" aria-label="Pecunies home">Pecunies</a>
+        <nav aria-label="Site">
+          <a href="/" id="nav-posts" aria-current="page">Posts</a>
+          <a href="/about" id="nav-about">Contact / About</a>
+        </nav>
+      </header>
+      <main>
+        <section id="posts-view" aria-labelledby="posts-heading">
+          <h1 id="posts-heading">Posts</h1>
+          <nav aria-label="Post filters">
+            <a href="/papers" id="filter-papers">Papers</a>
+            <a href="/" id="filter-posts" aria-current="page">Posts</a>
+          </nav>
+          <ul id="papers-list" aria-label="Generated papers" hidden></ul>
+          <ul id="posts-list" aria-label="Handwritten posts"></ul>
+        </section>
+        <section id="about-view" aria-labelledby="about-heading" hidden>
+          <h1 id="about-heading">Chris Pecunies</h1>
+          <address>
+            <a href="mailto:chris@pecunies.com">chris@pecunies.com</a>
+            <a href="https://github.com/clpi">GitHub</a>
+          </address>
+        </section>
+      </main>
+    </div>
+    <div id="app" hidden></div>
+    <script type="module" src="/src/front.ts"></script>
   </body>
 </html>
